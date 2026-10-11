@@ -33,7 +33,13 @@ jobs:
           pip install -r requirements.txt pyinstaller
 
       - name: Self-test (Python, real window)
-        run: python fits_blaster.py --selftest selftest_python
+        shell: bash
+        env:
+          PYTHONFAULTHANDLER: "1"
+        run: |
+          mkdir -p selftest_python
+          python fits_blaster.py --selftest selftest_python 2>&1 | tee selftest_python/console.txt
+          exit ${PIPESTATUS[0]}
 
       - name: Build FITS Blaster.exe
         run: pyinstaller --noconfirm --clean --windowed --name "FITS Blaster" fits_blaster.py
@@ -65,6 +71,23 @@ jobs:
           path: |
             selftest_python
             selftest_exe
+
+      - name: Publish self-test results to the selftest-results branch
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p results
+          cp -r selftest_python selftest_exe results/ 2>/dev/null || true
+          echo "commit ${{ github.sha }}  run ${{ github.run_id }}  $(date -u)" > results/RUN.txt
+          cd results
+          git init -q -b selftest-results
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Self-test results for ${{ github.sha }}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" selftest-results
 
       - name: Create release (version tags only)
         if: startsWith(github.ref, 'refs/tags/v')
