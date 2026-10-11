@@ -434,6 +434,44 @@ def run(app, out_dir: Path) -> int:
         if state.get("dlg"):
             shot("13_ready_for_pixinsight.png", state["dlg"])
             state["dlg"].close()
+        # 0.6: step history, go back & redo, resume
+        import prepare_window as pwm
+        pw = state["pw"]
+        n_steps = pw.hist_combo.count() - 1
+        expect = 6 if state["fake"] else 2          # crop..sxt, or crop + built-in gradient
+        check(n_steps == expect, f"step history lists each finished step ({n_steps}, expected {expect})")
+        check(pw.view.locked, "after Prepare the view shows the result of the last step")
+        pw.hist_combo.setCurrentIndex(2)
+        check(pw.btn_redo.isEnabled() and pw.btn_before.isEnabled(), "Before and Go Back buttons available")
+        shot("14_step_history.png", pw)
+        orig_q = pwm.QMessageBox.question
+        pwm.QMessageBox.question = staticmethod(lambda *a, **k: pwm.QMessageBox.Yes)
+        try:
+            pw.redo_from_step()
+        finally:
+            pwm.QMessageBox.question = orig_q
+        check(len(pw.cps.steps) == 1, f"Go Back & Redo keeps only the earlier steps ({len(pw.cps.steps)})")
+        state["t4"] = time.time()
+        pw.start(show_dialog=False)
+        QTimer.singleShot(500, wait_prepare2)
+
+    def wait_prepare2():
+        pw = state["pw"]
+        if pw.worker is not None and pw.worker.isFinished():
+            QTimer.singleShot(400, after_prepare2)
+        elif time.time() - state["t4"] > 300:
+            check(False, "second prepare finished within 5 minutes")
+            finish(1)
+        else:
+            QTimer.singleShot(400, wait_prepare2)
+
+    def after_prepare2():
+        pw = state["pw"]
+        res = getattr(pw, "last_results", []) or []
+        check(len(res) == 1 and res[0].get("resumed") == 1,
+              f"re-run resumed from saved progress ({res[0].get('resumed') if res else None} step kept)")
+        expect = 6 if state["fake"] else 2
+        check(pw.hist_combo.count() - 1 == expect, "history complete again after the redo")
         state["pw"].close()
         state["win"].close()
         finish(0 if not failures else 1)

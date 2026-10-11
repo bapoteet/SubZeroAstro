@@ -13,6 +13,8 @@ PixInsight's 0..1 convention (see stacking.save_master_file).
 
 from __future__ import annotations
 
+import json
+import pickle
 import re
 import tempfile
 import time
@@ -21,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
+import checkpoints as cp
 import fits_core as core
 import stacking as st
 import tools
@@ -502,6 +505,149 @@ def plan_text(target: str, steps: list) -> str:
 
 
 # ==========================================================================
+# Checkpoints: crash recovery and "go back to a step" (0.6)
+# ==========================================================================
+
+STEP_ORDER = ("crop", "solve", "gradient", "bxt", "nxt", "sxt")
+STEP_TITLES = {"crop": "Crop", "solve": "Plate solve", "gradient": "Gradient removal",
+               "bxt": "BlurXTerminator", "nxt": "NoiseXTerminator", "sxt": "StarXTerminator"}
+
+
+class PrepareCheckpoints:
+    """The image after each finished step, for one set of masters. A step is only
+    trusted once its 'done' marker exists, so a crash mid-save is harmless."""
+
+    def __init__(self, paths, target):
+        self.paths = [str(x) for x in paths]
+        self.dir = cp.root() / f"prepare_{cp.safe_name(target)}_{cp.file_key(self.paths)}"
+        man = cp.read_json(self.dir / "manifest.json", None) or {}
+        good = []
+        for st_ in man.get("steps", []):
+            if (self.dir / st_.get("dir", "?") / "done").exists():
+                good.append(st_)
+            else:
+                break
+        self.manifest = {"target": target, "masters": self.paths, "steps": good}
+
+    @property
+    def steps(self) -> list:
+        return self.manifest["steps"]
+
+    def _write_manifest(self):
+        self.manifest["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        cp.write_json(self.dir / "manifest.json", self.manifest)
+
+    def save(self, step, sig, detail, masters, stars, preview=None):
+        idx = len(self.steps)
+        sub = f"{idx + 1:02d}_{step}"
+        d = self.dir / sub
+        cp.remove(d)
+        d.mkdir(parents=True, exist_ok=True)
+        for i, m in enumerate(masters):
+            np.save(d / f"m{i}.npy", m.data, allow_pickle=False)
+            cp.write_atomic(d / f"m{i}.pkl", pickle.dumps(
+                {"cards": m.cards, "steps": m.steps, "solved": m.solved, "autocrop": m.autocrop,
+                 "look": m.look}, protocol=4))
+            if i in stars:
+                np.save(d / f"m{i}_stars.npy", stars[i], allow_pickle=False)
+        if preview is not None:
+            np.save(d / "preview.npy", preview, allow_pickle=False)
+        (d / "done").write_text("ok", encoding="utf-8")
+        self.steps.append({"step": step, "sig": sig, "dir": sub, "title": STEP_TITLES.get(step, step),
+                           "detail": detail, "time": time.strftime("%Y-%m-%d %H:%M")})
+        self._write_manifest()
+
+    def restore(self, n, masters, stars):
+        """Put the state after the first n steps back into masters / stars."""
+        if n <= 0:
+            return
+        d = self.dir / self.steps[n - 1]["dir"]
+        stars.clear()
+        for i, m in enumerate(masters):
+            m.data = np.load(d / f"m{i}.npy", allow_pickle=False)
+            state = pickle.loads((d / f"m{i}.pkl").read_bytes())
+            m.cards, m.steps, m.solved = state["cards"], state["steps"], state["solved"]
+            m.autocrop, m.look = state["autocrop"], state["look"]
+            sp = d / f"m{i}_stars.npy"
+            if sp.exists():
+                stars[i] = np.load(sp, allow_pickle=False)
+
+    def truncate(self, n):
+        """Forget step n and everything after it (index from 0)."""
+        for st_ in self.steps[n:]:
+            cp.remove(self.dir / st_["dir"])
+        del self.steps[n:]
+        if self.dir.exists():
+            if self.steps:
+                self._write_manifest()
+            else:
+                cp.remove(self.dir)
+
+    def preview(self, n):
+        try:
+            return np.load(self.dir / self.steps[n]["dir"] / "preview.npy", allow_pickle=False)
+        except (OSError, IndexError, ValueError):
+            return None
+
+    def size(self) -> int:
+        return cp._size(self.dir) if self.dir.exists() else 0
+
+    def clear(self):
+        cp.remove(self.dir)
+        self.manifest["steps"] = []
+
+
+def plan_steps(masters: list, opts) -> list:
+    """The steps this run will do, in order: [(step, signature, extra)], where the
+    signature captures every setting that changes the result of that step."""
+    out = []
+    if opts.crop:
+        rect = opts.crop_rect or common_autocrop(masters)
+        if rect:
+            out.append(("crop", json.dumps([int(v) for v in rect]), rect))
+    if opts.solve and opts.astap:
+        out.append(("solve", json.dumps([round(float(opts.solve_radius), 3)]), None))
+    if opts.gradient:
+        tool = "graxpert" if opts.gradient_tool == "graxpert" and opts.graxpert else "builtin"
+        sig = [tool] + ([round(float(opts.gx_smoothing), 4), opts.gx_correction] if tool == "graxpert" else [])
+        out.append(("gradient", json.dumps(sig), tool))
+    rc = None
+    for key in ("bxt", "nxt", "sxt"):
+        cfg = opts.xt.get(key) or {}
+        if not cfg.get("enabled") or not opts.rcastro:
+            continue
+        rc = rc or tools.RCAstro(opts.rcastro)
+        spec = cfg.get("spec") or rc.spec(key)
+        args = spec.args(cfg.get("values", {}), cfg.get("mode"))
+        out.append((key, json.dumps([list(args), cfg.get("mode")], default=str), (spec, args)))
+    return out
+
+
+def resume_point(cps: PrepareCheckpoints, plan: list) -> int:
+    """How many leading steps of plan are already done with the same settings."""
+    n = 0
+    for (step, sig, _x), done in zip(plan, cps.steps):
+        if done["step"] != step or done["sig"] != sig:
+            break
+        n += 1
+    return n
+
+
+def preview_rgb8(masters: list, palette=None, max_side=1400):
+    """Small auto-stretched colour preview of a set (what the window shows)."""
+    try:
+        pals = palettes_for(masters)
+        pal = palette if palette in pals else (pals[0] if pals else None)
+        if pal is None:
+            return None
+        step = max(1, int(np.ceil(max(masters[0].shape) / max_side)))
+        small = [type(m)(**{**m.__dict__, "data": m.data[:, ::step, ::step]}) for m in masters]
+        return (quick_look(small, pal) * 255 + 0.5).astype(np.uint8)
+    except Exception:  # noqa: BLE001 - a preview must never stop the run
+        return None
+
+
+# ==========================================================================
 # Running everything
 # ==========================================================================
 
@@ -526,6 +672,7 @@ class PrepareOptions:
     palette: str | None = None
     out_dir: str | None = None              # default: <master folder>/Prepared
     work_dir: str | None = None
+    checkpoints: bool = True                # save after each step; resume / go back
 
 
 def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, cancel=None,
@@ -551,95 +698,111 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
     n = len(masters)
     files = []
 
-    # 1. crop (same rectangle for every master so they stay aligned)
-    if opts.crop:
-        rect = opts.crop_rect or common_autocrop(masters)
-        if rect:
-            for m in masters:
-                crop(m, rect)
-            lg(f"Cropped {n} master(s) to {rect}")
-        else:
-            lg("Crop: no auto-crop information in these masters — skipped (draw a crop rectangle to crop)")
-
-    # 2. plate solve
-    if opts.solve and opts.astap:
-        astap = tools.ASTAP(opts.astap)
-        for i, m in enumerate(masters):
-            pr(f"Plate solving {m.name}", 0.05 + 0.1 * i / n)
-            ra, dec, fov = solve_hints(m)
-            tmp = work / f"solve_{i}.fits"
-            _write_temp(m, tmp, mono=True)
-            try:
-                cards = astap.solve(tmp, ra, dec, fov, radius=opts.solve_radius if ra is not None else 180.0,
-                                    cancel=can)
-                apply_wcs(m, cards)
-                c = {k: v for k, v, _ in cards}
-                m.steps.append(("solve", f"Plate solved with ASTAP (RA {c.get('CRVAL1', 0):.4f}°, "
-                                         f"Dec {c.get('CRVAL2', 0):.4f}°)"))
-                lg(f"Solved {m.name}: RA {c.get('CRVAL1', 0):.4f}, Dec {c.get('CRVAL2', 0):.4f}")
-            except tools.ToolCancelled:
-                raise Cancelled()
-            except tools.ToolError as e:
-                lg(f"Plate solve failed for {m.name}: {e}")
-    elif opts.solve:
+    plan = plan_steps(masters, opts)
+    cps = PrepareCheckpoints([m.path for m in masters], target) if opts.checkpoints else None
+    stars_images = {}                      # master index -> stars-only image (StarXTerminator)
+    start = 0
+    if cps is not None:
+        start = resume_point(cps, plan)
+        if len(cps.steps) > start:
+            lg("Settings changed since step " + cps.steps[start]["title"] + " — redoing it and the steps after it")
+        cps.truncate(start)
+        if start:
+            cps.restore(start, masters, stars_images)
+            lg("Resuming from saved progress — already done: " + ", ".join(t["title"] for t in cps.steps))
+    if opts.solve and not opts.astap:
         lg("Plate solve skipped — set the ASTAP folder to enable it")
+    for key in ("bxt", "nxt", "sxt"):
+        if (opts.xt.get(key) or {}).get("enabled") and not opts.rcastro:
+            lg(f"{key.upper()} skipped — set the RC-Astro folder to enable it")
+    rc = tools.RCAstro(opts.rcastro) if opts.rcastro else None
+    span = {"crop": (0.0, 0.03), "solve": (0.03, 0.12), "gradient": (0.15, 0.15),
+            "bxt": (0.3, 0.15), "nxt": (0.45, 0.15), "sxt": (0.6, 0.15)}
 
-    # 3. gradient removal
-    if opts.gradient:
-        for i, m in enumerate(masters):
-            pr(f"Removing gradients: {m.name}", 0.15 + 0.15 * i / n)
-            if opts.gradient_tool == "graxpert" and opts.graxpert:
-                tmp = work / f"bge_{i}.fits"
-                _write_temp(m, tmp)
+    for idx, (step, sig, extra) in enumerate(plan):
+        if idx < start:
+            continue
+        s0, ds = span[step]
+        before = len(masters[0].steps)
+        if step == "crop":
+            pr("Cropping", s0)
+            for m in masters:
+                crop(m, extra)
+            lg(f"Cropped {n} master(s) to {extra}")
+        elif step == "solve":
+            astap = tools.ASTAP(opts.astap)
+            for i, m in enumerate(masters):
+                pr(f"Plate solving {m.name}", s0 + ds * i / n)
+                ra, dec, fov = solve_hints(m)
+                tmp = work / f"solve_{i}.fits"
+                _write_temp(m, tmp, mono=True)
                 try:
-                    res = tools.GraXpert(opts.graxpert).background_extraction(
-                        tmp, work / f"bge_{i}_out", smoothing=opts.gx_smoothing, correction=opts.gx_correction,
-                        cancel=can)
-                    m.data = _read_result(res, m.data)
-                    m.steps.append(("gradient", f"Gradients removed with GraXpert "
-                                                f"({opts.gx_correction.lower()}, smoothing {opts.gx_smoothing:g})"))
+                    cards = astap.solve(tmp, ra, dec, fov, radius=opts.solve_radius if ra is not None else 180.0,
+                                        cancel=can)
+                    apply_wcs(m, cards)
+                    c = {k: v for k, v, _ in cards}
+                    m.steps.append(("solve", f"Plate solved with ASTAP (RA {c.get('CRVAL1', 0):.4f}°, "
+                                             f"Dec {c.get('CRVAL2', 0):.4f}°)"))
+                    lg(f"Solved {m.name}: RA {c.get('CRVAL1', 0):.4f}, Dec {c.get('CRVAL2', 0):.4f}")
                 except tools.ToolCancelled:
                     raise Cancelled()
                 except tools.ToolError as e:
-                    lg(f"GraXpert failed for {m.name}: {e} — using the built-in method instead")
+                    lg(f"Plate solve failed for {m.name}: {e}")
+        elif step == "gradient":
+            for i, m in enumerate(masters):
+                pr(f"Removing gradients: {m.name}", s0 + ds * i / n)
+                if extra == "graxpert":
+                    tmp = work / f"bge_{i}.fits"
+                    _write_temp(m, tmp)
+                    try:
+                        res = tools.GraXpert(opts.graxpert).background_extraction(
+                            tmp, work / f"bge_{i}_out", smoothing=opts.gx_smoothing, correction=opts.gx_correction,
+                            cancel=can)
+                        m.data = _read_result(res, m.data)
+                        m.steps.append(("gradient", f"Gradients removed with GraXpert "
+                                                    f"({opts.gx_correction.lower()}, smoothing {opts.gx_smoothing:g})"))
+                    except tools.ToolCancelled:
+                        raise Cancelled()
+                    except tools.ToolError as e:
+                        lg(f"GraXpert failed for {m.name}: {e} — using the built-in method instead")
+                        m.data = np.stack([builtin_gradient(p) for p in m.data])
+                        m.steps.append(("gradient", "Gradients removed (built-in polynomial model)"))
+                else:
                     m.data = np.stack([builtin_gradient(p) for p in m.data])
                     m.steps.append(("gradient", "Gradients removed (built-in polynomial model)"))
-            else:
-                m.data = np.stack([builtin_gradient(p) for p in m.data])
-                m.steps.append(("gradient", "Gradients removed (built-in polynomial model)"))
-
-    # 4-6. RC-Astro tools, in the recommended order
-    rc = tools.RCAstro(opts.rcastro) if opts.rcastro else None
-    stars_images = {}
-    for k_i, key in enumerate(("bxt", "nxt", "sxt")):
-        cfg = opts.xt.get(key) or {}
-        if not cfg.get("enabled"):
-            continue
-        if rc is None:
-            lg(f"{key.upper()} skipped — set the RC-Astro folder to enable it")
-            continue
-        spec = cfg.get("spec") or rc.spec(key)
-        args = spec.args(cfg.get("values", {}), cfg.get("mode"))
-        for i, m in enumerate(masters):
-            base = 0.3 + 0.15 * k_i + 0.15 * i / n
-            pr(f"{spec.name}: {m.name}", base)
-            tmp_in = work / f"{key}_{i}.fits"
-            tmp_out = work / f"{key}_{i}_out.fits"
-            _write_temp(m, tmp_in)
+        else:                               # RC-Astro bxt / nxt / sxt
+            key = step
+            spec, args = extra
+            for i, m in enumerate(masters):
+                base = s0 + ds * i / n
+                pr(f"{spec.name}: {m.name}", base)
+                tmp_in = work / f"{key}_{i}.fits"
+                tmp_out = work / f"{key}_{i}_out.fits"
+                _write_temp(m, tmp_in)
+                try:
+                    written = rc.run(key, tmp_in, tmp_out, args, device=opts.device,
+                                     progress=lambda f, t, b=base, mm=m: pr(f"{spec.name}: {mm.name} {t}",
+                                                                            b + ds / n * f),
+                                     log=lg, cancel=can)
+                except tools.ToolCancelled:
+                    raise Cancelled()
+                main = next((w for w in written if "_stars" not in Path(w).stem), str(tmp_out))
+                m.data = _read_result(main, m.data)
+                extra_out = [w for w in written if "_stars" in Path(w).stem]
+                if extra_out:
+                    stars_images[i] = _read_result(extra_out[0], m.data)
+                desc = " ".join(args) or "default settings"
+                m.steps.append((key, f"{spec.name} ({desc})"))
+                lg(f"{spec.name} done: {m.name}  [{desc}]")
+        if cps is not None:
+            pr(f"Saving progress ({STEP_TITLES[step]})", s0 + ds)
+            detail = "; ".join(t for _k, t in masters[0].steps[before:]) or STEP_TITLES[step]
             try:
-                written = rc.run(key, tmp_in, tmp_out, args, device=opts.device,
-                                 progress=lambda f, t, b=base: pr(f"{spec.name}: {m.name} {t}", b + 0.15 / n * f),
-                                 log=lg, cancel=can)
-            except tools.ToolCancelled:
-                raise Cancelled()
-            main = next((w for w in written if "_stars" not in Path(w).stem), str(tmp_out))
-            m.data = _read_result(main, m.data)
-            extra = [w for w in written if "_stars" in Path(w).stem]
-            if extra:
-                stars_images[id(m)] = _read_result(extra[0], m.data)
-            desc = " ".join(args) or "default settings"
-            m.steps.append((key, f"{spec.name} ({desc})"))
-            lg(f"{spec.name} done: {m.name}  [{desc}]")
+                cps.save(step, sig, detail, masters, stars_images, preview_rgb8(masters, opts.palette))
+            except OSError as e:            # e.g. disk full - keep going without checkpoints
+                lg(f"Could not save progress ({e}) — continuing without checkpoints")
+                cps.truncate(len(cps.steps))
+                cps = None
 
     # 7. save the prepared masters
     for i, m in enumerate(masters):
@@ -654,8 +817,8 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
         written = st.save_master_file(base, data, hdr, opts.formats, "MasterLight")
         m.outputs += written
         files += written
-        if id(m) in stars_images:
-            sd = stars_images[id(m)]
+        if i in stars_images:
+            sd = stars_images[i]
             sw = st.save_master_file(out_dir / f"{m.name}_prepared_stars", sd[0] if sd.shape[0] == 1 else sd,
                                      hdr + [("STARONLY", True, "stars-only image from StarXTerminator")],
                                      opts.formats, "MasterLight")
@@ -690,4 +853,5 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
     shutil.rmtree(work, ignore_errors=True)
     lg(f"Prepared {n} master(s) for {target} in {time.time() - t0:.0f} s → {out_dir}")
     pr("Done", 1.0)
-    return {"files": files, "plan": steps, "report": report, "out_dir": out_dir}
+    return {"files": files, "plan": steps, "report": report, "out_dir": out_dir,
+            "checkpoints": cps, "resumed": start}

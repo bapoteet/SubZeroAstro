@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter,
                                QTextBrowser, QVBoxLayout, QWidget)
 
+import checkpoints as cp
 import prepare as P
 import tools
 
@@ -195,9 +196,19 @@ class CropView(QGraphicsView):
         self.full = (0, 0)
         self.scale_f = 1.0
         self._drag = None
+        self.locked = False                  # True while showing a saved step (no crop box)
         self.message = "Select a master on the left"
 
+    def show_still(self, rgb8):
+        """Show a saved step's preview: no crop box, no dragging."""
+        h, w, _ = rgb8.shape
+        self.set_image(rgb8, (w, h), 1.0)
+        self.locked = True
+        self.rect_item.setVisible(False)
+
     def set_image(self, rgb8, full_size, scale_f):
+        self.locked = False
+        self.rect_item.setVisible(True)
         h, w, _ = rgb8.shape
         arr = np.ascontiguousarray(rgb8)
         img = QImage(arr.data, w, h, 3 * w, QImage.Format_RGB888).copy()
@@ -227,7 +238,7 @@ class CropView(QGraphicsView):
             self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
 
     def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton and self.full[0]:
+        if e.button() == Qt.LeftButton and self.full[0] and not self.locked:
             p = self.mapToScene(e.position().toPoint())
             r = self.rect_item.rect()
             tol = 12 / max(self.transform().m11(), 1e-6)
@@ -377,6 +388,7 @@ class PrepareWindow(QMainWindow):
         self.panels = {}
         self.rc_products = None
         self.worker = None
+        self.cps = None                      # checkpoints of the selected target
         self._build_ui()
         self.resize(1450, 900)
         self.detect_tools()
@@ -460,6 +472,37 @@ class PrepareWindow(QMainWindow):
         crow.addWidget(b_full)
         crow.addWidget(self.crop_label, 1)
         ml.addLayout(crow)
+        self.crop_row_widgets = (b_auto, b_full)
+
+        # step history (0.6): saved progress after each step
+        hbox = QGroupBox("Step history — saved after each step")
+        hl = QVBoxLayout(hbox)
+        hr = QHBoxLayout()
+        hr.addWidget(QLabel("Show:"))
+        self.hist_combo = QComboBox()
+        self.hist_combo.setToolTip("Look at the image after any finished step")
+        self.hist_combo.currentIndexChanged.connect(self.show_history_step)
+        hr.addWidget(self.hist_combo, 1)
+        self.btn_before = QPushButton("Hold for Before")
+        self.btn_before.setToolTip("Press and hold to see the image before this step")
+        self.btn_before.pressed.connect(lambda: self.show_history_step(before=True))
+        self.btn_before.released.connect(lambda: self.show_history_step())
+        hr.addWidget(self.btn_before)
+        self.btn_redo = QPushButton("Go Back && Redo This Step")
+        self.btn_redo.setToolTip("Throw away this step and the ones after it. Change its settings on the right, "
+                                 "then press Prepare — the earlier steps are not run again.")
+        self.btn_redo.clicked.connect(self.redo_from_step)
+        hr.addWidget(self.btn_redo)
+        self.btn_hclear = QPushButton("Start Fresh")
+        self.btn_hclear.setToolTip("Delete the saved progress for this target and run every step again")
+        self.btn_hclear.clicked.connect(self.clear_history)
+        hr.addWidget(self.btn_hclear)
+        hl.addLayout(hr)
+        self.hist_label = QLabel()
+        self.hist_label.setWordWrap(True)
+        self.hist_label.setStyleSheet("color:#9a9aa6;")
+        hl.addWidget(self.hist_label)
+        ml.addWidget(hbox)
         split.addWidget(mid)
 
         # steps
@@ -577,6 +620,11 @@ class PrepareWindow(QMainWindow):
         self.palette = QComboBox()
         qv.addWidget(self.palette, 1)
         ov.addLayout(qv)
+        self.chk_checkpoints = QCheckBox("Save progress after each step (resume after a crash, go back to a step)")
+        self.chk_checkpoints.setChecked(s.value("prep/checkpoints", True, type=bool))
+        self.chk_checkpoints.setToolTip("Keeps a copy of the image after each step in the checkpoint folder "
+                                        "(Settings). Uses disk space; old copies are cleaned up automatically.")
+        ov.addWidget(self.chk_checkpoints)
         ov.addWidget(QLabel("<span style='color:#9a9aa6'>The linear masters are what you process in PixInsight; "
                             "the stretched preview is a quick auto-stretched look at the result.</span>"))
         sl.addWidget(outbox)
@@ -730,6 +778,101 @@ class PrepareWindow(QMainWindow):
         h, w = s[0].shape
         self.view.set_image((rgb * 255 + 0.5).astype(np.uint8), (w, h), step)
         self.view.set_crop(self.crops.get(row, P.common_autocrop(s)))
+        self.refresh_history(keep_view=True)
+
+    # ------------------------------------------------------------ step history
+    def current_checkpoints(self):
+        row = self.set_list.currentRow()
+        if not 0 <= row < len(self.sets):
+            return None
+        s = self.sets[row]
+        return P.PrepareCheckpoints([m.path for m in s], s[0].target)
+
+    def refresh_history(self, keep_view=False, select=None):
+        cps = self.current_checkpoints()
+        self.cps = cps
+        steps = cps.steps if cps else []
+        self.hist_combo.blockSignals(True)
+        self.hist_combo.clear()
+        self.hist_combo.addItem("Original masters (set the crop here)")
+        for i, st_ in enumerate(steps, 1):
+            self.hist_combo.addItem(f"After {i}. {st_['title']}  —  {st_.get('detail', '')}"[:140])
+        if select is not None and 0 <= select < self.hist_combo.count():
+            self.hist_combo.setCurrentIndex(select)
+        self.hist_combo.blockSignals(False)
+        if steps:
+            self.hist_label.setText(
+                f"{len(steps)} step(s) saved ({', '.join(t['title'] for t in steps)}; "
+                f"{cp.human(cps.size())}, last {steps[-1].get('time', '')}). Pressing Prepare continues from "
+                "here — any step whose settings you changed is redone, together with the steps after it.")
+        else:
+            self.hist_label.setText("No saved progress for this target yet. Each finished step will appear here, "
+                                    "so you can look at it, compare it with the step before, or go back and "
+                                    "redo it with other settings.")
+        self.hist_combo.setEnabled(bool(steps))
+        self.btn_hclear.setEnabled(bool(steps))
+        if not keep_view or select is not None:
+            self.show_history_step()
+        else:
+            self._update_history_buttons()
+
+    def _update_history_buttons(self):
+        i = self.hist_combo.currentIndex()
+        self.btn_before.setEnabled(i >= 1)
+        self.btn_redo.setEnabled(i >= 1 and not (self.worker and self.worker.isRunning()))
+        for w in self.crop_row_widgets:
+            w.setEnabled(i <= 0)
+
+    def show_history_step(self, *_a, before=False):
+        i = self.hist_combo.currentIndex()
+        self._update_history_buttons()
+        if before:
+            i -= 1
+        if i <= 0:
+            if self.view.locked:
+                row = self.set_list.currentRow()
+                self.hist_combo.blockSignals(True)
+                self.show_set(row) if not before else self._show_original()
+                self.hist_combo.blockSignals(False)
+            return
+        rgb8 = self.cps.preview(i - 1) if self.cps else None
+        if rgb8 is not None:
+            self.view.show_still(rgb8)
+
+    def _show_original(self):
+        row = self.set_list.currentRow()
+        if 0 <= row < len(self.sets):
+            s = self.sets[row]
+            pals = P.palettes_for(s)
+            step = max(1, int(np.ceil(max(s[0].shape) / 1400)))
+            small = [type(m)(**{**m.__dict__, "data": m.data[:, ::step, ::step]}) for m in s]
+            rgb = P.quick_look(small, pals[0]) if pals else np.zeros((10, 10, 3))
+            self.view.show_still((rgb * 255 + 0.5).astype(np.uint8))
+
+    def redo_from_step(self):
+        i = self.hist_combo.currentIndex()
+        if i < 1 or not self.cps:
+            return
+        st_ = self.cps.steps[i - 1]
+        later = [t["title"] for t in self.cps.steps[i:]]
+        msg = (f"Go back to before <b>{st_['title']}</b>?<br><br>The saved result of this step"
+               + (f" and of the steps after it ({', '.join(later)})" if later else "")
+               + " will be thrown away. Change the settings on the right if you like, then press "
+                 "<b>Prepare for PixInsight</b> — the steps before it are not run again.")
+        if QMessageBox.question(self, "Go back", msg) != QMessageBox.Yes:
+            return
+        self.cps.truncate(i - 1)
+        self.log(f"Went back to before {st_['title']} — it will be redone on the next run.")
+        self.refresh_history(select=i - 1)
+
+    def clear_history(self):
+        if not self.cps or not self.cps.steps:
+            return
+        if QMessageBox.question(self, "Start fresh", "Delete the saved progress for this target? Every step "
+                                "will run again on the next Prepare.") != QMessageBox.Yes:
+            return
+        self.cps.clear()
+        self.refresh_history(select=0)
 
     def auto_crop(self):
         row = self.set_list.currentRow()
@@ -752,7 +895,8 @@ class PrepareWindow(QMainWindow):
         s = self.settings
         for k, w in (("prep/crop", self.chk_crop), ("prep/solve", self.chk_solve), ("prep/gradient", self.chk_grad),
                      ("prep/xisf", self.fmt_xisf), ("prep/fits", self.fmt_fits), ("prep/img_tif", self.fmt_tif),
-                     ("prep/img_jpg", self.fmt_jpg), ("prep/img_png", self.fmt_png)):
+                     ("prep/img_jpg", self.fmt_jpg), ("prep/img_png", self.fmt_png),
+                     ("prep/checkpoints", self.chk_checkpoints)):
             s.setValue(k, w.isChecked())
         s.setValue("prep/out_dir", self.out_edit.text().strip())
         s.setValue("prep/solve_radius", self.solve_radius.value())
@@ -783,7 +927,7 @@ class PrepareWindow(QMainWindow):
             gradient_tool="graxpert" if self.grad_tool.currentIndex() == 0 and self.gx_path else "builtin",
             graxpert=self.gx_path, gx_smoothing=self.gx_smooth.value(), gx_correction=self.gx_corr.currentText(),
             rcastro=self.rc_path, xt=xt, device=self.device.currentData() or "auto", formats=fmts,
-            quicklook=bool(imgs), image_formats=imgs, out_dir=self.out_edit.text().strip() or None,
+            quicklook=bool(imgs), image_formats=imgs, checkpoints=self.chk_checkpoints.isChecked(), out_dir=self.out_edit.text().strip() or None,
             palette=self.palette.currentText() if index == self.set_list.currentRow() else None)
 
     def browse_out_dir(self):
@@ -811,6 +955,7 @@ class PrepareWindow(QMainWindow):
         self._save_settings()
         jobs = [[m.path for m in s] for s in self.sets]
         self.btn_start.setEnabled(False)
+        self.btn_redo.setEnabled(False)
         self.btn_cancel.setEnabled(True)
         self.worker = PrepareWorker(jobs, self.options_for)
         self.worker.progress.connect(lambda t, f: (self.progress.setValue(int(1000 * f)), self.progress.setFormat(t)))
@@ -830,6 +975,9 @@ class PrepareWindow(QMainWindow):
         self.btn_cancel.setEnabled(False)
         res = self.worker.results if self.worker else []
         self.last_results = res
+        self.refresh_history(keep_view=True)
+        if self.hist_combo.count() > 1:
+            self.hist_combo.setCurrentIndex(self.hist_combo.count() - 1)
         if res:
             self.progress.setFormat("Ready for final processing in PixInsight")
             if getattr(self, "show_dialog", True):
