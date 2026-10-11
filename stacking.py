@@ -1131,6 +1131,66 @@ class StackResult:
     error: str | None = None
     ref_path: Path | None = None            # frame whose pixel grid the master uses
     common_ref: str | None = None
+    autocrop: tuple | None = None           # (x0, y0, x1, y1) covered by ~all frames
+
+
+def coverage_map(transforms, out_shape, in_shape, step=8):
+    """Fraction of frames covering each point of a coarse grid over the output.
+    transforms map frame-plane coordinates -> output coordinates."""
+    h, w = out_shape
+    ih, iw = in_shape
+    ys = np.arange(0, h, step, dtype=np.float64)
+    xs = np.arange(0, w, step, dtype=np.float64)
+    X, Y = np.meshgrid(xs, ys)
+    cnt = np.zeros(X.shape, np.int32)
+    for T in transforms:
+        Ai = np.linalg.inv(T[:, :2])
+        dx, dy = X - T[0, 2], Y - T[1, 2]
+        sx = Ai[0, 0] * dx + Ai[0, 1] * dy
+        sy = Ai[1, 0] * dx + Ai[1, 1] * dy
+        cnt += (sx >= 0) & (sy >= 0) & (sx <= iw - 1) & (sy <= ih - 1)
+    return cnt / max(len(transforms), 1)
+
+
+def largest_rectangle(mask: np.ndarray):
+    """Largest axis-aligned all-True rectangle: (row0, col0, row1, col1) inclusive, or None."""
+    rows, cols = mask.shape
+    heights = np.zeros(cols, np.int32)
+    best, best_area = None, 0
+    for r in range(rows):
+        heights = np.where(mask[r], heights + 1, 0)
+        stack = []                      # (start column, height)
+        for c in range(cols + 1):
+            h = int(heights[c]) if c < cols else 0
+            start = c
+            while stack and stack[-1][1] >= h:
+                s0, sh = stack.pop()
+                area = sh * (c - s0)
+                if area > best_area:
+                    best_area, best = area, (r - sh + 1, s0, r, c - 1)
+                start = s0
+            stack.append((start, h))
+    return best
+
+
+def auto_crop_rect(transforms, out_shape, in_shape, min_fraction=0.9):
+    """Rectangle (x0, y0, x1, y1) of the output, exclusive end, covered by at least
+    min_fraction of the frames - the ragged stacking edges lie outside it."""
+    h, w = out_shape
+    step = max(4, int(math.ceil(max(h, w) / 600)))
+    cov = coverage_map(transforms, out_shape, in_shape, step)
+    r = largest_rectangle(cov >= min_fraction - 1e-9)
+    if r is None:
+        return None
+    r0, c0, r1, c1 = r
+    # stay one grid step inside so partly covered cells are excluded
+    x0 = min(w, (c0 + 1) * step) if c0 > 0 else 0
+    y0 = min(h, (r0 + 1) * step) if r0 > 0 else 0
+    x1 = max(x0, c1 * step) if c1 < cov.shape[1] - 1 else w
+    y1 = max(y0, r1 * step) if r1 < cov.shape[0] - 1 else h
+    if (x1 - x0) < w * 0.3 or (y1 - y0) < h * 0.3:
+        return None
+    return int(x0), int(y0), int(x1), int(y1)
 
 
 def common_reference(group_list: list, progress=None) -> dict | None:
@@ -1340,6 +1400,14 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     if not entries:
         raise ValueError("No frames could be aligned")
     res.used = len(entries)
+    try:
+        res.autocrop = auto_crop_rect([e[1] for e in entries], (out_h, out_w), (out_h, out_w))
+    except Exception:  # noqa: BLE001 - auto-crop is only a suggestion
+        res.autocrop = None
+    if res.autocrop:
+        x0, y0, x1, y1 = res.autocrop
+        log.append(f"Auto-crop suggestion (area covered by 90% of frames): x {x0}-{x1}, y {y0}-{y1} "
+                   f"({100 * (x1 - x0) * (y1 - y0) / (out_w * out_h):.0f}% of the image)")
     weights = np.array([e[4] for e in entries], np.float32)
     weights /= weights.mean()
 
@@ -1483,6 +1551,8 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
     header += reference_keywords(res.ref_path or g.ref.path, half=bool(g.ref.bayer) and opts.osc_half)
     if res.common_ref:
         header.append(("ALIGNREF", res.common_ref, "all masters of this target share this grid"))
+    if res.autocrop:
+        header.append(("AUTOCROP", " ".join(str(v) for v in res.autocrop), "x0 y0 x1 y1 covered by 90% of frames"))
     header += [("HISTORY", line, "") for line in res.log[:40]]
     files = save_master_file(base, res.data, header, opts.formats, "MasterLight")
     log_path = base.with_name(base.name + "_stacklog.txt")

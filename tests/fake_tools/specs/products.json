@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 4,
+  "cliVersion": "1.0.1",
+  "devices": [
+    {
+      "id": "auto",
+      "kind": "auto",
+      "device": "gpu0",
+      "name": "Intel(R) Graphics"
+    },
+    {
+      "id": "gpu0",
+      "kind": "gpu",
+      "name": "Intel(R) Graphics"
+    },
+    {
+      "id": "gpu1",
+      "kind": "gpu",
+      "name": "NVIDIA RTX PRO 4000 Blackwell Generation Laptop GPU"
+    },
+    {
+      "id": "cpu",
+      "kind": "cpu"
+    }
+  ],
+  "products": [
+    {
+      "key": "bxt",
+      "name": "RC-Astro BlurXTerminator",
+      "displayName": "BlurXTerminator",
+      "mlVersions": [
+        4,
+        2
+      ],
+      "license": {
+        "status": "permanent",
+        "valid": true,
+        "message": "Permanently licensed."
+      }
+    },
+    {
+      "key": "sxt",
+      "name": "RC-Astro StarXTerminator",
+      "displayName": "StarXTerminator",
+      "mlVersions": [
+        11
+      ],
+      "license": {
+        "status": "permanent",
+        "valid": true,
+        "message": "Permanently licensed."
+      }
+    },
+    {
+      "key": "nxt",
+      "name": "RC-Astro NoiseXTerminator",
+      "displayName": "NoiseXTerminator",
+      "mlVersions": [
+        3,
+        2
+      ],
+      "license": {
+        "status": "permanent",
+        "valid": true,
+        "message": "Permanently licensed."
+      }
+    }
+  ]
+}

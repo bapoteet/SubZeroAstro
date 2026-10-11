@@ -37,7 +37,7 @@ import fits_core as core
 from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "FITS Blaster for Windows"
-APP_VERSION = "0.4.2 (stage 3)"
+APP_VERSION = "0.5.0 (stage 4)"
 ICON_W, ICON_H = 120, 84
 CACHE_SIZE = 8
 ROLE_UID = Qt.UserRole + 1
@@ -849,6 +849,9 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_advance)
         m = mb.addMenu("&Stack")
         m.addAction(self.act_stack)
+        a = QAction("Prepare Masters for PixInsight…", self)
+        a.triggered.connect(self.open_prepare)
+        m.addAction(a)
         m = mb.addMenu("&View")
         m.addAction(self.act_fit)
         m.addAction(self.act_100)
@@ -1775,6 +1778,13 @@ class MainWindow(QMainWindow):
         self.stack_win.setAttribute(Qt.WA_DeleteOnClose, True)
         self.stack_win.show()
         self.stack_win.raise_()
+
+    def open_prepare(self):
+        import prepare_window
+        self.prep_win = prepare_window.PrepareWindow(self, self.settings)
+        self.prep_win.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.prep_win.show()
+        self.prep_win.raise_()
 
     def start_over(self):
         """Clear the session and open a new folder."""

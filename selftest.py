@@ -334,6 +334,99 @@ def run(app, out_dir: Path) -> int:
 
     def shots_10():
         shot("10_stacking_done.png", state["win"])
+        # --- Stage 4: prepare for PixInsight ---------------------------------------
+        win = state["win"]
+        check(win.btn_prepare.isEnabled(), "Prepare for PixInsight button enabled after stacking")
+        fake = Path(__file__).resolve().parent / "tests" / "fake_tools"
+        state["fake"] = fake.is_dir() and not getattr(sys, "frozen", False)
+        if state["fake"]:
+            win.settings.setValue("prep/astap", str(fake / "fake_astap.py"))
+            win.settings.setValue("prep/graxpert", str(fake / "fake_graxpert.py"))
+            win.settings.setValue("prep/rcastro", str(fake / "fake_rcastro.py"))
+        else:
+            for k in ("prep/astap", "prep/graxpert", "prep/rcastro"):
+                win.settings.setValue(k, str(session.parent / "no_such_tool.exe"))
+        win.settings.setValue("prep/xt_sxt", '{"enabled": true, "values": {"stars": true}}')
+        win.settings.setValue("prep/fits", True)
+        win.settings.setValue("prep/device", "")
+        win.open_prepare()
+        pw = win.prep_win
+        state["pw"] = pw
+        check(len(pw.sets) == 1 and len(pw.sets[0]) == 2, f"prepare window loads the 2 masters as one target "
+                                                           f"({[[m.filter for m in s] for s in pw.sets]})")
+        if state["fake"]:
+            check("1.0.3-fake" in pw.rc_status.text(), "RC-Astro CLI detected with version and licenses")
+            check(pw.device.currentData() == "gpu1", f"dedicated NVIDIA GPU chosen by default "
+                                                     f"({pw.device.currentData()})")
+            nx = pw.panels.get("nxt")
+            check(nx is not None and not nx.widgets["dn"].isHidden() and nx.widgets["di"].isHidden(),
+                  "NoiseXTerminator controls generated from the CLI description")
+            if nx:
+                nx.widgets["csep"].setChecked(True)
+                check(nx.widgets["dn"].isHidden() and not nx.widgets["di"].isHidden(),
+                      "Intensity/Color Separation switches the NoiseXTerminator sliders")
+                nx.widgets["csep"].setChecked(False)
+            bx = pw.panels.get("bxt")
+            check(bx is not None and not bx.widgets["nsd"].isEnabled(),
+                  "BlurXTerminator PSF Diameter greyed out while Automatic PSF is on")
+        else:
+            check("not found" in pw.rc_status.text(), "missing RC-Astro CLI reported clearly")
+        pw.resize(1450, 900)
+        QTimer.singleShot(900, shots_11)
+
+    def shots_11():
+        pw = state["pw"]
+        shot("11_prepare_window.png", pw)
+        state["t4"] = time.time()
+        pw.start(show_dialog=False)
+        QTimer.singleShot(500, wait_prepare)
+
+    def wait_prepare():
+        pw = state["pw"]
+        if pw.worker is not None and pw.worker.isFinished():
+            QTimer.singleShot(400, after_prepare)
+        elif time.time() - state["t4"] > 300:
+            check(False, "prepare finished within 5 minutes")
+            finish(1)
+        else:
+            QTimer.singleShot(400, wait_prepare)
+
+    def after_prepare():
+        pw = state["pw"]
+        res = getattr(pw, "last_results", []) or []
+        check(len(res) == 1, f"prepare produced results ({len(res)})")
+        if res:
+            names = sorted(Path(f).name for f in res[0]["files"])
+            log("prepared: " + ", ".join(names))
+            check(sum(n.endswith("_prepared.xisf") for n in names) == 2, "two prepared XISF masters")
+            check(any(n.endswith("_quicklook.jpg") for n in names) and any(n.endswith("_quicklook.tif")
+                                                                           for n in names),
+                  "quick-look JPG and 16-bit TIFF saved")
+            check(any(n.endswith("PixInsight_next_steps.html") for n in names), "PixInsight plan saved")
+            prepared = next(Path(f) for f in res[0]["files"] if str(f).endswith("_prepared.fits"))
+            _d, _c, lk = core.read_fits(prepared)
+            if state["fake"]:
+                check(lk.get("PLTSOLVD") is True, "prepared master is plate solved (ASTAP)")
+                check(any(n.endswith("_prepared_stars.xisf") for n in names), "StarXTerminator stars image saved")
+                done = [s["title"] for s in res[0]["plan"] if s["done"]]
+                check("Sharpen with BlurXTerminator" in done and "Remove gradients" in done,
+                      f"plan ticks the steps done here ({done})")
+            else:
+                done = [s["title"] for s in res[0]["plan"] if s["done"]]
+                check("Remove gradients" in done and "Plate solve" not in done,
+                      f"without tools: built-in gradient removal, plate solve left for PixInsight ({done})")
+            import prepare_window as pwm
+            dlg = pwm.ReadyDialog(pw, res)
+            dlg.show()
+            state["dlg"] = dlg
+        QTimer.singleShot(800, shots_12)
+
+    def shots_12():
+        shot("12_prepare_done.png", state["pw"])
+        if state.get("dlg"):
+            shot("13_ready_for_pixinsight.png", state["dlg"])
+            state["dlg"].close()
+        state["pw"].close()
         state["win"].close()
         finish(0 if not failures else 1)
 

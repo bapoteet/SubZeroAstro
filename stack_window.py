@@ -362,6 +362,12 @@ class StackWindow(QMainWindow):
         self.progress.setTextVisible(True)
         self.progress.setFormat("")
         brow.addWidget(self.progress, 1)
+        self.btn_prepare = QPushButton("Prepare for PixInsight…")
+        self.btn_prepare.setToolTip("Crop, plate solve, remove gradients and run the XTerminators on the masters "
+                                    "just made, then get a step-by-step PixInsight plan")
+        self.btn_prepare.setEnabled(False)
+        self.btn_prepare.clicked.connect(self.open_prepare)
+        brow.addWidget(self.btn_prepare)
         self.btn_open = QPushButton("Open Master Lights Folder")
         self.btn_open.clicked.connect(lambda: self.open_folder(self.masters_root.text()))
         brow.addWidget(self.btn_open)
@@ -658,7 +664,14 @@ class StackWindow(QMainWindow):
         ok = [r for r in w.results if not r.error]
         bad = [r for r in w.results if r.error]
         self.progress.setFormat(f"Done — {len(ok)} master{'s' if len(ok) != 1 else ''} saved"
-                                + (f", {len(bad)} failed" if bad else ""))
+                                + (f", {len(bad)} failed" if bad else "")
+                                + ("  ·  next: Prepare for PixInsight" if ok else ""))
+        self.btn_prepare.setEnabled(bool(ok))
+        if ok:
+            self.btn_prepare.setStyleSheet("QPushButton { background: #4a86e8; color: white; font-weight: bold; "
+                                           "padding: 6px 14px; border-radius: 4px; }")
+            self.log("\nMasters are ready. Next: click “Prepare for PixInsight…” to crop, plate solve, remove "
+                     "gradients and run the XTerminators.")
         self.last_results = w.results
         self.last_saved_cal = w.saved_cal
         built_paths = set()
@@ -671,6 +684,20 @@ class StackWindow(QMainWindow):
         if built_paths:                    # use the saved library masters from now on
             self.added_infos = [i for i in self.added_infos if str(i.path) not in built_paths]
         self.refresh_all()                 # newly saved masters now come from the library
+
+    def master_files(self):
+        files = []
+        for r in getattr(self, "last_results", []) or []:
+            if not r.error:
+                files += [f for f in r.files if Path(f).suffix.lower() in (".fits", ".xisf")]
+        return files
+
+    def open_prepare(self):
+        import prepare_window
+        self.prep_win = prepare_window.PrepareWindow(self, self.settings, self.master_files())
+        self.prep_win.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.prep_win.show()
+        self.prep_win.raise_()
 
     def closeEvent(self, ev):
         if self.worker and self.worker.isRunning():

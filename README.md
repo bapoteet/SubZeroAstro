@@ -33,6 +33,40 @@ as before. Nothing new needs installing. If you built an `.exe`, run
 
 Optional: **`build_exe.bat`** makes a stand-alone `dist\FITS Blaster\FITS Blaster.exe`.
 
+## Prepare for PixInsight (new in 0.5.0)
+
+After stacking, click **Prepare for PixInsight…** in the Stacking window (or
+**Stack › Prepare Masters for PixInsight…**). The masters you just made are loaded,
+grouped by target. FITS Blaster then takes them as far as it sensibly can on linear
+data and hands over to PixInsight with a step-by-step plan.
+
+**Your tools** (top of the window — auto-detected, or Browse… to point at them):
+- **ASTAP** — plate solving (astap.exe or astap_cli.exe, with a star database installed)
+- **GraXpert** — AI gradient removal (GraXpert-win64.exe)
+- **RC-Astro CLI** — the stand-alone BlurXTerminator / NoiseXTerminator / StarXTerminator
+  (normally `C:\Program Files\RC-Astro\CLI\rc-astro.exe`). Your existing licenses work;
+  the status line shows each product's license.
+
+**Steps** (each optional, run in this order on every master of the target):
+1. **Crop** — the yellow box on the preview. *Auto-crop* trims the ragged stacking edges
+   (the area covered by ~all frames); drag the box or its edges to adjust. The same crop is
+   applied to every filter so they stay aligned.
+2. **Plate solve** with ASTAP (uses the position and pixel scale recorded in the masters).
+3. **Remove gradients** — GraXpert (AI), or a built-in polynomial model if GraXpert isn't set.
+4. **BlurXTerminator** (on by default) → **NoiseXTerminator** (light, optional) →
+   **StarXTerminator** (optional; saves a starless and a stars-only image).
+   Their controls are read from your installed RC-Astro CLI, so they always match your
+   version. **Device**: a dedicated NVIDIA/AMD GPU is chosen by default — RC-Astro's own
+   "auto" picks the first GPU, which on many laptops is the slower integrated one.
+   (Running `rc-astro --benchmark-all` once also fixes RC-Astro's own choice.)
+5. **Quick-look image** — auto-stretched JPG, PNG and 16-bit TIFF in RGB, LRGB, SHO or HOO.
+
+Prepared masters (linear, 32-bit, 0–1, plate solved) go to a **Prepared** folder next to the
+masters — originals are never changed. At the end FITS Blaster says your images are **ready for
+final processing** and shows (and saves as `<target>_PixInsight_next_steps.html`) the
+recommended PixInsight processes and scripts in order — e.g. SPCC, stretching with GHS, star
+recombination with PixelMath — with the steps already done here ticked off.
+
 ## Stacking (new in 0.4.0)
 
 When you've culled your frames, click **Stack Kept Frames…** (Ctrl+K) — or the
@@ -214,6 +248,10 @@ and it only sees the frames you kept.
 - `stacking.py` — calibration masters, star alignment and stacking
 - `stack_window.py` — the Stacking window
 - `xisf.py` — PixInsight XISF reading and writing
+- `prepare.py` — Stage 4 pipeline: crop, solve, gradients, XTerminators, quick-look, PixInsight plan
+- `prepare_window.py` — the Prepare for PixInsight window
+- `tools.py` — running ASTAP, GraXpert and the RC-Astro CLI
+- `tests/fake_tools/` — stand-ins for those tools used by the automatic tests
 - `selftest.py` — the automatic real-window self-test
 - `run.bat`, `build_exe.bat`, `requirements.txt` — setup and launch
 
