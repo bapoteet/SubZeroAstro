@@ -37,7 +37,7 @@ import fits_core as core
 from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "FITS Blaster for Windows"
-APP_VERSION = "0.4.0 (stage 3)"
+APP_VERSION = "0.4.1 (stage 3)"
 ICON_W, ICON_H = 120, 84
 CACHE_SIZE = 8
 ROLE_UID = Qt.UserRole + 1

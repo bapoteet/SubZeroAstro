@@ -322,6 +322,10 @@ def run(app, out_dir: Path) -> int:
         d, _c, look = core.read_fits(masters / next(f for f in files if f.endswith("_Ha_Master_2026-10-10.fits")))
         check(look.get("NCOMBINE") == 16 and look.get("IMAGETYP") == "Master Light",
               f"master header records 16 frames ({look.get('NCOMBINE')}, {look.get('IMAGETYP')})")
+        origins = {(g.filter, k): getattr(g.plan, k).origin for g in win.groups for k in ("bias", "dark", "flat")
+                   if getattr(g.plan, k) is not None}
+        check(all(o == "library" for o in origins.values()),
+              f"after stacking, the saved library masters are used next time ({origins})")
         QTimer.singleShot(600, shots_10)
 
     def shots_10():

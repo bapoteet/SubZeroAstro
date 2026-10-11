@@ -640,10 +640,15 @@ class StackWindow(QMainWindow):
                                 + (f", {len(bad)} failed" if bad else ""))
         self.last_results = w.results
         self.last_saved_cal = w.saved_cal
+        built_paths = set()
         for g in self.groups:              # release calibration data
             for c in (g.plan.bias, g.plan.dark, g.plan.flat, g.plan.flat_bias, g.plan.flat_dark):
                 if c is not None:
                     c.data = None
+                    if not c.master and c.saved:
+                        built_paths |= {str(i.path) for i in c.infos}
+        if built_paths:                    # use the saved library masters from now on
+            self.added_infos = [i for i in self.added_infos if str(i.path) not in built_paths]
         self.refresh_all()                 # newly saved masters now come from the library
 
     def closeEvent(self, ev):
