@@ -283,7 +283,7 @@ and it only sees the frames you kept.
 
 ## Credits
 
-Created by [bapoteet](https://github.com/bapoteet), built with Claude (Anthropic).
+Created by Brian A. Poteet ([@bapoteet](https://github.com/bapoteet)), built with Claude (Anthropic).
 
 ## License
 

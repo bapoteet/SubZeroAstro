@@ -41,7 +41,7 @@ from chart import ChartPoint, SessionChart, filter_color
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
 APP_VERSION = "0.5.1"
-APP_AUTHOR = "bapoteet"
+APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/FitsBlasterWindows"
 ICON_W, ICON_H = 120, 84
 CACHE_SIZE = 8
