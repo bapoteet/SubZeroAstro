@@ -33,6 +33,57 @@ as before. Nothing new needs installing. If you built an `.exe`, run
 
 Optional: **`build_exe.bat`** makes a stand-alone `dist\FITS Blaster\FITS Blaster.exe`.
 
+## Stacking (new in 0.4.0)
+
+When you've culled your frames, click **Stack Kept Frames…** (Ctrl+K) — or the
+**Open Stacking Window** button in the blue "ready to stack?" bar that appears after
+**Reject Flagged**. The Stacking window opens with your kept frames already loaded,
+grouped by **target + filter + camera + telescope**.
+
+**Save locations** (top of the window, remembered, change them any time):
+- **Calibration masters folder** — your "calibration frames" folder with a subfolder
+  per telescope rig. New masters are saved as
+  `<folder>\<rig>\Masters\<camera>\Bias | Darks | Flats\<filter>\…` and are found
+  there automatically next time.
+- **Master lights folder** — masters go to `<folder>\<target>\`, e.g.
+  `M33\M33_Ha_Master_2026-10-09_to_2026-10-11.fits` (one date for a single night;
+  the camera is added to the name when one target was shot with two cameras).
+
+**Telescope (rig) names** — pick the rig folder for each camera + focal length once
+(e.g. ASI6200MC at 506 mm → *SQA106*). This matters for ASIAIR, which writes the
+mount name, not the telescope.
+
+**Calibration** — add a folder (or files) of bias, dark and flat subframes or existing
+masters (FITS or PixInsight XISF). Frame types are read from the headers. For each
+group the app picks:
+- **Bias** matching camera, gain and offset
+- **Darks** matching exposure, gain, offset and temperature (±3 °C); darks of another
+  exposure are scaled using the bias
+- **Flats** matching camera, filter and rig, nearest in date; flat subframes are
+  calibrated with dark-flats or a bias at the *flat's* gain
+- Lights shot on part of the sensor (ASIAIR ROI) use the matching part of
+  full-size calibration frames automatically
+
+Before stacking, anything missing is listed ("No darks for 180 s, gain 100, −2 °C…")
+with **Stack Anyway** or **Add Calibration Frames First…**. Notes also appear when
+flats are old or were taken at a different camera angle. *Search Calibration Folder
+for Subframes* optionally looks through your rig folders for raw calibration frames.
+
+**How lights are stacked** — calibrate ((light − dark) ÷ flat, hot pixels from the
+master dark repaired) → debayer colour frames (full or half resolution) → align every
+frame to the best-scoring one by matching star patterns (handles meridian flips) →
+normalise sky level and brightness (thin cloud) → weight by noise → sigma-clipped
+mean, which removes satellite trails, planes and remaining hot pixels.
+
+**Output** — 32-bit floating-point **FITS** and/or **XISF**. Each master records in its
+header which frames, calibration masters and settings were used, and a
+`…_stacklog.txt` next to it lists every frame — so the record survives if you delete
+the subframes afterwards. Colour masters are not colour-calibrated (they look green,
+as usual for raw OSC data) — do colour calibration in PixInsight, Siril etc.
+
+Aligned frames are cached temporarily on your local disk (≈120 MB per 61 MP mono frame).
+If there isn't room, a slower two-pass method is used instead.
+
 ## What's new in 0.3.0
 
 **Load Data window** (Ctrl+O, or the **Load Data…** button) — build a list of folders
@@ -123,6 +174,7 @@ than the sky.
 | Ctrl+O | Load Data (one or more folders) |
 | Ctrl+Shift+O | Open one folder |
 | Ctrl+N | Start Over – load new data |
+| Ctrl+K | Stack kept frames… |
 | F5 | Reload |
 | Ctrl+E | Save a text list of kept frames |
 
@@ -153,10 +205,9 @@ and it only sees the frames you kept.
 - `metrics.py` — star detection and fitting
 - `fits_core.py` — FITS reading, fast sampled reads, stretching, scanning, cache,
   badges, and the reject/restore file moves
+- `stacking.py` — calibration masters, star alignment and stacking
+- `stack_window.py` — the Stacking window
+- `xisf.py` — PixInsight XISF reading and writing
+- `selftest.py` — the automatic real-window self-test
 - `run.bat`, `build_exe.bat`, `requirements.txt` — setup and launch
 
-## Coming next
-
-**Stage 3:** the stacking app — calibration masters (bias, darks, flats; reads your
-PixInsight .xisf masters too), per-camera and per-filter masters, star alignment,
-outlier rejection, and `M33_Ha_Master_2026-10-09_to_2026-10-11.fits` naming.

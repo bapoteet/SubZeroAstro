@@ -37,7 +37,7 @@ import fits_core as core
 from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "FITS Blaster for Windows"
-APP_VERSION = "0.3.0 (stage 2)"
+APP_VERSION = "0.4.0 (stage 3)"
 ICON_W, ICON_H = 120, 84
 CACHE_SIZE = 8
 ROLE_UID = Qt.UserRole + 1
@@ -674,7 +674,32 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
         self.splitter.setSizes([340, 900, 310])
-        self.setCentralWidget(self.splitter)
+
+        self.ready_bar = QFrame()
+        self.ready_bar.setStyleSheet("QFrame { background: #1f3350; border-bottom: 1px solid #4a86e8; }"
+                                     "QLabel { color: #e8eefc; font-size: 11pt; }")
+        rb = QHBoxLayout(self.ready_bar)
+        rb.setContentsMargins(12, 6, 8, 6)
+        self.ready_label = QLabel()
+        rb.addWidget(self.ready_label, 1)
+        b_go = QToolButton()
+        b_go.setText("Open Stacking Window")
+        b_go.setStyleSheet("QToolButton { background: #4a86e8; color: white; border-radius: 4px; "
+                           "padding: 4px 14px; font-weight: bold; }")
+        b_go.clicked.connect(self.open_stacking)
+        b_x = QToolButton()
+        b_x.setText("Not yet")
+        b_x.clicked.connect(lambda: self.ready_bar.hide())
+        rb.addWidget(b_go)
+        rb.addWidget(b_x)
+        self.ready_bar.hide()
+        central = QWidget()
+        cv = QVBoxLayout(central)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setSpacing(0)
+        cv.addWidget(self.ready_bar)
+        cv.addWidget(self.splitter, 1)
+        self.setCentralWidget(central)
 
         self.status_label = QLabel()
         self.progress = QProgressBar()
@@ -731,6 +756,8 @@ class MainWindow(QMainWindow):
         self.act_remeasure = act("Re-measure All (ignore saved results)", self.remeasure)
         self.act_quit = act("Exit", self.close, "Ctrl+Q")
 
+        self.act_stack = act("Stack Kept Frames…", self.open_stacking, "Ctrl+K", QStyle.SP_MediaPlay,
+                             "Open the Stacking window with the frames you kept (Ctrl+K)")
         self.act_start_over = act("Start Over – Load New Data…", self.start_over, "Ctrl+N",
                                   QStyle.SP_BrowserReload,
                                   "Clear this session and open a new folder (Ctrl+N)")
@@ -789,6 +816,12 @@ class MainWindow(QMainWindow):
                                   f"QToolButton:hover {{ background: {colors[key]}40; }}")
         tb2.addAction(self.act_reject_flagged)
         tb2.addSeparator()
+        tb2.addAction(self.act_stack)
+        btn = tb2.widgetForAction(self.act_stack)
+        if btn is not None:
+            btn.setStyleSheet("QToolButton { border: 1px solid #4a86e8; border-radius: 4px; padding: 3px 10px; "
+                              "margin: 2px 3px; font-weight: bold; } QToolButton:hover { background: #4a86e840; }")
+        tb2.addSeparator()
         tb2.addAction(self.act_start_over)
         self.update_preset_tooltips()
 
@@ -814,6 +847,8 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_next)
         m.addSeparator()
         m.addAction(self.act_advance)
+        m = mb.addMenu("&Stack")
+        m.addAction(self.act_stack)
         m = mb.addMenu("&View")
         m.addAction(self.act_fit)
         m.addAction(self.act_100)
@@ -1605,6 +1640,8 @@ class MainWindow(QMainWindow):
             self.undo_stack.append(done)
         self.rebuild_list()
         self.update_chart()
+        if done:
+            self.show_ready_bar()
 
     def apply_reject(self, uids, reject):
         done, errors = [], []
@@ -1709,6 +1746,36 @@ class MainWindow(QMainWindow):
         else:
             self.statusBar().showMessage(f"{p['label']}: no frames need culling", 8000)
 
+    def kept_lights(self):
+        return [f for f in self.frames.values() if not f.rejected and not f.error]
+
+    def show_ready_bar(self):
+        kept = self.kept_lights()
+        if not kept:
+            return
+        hours = sum(float((f.info or {}).get("exptime") or 0) for f in kept) / 3600
+        self.ready_label.setText(f"<b>{len(kept)} frames kept</b> ({hours:.1f} h) — ready to stack?")
+        self.ready_bar.show()
+
+    def open_stacking(self):
+        kept = self.kept_lights()
+        if not kept:
+            QMessageBox.information(self, APP_NAME, "Load and cull some light frames first — the Stacking "
+                                    "window opens with the frames you kept.")
+            return
+        if self.loaded_count < len(self.frames):
+            if QMessageBox.question(self, APP_NAME, f"{len(self.frames) - self.loaded_count} frames are still "
+                                    "being measured. Open the Stacking window with the frames measured so far?") \
+                    != QMessageBox.StandardButton.Yes:
+                return
+            kept = [f for f in kept if f.loaded]
+        import stack_window
+        self.ready_bar.hide()
+        self.stack_win = stack_window.StackWindow(self, kept, self.settings)
+        self.stack_win.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.stack_win.show()
+        self.stack_win.raise_()
+
     def start_over(self):
         """Clear the session and open a new folder."""
         if self.frames:
@@ -1760,6 +1827,7 @@ class MainWindow(QMainWindow):
         self.view.clear("Click Load Data… (Ctrl+O) to choose folders\nor drag folders onto this window")
         self.fill_inspector(None)
         self.warning_label.setText("")
+        self.ready_bar.hide()
         self.update_chart()
         self.update_preset_tooltips()
         self.setWindowTitle(APP_NAME)
@@ -1830,6 +1898,7 @@ class MainWindow(QMainWindow):
             "Shift+X\tReject all flagged frames\n"
             "D\tClear all flags\n"
             "Ctrl+N\tStart over – load new data\n"
+            "Ctrl+K\tStack kept frames…\n"
             "Ctrl+F\tAuto-Flag…\n"
             "Ctrl+Z\tUndo reject / restore\n"
             "Ctrl+0\tFit to window\n"

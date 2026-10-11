@@ -250,6 +250,83 @@ def run(app, out_dir: Path) -> int:
 
     def shots_8():
         shot("8_two_folders.png")
+        # --- Stage 3: stacking window --------------------------------------------
+        import stack_window as sw
+        cal = session.parent / "Calibration Frames"
+        raw_cal = session.parent / "raw_cal"
+        masters = session.parent / "Master Lights"
+        rng = np.random.default_rng(3)
+        for kind, n, exp in (("BIAS", 7, 0.0), ("DARK", 7, 300.0), ("FLAT", 7, 1.0)):
+            d = raw_cal / kind.lower()
+            d.mkdir(parents=True)
+            for i in range(n):
+                level = {"BIAS": 0.0, "DARK": 5.0, "FLAT": 20000.0}[kind]
+                img = np.clip(level + rng.normal(0, 8, (900, 1350)), 0, 65535).astype(np.float32)
+                hdr = {"IMAGETYP": kind, "EXPTIME": exp, "INSTRUME": "Test Camera", "FOCALLEN": 1140.0,
+                       "DATE-OBS": f"2026-10-11T02:{i:02d}:00", "ROWORDER": "TOP-DOWN"}
+                if kind == "FLAT":
+                    hdr["FILTER"] = "Ha" if i % 2 else "OIII"
+                core.write_fits(d / f"{kind.lower()}_{i}.fits", img, hdr, bitpix=16)
+        w.settings.setValue("stack/cal_root", str(cal))
+        w.settings.setValue("stack/masters_root", str(masters))
+        w.settings.setValue("stack/xisf", True)
+        cal.mkdir()
+        w.open_stacking()
+        win = w.stack_win
+        state["win"] = win
+        check(len(win.groups) == 2, f"stacking window groups lights by filter ({[g.label() for g in win.groups]})")
+        check(all(len(g.frames) == 16 for g in win.groups), "each group has its 16 kept frames")
+        check(all(any(k == "dark" for k, _ in g.plan.warnings) for g in win.groups),
+              "missing darks are reported before calibration is added")
+        win._add_cal_paths([raw_cal])
+        kinds = sorted(c.kind for c in win.items)
+        check(kinds.count("bias") == 1 and kinds.count("dark") == 1, f"calibration sets recognised ({kinds})")
+        plans = [(g.filter, bool(g.plan.bias), g.plan.dark_mode, bool(g.plan.flat)) for g in win.groups]
+        check(all(p[1] and p[2] == "exact" and p[3] for p in plans), f"bias, darks and flats matched ({plans})")
+        win.resize(1300, 860)
+        QTimer.singleShot(700, shots_9)
+
+    def shots_9():
+        win = state["win"]
+        shot("9_stacking_window.png", win)
+        state["t3"] = time.time()
+        win.start(skip_preflight=True)
+        QTimer.singleShot(500, wait_stack)
+
+    def wait_stack():
+        win = state["win"]
+        if win.worker is not None and win.worker.isFinished():
+            QTimer.singleShot(500, after_stack)
+        elif time.time() - state["t3"] > 300:
+            check(False, "stacking finished within 5 minutes")
+            finish(1)
+        else:
+            QTimer.singleShot(500, wait_stack)
+
+    def after_stack():
+        win = state["win"]
+        res = win.worker.results
+        log(f"Stacked {len(res)} groups in {time.time() - state['t3']:.1f}s")
+        check(len(res) == 2 and not any(r.error for r in res), f"both groups stacked ({[r.error for r in res]})")
+        masters = session.parent / "Master Lights" / "M33"
+        files = sorted(p.name for p in masters.iterdir()) if masters.is_dir() else []
+        log("master lights: " + ", ".join(files))
+        check(any(f.endswith("_Ha_Master_2026-10-10.fits") for f in files), "Ha master saved as FITS")
+        check(any(f.endswith("_OIII_Master_2026-10-10.xisf") for f in files), "OIII master saved as XISF")
+        check(any(f.endswith("_stacklog.txt") for f in files), "stack log saved next to the master")
+        cal = session.parent / "Calibration Frames"
+        lib = sorted(str(p.relative_to(cal)) for p in cal.rglob("*.fits"))
+        log("calibration library: " + "; ".join(lib))
+        check(any("Masters" in x and "Bias" in x for x in lib) and any("Darks" in x for x in lib)
+              and any("Flats" in x and "Ha" in x for x in lib), "calibration masters saved into the library")
+        d, _c, look = core.read_fits(masters / next(f for f in files if f.endswith("_Ha_Master_2026-10-10.fits")))
+        check(look.get("NCOMBINE") == 16 and look.get("IMAGETYP") == "Master Light",
+              f"master header records 16 frames ({look.get('NCOMBINE')}, {look.get('IMAGETYP')})")
+        QTimer.singleShot(600, shots_10)
+
+    def shots_10():
+        shot("10_stacking_done.png", state["win"])
+        state["win"].close()
         finish(0 if not failures else 1)
 
     QTimer.singleShot(300, start)

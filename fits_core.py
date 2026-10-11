@@ -234,8 +234,17 @@ def read_fits(path, header_only: bool = False):
     return _decode(raw, lay, lay.shape), lay.cards, lay.look
 
 
-def write_fits(path, data: np.ndarray, header: dict | None = None, bitpix: int = -32):
-    """Write a simple single-image FITS file (used by tests and, later, stacking)."""
+def _ascii(x) -> str:
+    t = str(x).replace("β", "b").replace("″", '"').replace("×", "x").replace("–", "-").replace("—", "-")
+    return t.encode("ascii", "replace").decode("ascii")
+
+
+def write_fits(path, data: np.ndarray, header=None, bitpix: int = -32):
+    """
+    Write a single-image FITS file. header is a dict {key: value} or a list of
+    (key, value, comment) cards; HISTORY / COMMENT cards take their text from
+    the value. Strings are made ASCII-safe.
+    """
     data = np.asarray(data)
     if bitpix == 16:
         arr = np.clip(np.round(data - 32768), -32768, 32767).astype(">i2")
@@ -260,11 +269,11 @@ def write_fits(path, data: np.ndarray, header: dict | None = None, bitpix: int =
                 s += "."
             v = f"{s:>20}"
         else:
-            s = str(value).replace("'", "''")
+            s = _ascii(value).replace("'", "''")[:68]
             v = f"'{s:<8}'"
         line = f"{key[:8]:<8}= {v}"
         if comment:
-            line += f" / {comment}"
+            line += f" / {_ascii(comment)}"
         return f"{line:<80}"[:80]
 
     cards = [card("SIMPLE", True, "conforms to FITS standard"),
@@ -274,10 +283,21 @@ def write_fits(path, data: np.ndarray, header: dict | None = None, bitpix: int =
     for k, v, c in extra:
         cards.append(card(k, v, c))
     reserved = {"SIMPLE", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "NAXIS3", "BZERO", "BSCALE", "END", "EXTEND"}
-    for k, v in (header or {}).items():
-        if k.upper() in reserved or v is None:
+    items = header.items() if isinstance(header, dict) else [(k, v) if len(c) == 0 else (k, (v, c))
+                                                              for k, v, c in (header or [])]
+    for k, v in items:
+        comment = ""
+        if isinstance(v, tuple):
+            v, comment = v
+        k = k.upper()
+        if k in ("HISTORY", "COMMENT"):
+            text = _ascii(v if v is not None else comment)
+            for i in range(0, max(len(text), 1), 72):
+                cards.append(f"{k:<8}{text[i:i + 72]}".ljust(80)[:80])
             continue
-        cards.append(card(k.upper(), v))
+        if k in reserved or v is None:
+            continue
+        cards.append(card(k, v, comment))
     cards.append(f"{'END':<80}")
     head = "".join(cards)
     head += " " * (_padded(len(head)) - len(head))
