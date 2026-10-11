@@ -35,12 +35,13 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
                                QStyle, QTableWidget, QTableWidgetItem,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
+import checkpoints as cp
 import fits_core as core
 from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.6.0 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -500,7 +501,7 @@ class MainWindow(QMainWindow):
         self.loaded_count = 0
         self.to_load = 0
         self.load_started = 0.0
-        self.undo_stack: list[list[tuple[int, bool]]] = []
+        self.undo_stack: list = []          # [(uid, rejected), ...] or {"label", "reject", "flags"}
         self.cache: OrderedDict[tuple[int, bool], tuple[QImage, int]] = OrderedDict()
         self.pending_display: set[tuple[int, bool]] = set()
         self.known_filters: list[str] = []
@@ -525,6 +526,10 @@ class MainWindow(QMainWindow):
         self.stats_timer.setSingleShot(True)
         self.stats_timer.setInterval(600)
         self.stats_timer.timeout.connect(self.refresh_stats)
+        self.session_timer = QTimer(self)        # autosave of the culling session (0.6)
+        self.session_timer.setSingleShot(True)
+        self.session_timer.setInterval(1500)
+        self.session_timer.timeout.connect(self.save_session)
 
         self._build_ui()
         self._build_actions()
@@ -752,7 +757,10 @@ class MainWindow(QMainWindow):
         self.act_reject_flagged = act("Reject Flagged", self.reject_flagged, "Shift+X", None,
                                       "Reject every flagged frame (Shift+X)")
         self.act_clear_flags = act("Clear All Flags", self.clear_flags, "D")
-        self.act_undo = act("Undo", self.undo, "Ctrl+Z", QStyle.SP_ArrowBack, "Undo last reject/restore (Ctrl+Z)")
+        self.act_undo = act("Undo", self.undo, "Ctrl+Z", QStyle.SP_ArrowBack,
+                            "Undo the last reject/restore, flag change, Auto-Flag or Auto-cull (Ctrl+Z)")
+        self.act_reopen = act("Reopen Last Session", self.reopen_last_session, "Ctrl+Shift+R", None,
+                              "Load the folders of your last session again, with its flags (Ctrl+Shift+R)")
         self.act_fit = act("Fit", self.view.fit, "Ctrl+0", None, "Fit image to window (Ctrl+0)")
         self.act_100 = act("100%", self.view.actual_size, "1", None, "Actual pixels (1)")
         self.act_export = act("Export Keeper List…", self.export_keepers, "Ctrl+E")
@@ -833,7 +841,8 @@ class MainWindow(QMainWindow):
 
         mb = self.menuBar()
         m = mb.addMenu("&File")
-        for a in (self.act_load, self.act_open, self.act_start_over, self.act_reload, self.act_remeasure):
+        for a in (self.act_load, self.act_open, self.act_reopen, self.act_start_over, self.act_reload,
+                  self.act_remeasure):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_export)
@@ -913,6 +922,7 @@ class MainWindow(QMainWindow):
         self.analyze_pool.clear()
         self.display_pool.clear()
         self.save_disk_cache()
+        self.save_session(clean=True)
         super().closeEvent(event)
 
     # ------------------------------------------------------------ opening
@@ -951,6 +961,7 @@ class MainWindow(QMainWindow):
             return
         self.sources = list(sources)
         self.open_frames(frames, root, use_cache)
+        self.session_timer.start()
         n_src = len(sources)
         if n_src > 1:
             self.setWindowTitle(f"{APP_NAME} — {n_src} sources under {root}")
@@ -1628,7 +1639,7 @@ class MainWindow(QMainWindow):
         reject = not all(self.frames[u].rejected for u in uids)
         done = self.apply_reject(uids, reject)
         if done:
-            self.undo_stack.append(done)
+            self.undo_stack.append({"label": "reject" if reject else "restore", "reject": done})
         if reject and len(uids) == 1 and self.act_advance.isChecked() and self.show_combo.currentText() == "All frames":
             self.step(1)
 
@@ -1641,12 +1652,13 @@ class MainWindow(QMainWindow):
         if QMessageBox.question(self, APP_NAME, f"Move {len(uids)} flagged frames to REJECTED?\n\n"
                                 "(You can undo this with Ctrl+Z.)") != QMessageBox.StandardButton.Yes:
             return
+        flags = self.flag_snapshot()
         done = self.apply_reject(uids, True)
         for u, _r in done:
             self.frames[u].flagged = False
             self.refresh_item(u)
         if done:
-            self.undo_stack.append(done)
+            self.undo_stack.append({"label": "Reject Flagged", "reject": done, "flags": flags})
         self.rebuild_list()
         self.update_chart()
         if done:
@@ -1668,6 +1680,7 @@ class MainWindow(QMainWindow):
                                 "Some files could not be moved (are they open in another program?):\n\n"
                                 + "\n".join(errors[:10]) + ("\n…" if len(errors) > 10 else ""))
         if done:
+            self.session_timer.start()
             if self.show_combo.currentText() != "All frames":
                 row = self.list.currentRow()
                 self.rebuild_list()
@@ -1685,22 +1698,52 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Nothing to undo", 2000)
             return
         last = self.undo_stack.pop()
-        uids = [u for u, _r in last]
+        if isinstance(last, list):
+            last = {"label": "change", "reject": last}
+        rej = last.get("reject") or []
+        uids = [u for u, _r in rej]
         by_state = {}
-        for u, r in last:
+        for u, r in rej:
             by_state.setdefault(not r, []).append(u)
         for state, us in by_state.items():
             self.apply_reject(us, state)
+        if last.get("flags") is not None:
+            self.restore_flags(last["flags"])
         if uids and uids[0] in self.items:
             self.list.setCurrentItem(self.items[uids[0]])
-        self.statusBar().showMessage(f"Undid {len(uids)} change(s)", 2000)
+        what = last.get("label", "change")
+        self.statusBar().showMessage(f"Undid {what}" + (f" ({len(uids)} frame(s) moved back)" if uids else ""), 3000)
 
     # -------------------------------------------------------------- flags
+    def flag_snapshot(self) -> dict:
+        return {u: f.flag_note for u, f in self.frames.items() if f.flagged}
+
+    def push_flag_undo(self, label):
+        self.undo_stack.append({"label": label, "flags": self.flag_snapshot()})
+
+    def restore_flags(self, snap: dict):
+        changed = [u for u, f in self.frames.items() if f.flagged != (u in snap) or
+                   (u in snap and f.flag_note != snap[u])]
+        for u in changed:
+            f = self.frames[u]
+            f.flagged = u in snap
+            f.flag_note = snap.get(u, "")
+        if self.show_combo.currentText() == "Flagged":
+            self.rebuild_list()
+        else:
+            for u in changed:
+                self.refresh_item(u)
+            self.show_current()
+        self.update_chart()
+        self.update_status()
+        self.session_timer.start()
+
     def toggle_flag(self):
         uids = self.selected_uids()
         if not uids:
             return
         state = not all(self.frames[u].flagged for u in uids)
+        self.push_flag_undo("flag" if state else "unflag")
         self.set_flags(uids, state)
 
     def set_flags(self, uids, state):
@@ -1716,10 +1759,12 @@ class MainWindow(QMainWindow):
             self.show_current()
         self.update_chart()
         self.update_status()
+        self.session_timer.start()
 
     def clear_flags(self):
         uids = [u for u, f in self.frames.items() if f.flagged]
         if uids:
+            self.push_flag_undo("Clear All Flags")
             self.set_flags(uids, False)
 
     def apply_preset(self, level):
@@ -1737,6 +1782,7 @@ class MainWindow(QMainWindow):
                     != QMessageBox.StandardButton.Yes:
                 return
         picked = set(core.cull_preset(frames, self.medians, level))
+        self.push_flag_undo(p["label"])
         for f in frames:
             if f.uid in picked:
                 f.flag_note = f"{p['label']}: " + "; ".join(
@@ -1751,7 +1797,8 @@ class MainWindow(QMainWindow):
             self.show_combo.setCurrentText("Flagged")
             self.statusBar().showMessage(
                 f"{p['label']}: flagged {len(picked)} of {len(measured)} frames "
-                f"({100 * len(picked) / len(measured):.0f}%) — review them, then Shift+X to reject them all", 12000)
+                f"({100 * len(picked) / len(measured):.0f}%) — review them, then Shift+X to reject them all "
+                "(Ctrl+Z undoes this)", 12000)
         else:
             self.statusBar().showMessage(f"{p['label']}: no frames need culling", 8000)
 
@@ -1858,10 +1905,98 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             dlg.save()
             uids = dlg.matches()
+            self.push_flag_undo("Auto-Flag")
             self.set_flags(uids, True)
             self.show_combo.setCurrentText("Flagged")
             self.statusBar().showMessage(f"Flagged {len(uids)} frames — step through them and press X "
                                          "to reject, or Shift+X to reject them all", 8000)
+
+    # ------------------------------------------------------------ session (0.6)
+    @staticmethod
+    def session_path() -> Path:
+        return cp.root() / "culling_session.json"
+
+    def save_session(self, clean=False):
+        """Remember what is loaded and flagged, so it can be reopened after a crash."""
+        p = self.session_path()
+        if not self.sources or not self.frames:
+            if clean and p.exists():          # nothing loaded now: just record a clean exit
+                d = cp.read_json(p, {}) or {}
+                d["clean"] = True
+                try:
+                    cp.write_json(p, d)
+                except OSError:
+                    pass
+            return
+        srcs = []
+        for src in self.sources:
+            if src[0] == "folder":
+                srcs.append(["folder", str(src[1]), bool(src[2])])
+            else:
+                srcs.append(["files", [str(x) for x in src[1]]])
+        cur = self.frames.get(self.current_uid)
+        d = {"sources": srcs,
+             "flags": {str(f.path): f.flag_note for f in self.frames.values() if f.flagged and not f.rejected},
+             "frames": len(self.frames), "rejected": sum(1 for f in self.frames.values() if f.rejected),
+             "show": self.show_combo.currentText(), "current": str(cur.path) if cur else None,
+             "time": time.strftime("%Y-%m-%d %H:%M"), "clean": bool(clean)}
+        try:
+            cp.write_json(p, d)
+        except OSError:
+            pass
+
+    def last_session(self):
+        d = cp.read_json(self.session_path(), None)
+        return d if d and d.get("sources") else None
+
+    def offer_resume(self):
+        """At start-up after a crash: offer to reopen what was loaded."""
+        d = self.last_session()
+        if not d or d.get("clean"):
+            return
+        nfl = len(d.get("flags", {}))
+        if QMessageBox.question(
+                self, APP_NAME, f"{APP_NAME} didn't close normally last time.\n\nReopen your last session "
+                f"({d.get('frames', '?')} frames, {nfl} flagged, {d.get('time', '')})?\n\n"
+                "Star measurements are reused from the cache, so this is quick.") == QMessageBox.StandardButton.Yes:
+            self.reopen_last_session()
+
+    def reopen_last_session(self):
+        d = self.last_session()
+        if not d:
+            QMessageBox.information(self, APP_NAME, "There is no saved session yet.")
+            return
+        sources = []
+        for src in d["sources"]:
+            if src[0] == "folder" and Path(src[1]).is_dir():
+                sources.append(("folder", Path(src[1]), bool(src[2])))
+            elif src[0] == "files":
+                files = [Path(x) for x in src[1] if Path(x).exists()]
+                if files:
+                    sources.append(("files", files))
+        if not sources:
+            QMessageBox.information(self, APP_NAME, "The folders of the last session can't be found any more "
+                                    "(is the NAS / drive connected?).")
+            return
+        flags = d.get("flags", {})
+        self.open_sources(sources)
+        if not self.frames:
+            return
+        by_path = {os.path.normcase(str(f.path)): u for u, f in self.frames.items()}
+        uids = []
+        for path, note in flags.items():
+            u = by_path.get(os.path.normcase(path))
+            if u is not None and not self.frames[u].rejected:
+                self.frames[u].flag_note = note
+                uids.append(u)
+        if uids:
+            self.set_flags(uids, True)
+        if d.get("show"):
+            self.show_combo.setCurrentText(d["show"])      # ignored if that view no longer exists
+        cur = by_path.get(os.path.normcase(d.get("current") or ""))
+        if cur is not None and cur in self.items:
+            self.list.setCurrentItem(self.items[cur])
+        self.statusBar().showMessage(f"Reopened the last session — {len(uids)} flagged frame(s) restored", 6000)
 
     # ------------------------------------------------------------ export
     def export_keepers(self):
@@ -2009,6 +2144,8 @@ def main():
 
     w = MainWindow()
     w.show()
+    if len(sys.argv) <= 1:
+        QTimer.singleShot(400, w.offer_resume)
     if len(sys.argv) > 1:
         target = Path(sys.argv[1])
         QTimer.singleShot(0, lambda: w.open_folder(target) if target.is_dir()

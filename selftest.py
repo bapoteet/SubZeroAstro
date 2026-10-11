@@ -206,7 +206,13 @@ def run(app, out_dir: Path) -> int:
             check(set(bad) <= names, f"{key} preset flags all bad frames ({len(names)} flagged)")
             check(not (names - set(bad)) or key == "aggressive",
                   f"{key} preset flags no good frames ({sorted(names - set(bad))})")
+        agg = {f.name for f in w.frames.values() if f.flagged}
+        w.apply_preset("less")
+        w.undo()
+        check({f.name for f in w.frames.values() if f.flagged} == agg, "one Ctrl+Z undoes a whole Auto-cull preset")
         w.apply_preset("semi")
+        w.save_session()
+        state["sess_flags"] = {f.name for f in w.frames.values() if f.flagged}
         QTimer.singleShot(600, shots_6)
 
     def shots_6():
@@ -231,6 +237,11 @@ def run(app, out_dir: Path) -> int:
         # --- Start Over, then process both folders together
         w.reset_session()
         check(not w.frames and w.list.count() == 0 and not w.chart.points, "Start Over clears the session")
+        w.reopen_last_session()
+        got = {f.name for f in w.frames.values() if f.flagged}
+        check(got == state["sess_flags"] and len(got) > 0,
+              f"Reopen Last Session restores folders and flags ({len(got)} flagged)")
+        w.reset_session()
         state["t2"] = time.time()
         w.open_sources(sources)
         QTimer.singleShot(300, wait_two)
@@ -441,7 +452,7 @@ def run(app, out_dir: Path) -> int:
         import prepare_window as pwm
         pw = state["pw"]
         n_steps = pw.hist_combo.count() - 1
-        expect = 6 if state["fake"] else 2          # crop..sxt, or crop + built-in gradient
+        expect = 5 if state["fake"] else 2          # crop, solve, gradient, BXT, SXT (NXT off) | crop + gradient
         check(n_steps == expect, f"step history lists each finished step ({n_steps}, expected {expect})")
         check(pw.view.locked, "after Prepare the view shows the result of the last step")
         pw.hist_combo.setCurrentIndex(2)
@@ -473,7 +484,7 @@ def run(app, out_dir: Path) -> int:
         res = getattr(pw, "last_results", []) or []
         check(len(res) == 1 and res[0].get("resumed") == 1,
               f"re-run resumed from saved progress ({res[0].get('resumed') if res else None} step kept)")
-        expect = 6 if state["fake"] else 2
+        expect = 5 if state["fake"] else 2
         check(pw.hist_combo.count() - 1 == expect, "history complete again after the redo")
         state["pw"].close()
         state["win"].close()
