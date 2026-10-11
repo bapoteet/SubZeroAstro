@@ -103,6 +103,42 @@ def run(app, out_dir: Path) -> int:
     bad = make_session(session)
     log(f"Created 16 synthetic frames in {time.time() - t0:.1f}s at {session}")
 
+    # --- smart telescopes: header recognition (synthetic files, real header layouts) ----
+    import numpy as _np
+    import stacking as _st
+    sm = session.parent / "smart"
+    sm.mkdir()
+    rng = _np.random.default_rng(1)
+    cfa = (rng.normal(400, 8, (64, 96))).astype(_np.uint16)
+    core.write_fits(sm / "M 31_15s60_Astro_20251231-215912880_14C.fits", cfa,
+                    [("DATE-OBS", "2025-12-31T21:59:12.879", ""), ("EXPTIME", 15.0, ""), ("GAIN", 60, ""),
+                     ("FILTER", "Astro", ""), ("DET-TEMP", 14, ""), ("FOCALLEN", 150.0, ""), ("XPIXSZ", 2.9, ""),
+                     ("OBJECT", "M 31", ""), ("BAYERPAT", "RGGB", ""), ("TELESCOP", "DWARF mini", ""),
+                     ("INSTRUME", "DWARF mini", ""), ("ORIGIN", "DWARFLAB", "")], bitpix=16)
+    core.write_fits(sm / "img-0001.fits", cfa,
+                    [("DATE-OBS", "2026-07-01T03:02:08", ""), ("EXPOSURE", 10.0, ""), ("TEMP", 28.8, ""),
+                     ("FOCAL", 250, ""), ("INSTRUME", "vesperapro-2ccf67443292", ""), ("BAYERPAT", "GBRG", ""),
+                     ("GAIN", 201, ""), ("PIXSZ", 2.0, ""), ("OBJECT", "SH2-101", ""), ("FILTER", "CLS", "")],
+                    bitpix=16)
+    rgb = _np.stack([cfa, cfa, cfa])
+    core.write_fits(sm / "Stacked_62_IC 1396_20.0s_LP_20251125-190001.fit", rgb,
+                    [("CREATOR", "ZWO Seestar S30", ""), ("FOCALLEN", 150.0, ""), ("XPIXSZ", 2.9, ""),
+                     ("IMAGETYP", "Light", ""), ("STACKCNT", 62, ""), ("EXPTIME", 20.0, ""),
+                     ("DATE-OBS", "2025-11-26T00:59:35.8", ""), ("FILTER", "LP", ""), ("INSTRUME", "Seestar S30", ""),
+                     ("BAYERPAT", "GRBG", ""), ("TELESCOP", "S30_5031f5de", ""), ("OBJECT", "IC 1396", ""),
+                     ("TOTALEXP", 1240.0, "")], bitpix=16)
+    i_dw = _st.read_info(sm / "M 31_15s60_Astro_20251231-215912880_14C.fits")
+    i_ve = _st.read_info(sm / "img-0001.fits")
+    i_ss = _st.read_info(sm / "Stacked_62_IC 1396_20.0s_LP_20251125-190001.fit")
+    check(i_dw.type == "light" and i_dw.smart == "DWARF mini" and i_dw.temp == 14 and i_dw.bayer == "RGGB",
+          f"DWARF mini subs recognised ({i_dw.type}, {i_dw.smart}, {i_dw.temp} C)")
+    check(i_ve.type == "light" and i_ve.camera == "Vespera Pro" and i_ve.exptime == 10,
+          f"Vespera Pro subs recognised ({i_ve.type}, {i_ve.camera}, {i_ve.exptime} s)")
+    check(i_ss.planes == 3 and i_ss.bayer is None and i_ss.exposure_total == 1240.0 and i_ss.smart == "Seestar S30",
+          f"Seestar stack recognised as stacked colour ({i_ss.planes} planes, {i_ss.exposure_total:.0f} s)")
+    import prepare as _P
+    check(len(_P.find_masters([sm])) == 1, "a Seestar stack can go straight into Prepare")
+
     w = fb.MainWindow()
     w.resize(1600, 950)
     w.show()

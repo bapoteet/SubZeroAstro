@@ -62,7 +62,17 @@ class Master:
 
     @property
     def name(self):
-        return self.path.stem
+        st_ = self.path.stem
+        try:
+            n = int(self.look.get("STACKCNT") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n > 1 and "_master" not in st_.lower():         # a smart-telescope stack: give it a tidy name
+            day = core.night_of(core.frame_info(self.look)) or "undated"
+            dev = core.safe_filename(core.smart_scope(self.look) or "Stack") if hasattr(core, "safe_filename") \
+                else re.sub(r"[^A-Za-z0-9]+", "", core.smart_scope(self.look) or "Stack")
+            return f"{self.target}_{re.sub(r'[^A-Za-z0-9]+', '', self.filter)}_{dev}_{n}x_{day}"
+        return st_
 
     @property
     def shape(self):
@@ -80,8 +90,12 @@ class Master:
 
 def is_master_light(look: dict, name: str) -> bool:
     t = str(look.get("IMAGETYP", "")).lower()
-    return "master" in t and "light" in t or ("_master" in name.lower() and "flat" not in t and "dark" not in t
-                                              and "bias" not in t)
+    try:
+        smart_stack = int(look.get("STACKCNT") or 0) > 1          # e.g. a Seestar "Stacked_…" file
+    except (TypeError, ValueError):
+        smart_stack = False
+    return "master" in t and "light" in t or smart_stack or (
+        "_master" in name.lower() and "flat" not in t and "dark" not in t and "bias" not in t)
 
 
 def find_masters(paths) -> list:
@@ -229,9 +243,9 @@ def solve_hints(m: Master):
         ra = _num(L.get("RA")) if _num(L.get("RA")) is not None else _sexa(L.get("OBJCTRA"), hours=True)
         dec = _num(L.get("DEC")) if _num(L.get("DEC")) is not None else _sexa(L.get("OBJCTDEC"))
     fov = None
-    pix, foc = _num(L.get("XPIXSZ")), _num(L.get("FOCALLEN"))
-    if pix and foc:
-        fov = m.shape[0] * 206.265 * pix / foc / 3600.0
+    scale = core.frame_info(L).get("scale")         # arcsec/pixel (FOCALLEN/FOCAL, XPIXSZ/PIXSZ)
+    if scale:
+        fov = m.shape[0] * scale / 3600.0
     return ra, dec, fov
 
 

@@ -57,6 +57,22 @@ from versions released under the earlier name "FITS Blaster for Windows".
 
 Optional: **`build_exe.bat`** makes a stand-alone `dist\SubZeroAstro\SubZeroAstro.exe`.
 
+## Smart telescopes (new in 0.6)
+
+SubZeroAstro reads the files from **ZWO Seestar**, **DWARF** (mini / II / 3), **Vaonis Vespera**
+(incl. Pro), **Stellina** and **eVscope**, alongside traditional NINA / ASIAIR rigs:
+
+- **Raw subs** (DWARF, Vespera, Seestar with "save each frame" on) are recognised as lights even
+  without an IMAGETYP keyword. Culling, Auto-cull and stacking work as usual; star alignment
+  handles the field rotation of alt-az mounts and the auto-crop trims the rotated edges.
+  Calibration frames are optional — no "missing darks/flats" warnings for these scopes.
+- **Seestar stacks** (`Stacked_62_IC 1396_….fit`, already debayered colour) can be combined
+  across nights in the Stacking window: each stack is aligned, brought to the same brightness
+  (the Seestar app scales every stack differently) and weighted by its noise. The master's
+  EXPTOTAL counts the real integration of every sub inside the stacks.
+- A single Seestar stack can go straight into **Prepare for PixInsight** — it is already plate
+  solved, so Prepare crops, removes gradients and runs the XTerminators.
+
 ## Saving progress and going back (new in 0.6)
 
 SubZeroAstro now saves your progress as it works, so a crash, a frozen laptop or a

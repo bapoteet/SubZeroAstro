@@ -129,7 +129,10 @@ def frame_type(look: dict, name: str):
             return "light"
         return None
 
-    return (kind(t) or kind(n)), master
+    k = kind(t) or kind(n)
+    if k is None and (core.smart_scope(look) or look.get("STACKCNT")):
+        k = "light"                     # smart telescopes don't write IMAGETYP on their lights
+    return k, master
 
 
 @dataclass
@@ -157,6 +160,19 @@ class ImgInfo:
     target: str | None
     roworder: str | None
     ncombine: int | None = None
+    planes: int = 1                     # 3 = already-debayered colour (e.g. a Seestar stack)
+    stackcnt: int | None = None         # frames inside a smart-telescope stack
+    totalexp: float | None = None
+    smart: str | None = None
+
+    @property
+    def exposure_total(self) -> float:
+        """Real integration time this file holds (a stack counts all its frames)."""
+        if self.totalexp:
+            return float(self.totalexp)
+        if self.stackcnt and self.exptime:
+            return float(self.stackcnt) * float(self.exptime)
+        return float(self.exptime or 0)
 
 
 def _num(v):
@@ -166,7 +182,7 @@ def _num(v):
         return None
 
 
-def info_from_look(path, look, w, h, typ=None, master=False) -> ImgInfo:
+def info_from_look(path, look, w, h, typ=None, master=False, planes=1) -> ImgInfo:
     fi = core.frame_info(look)
     xb = _num(look.get("XBINNING") or look.get("CCDXBIN"))
     return ImgInfo(
@@ -183,13 +199,15 @@ def info_from_look(path, look, w, h, typ=None, master=False) -> ImgInfo:
         rotator=_num(fi.get("rotator")),
         target=(str(fi["object"]).strip() if fi.get("object") else None),
         roworder=(str(look.get("ROWORDER")).strip().upper() if look.get("ROWORDER") else None),
-        ncombine=int(look["NCOMBINE"]) if isinstance(look.get("NCOMBINE"), int) else None)
+        ncombine=int(look["NCOMBINE"]) if isinstance(look.get("NCOMBINE"), int) else None,
+        planes=int(planes or 1), stackcnt=int(_num(fi.get("stackcnt"))) if _num(fi.get("stackcnt")) else None,
+        totalexp=_num(fi.get("totalexp")), smart=fi.get("smart"))
 
 
 def read_info(path) -> ImgInfo:
     src = ImageSource(path)
     typ, master = frame_type(src.look, src.path.name)
-    return info_from_look(path, src.look, src.w, src.h, typ, master)
+    return info_from_look(path, src.look, src.w, src.h, typ, master, planes=src.channels)
 
 
 # ==========================================================================
@@ -421,7 +439,7 @@ class LightGroup:
 
     @property
     def total_exposure(self):
-        return sum((f.info.exptime or 0) for f in self.frames)
+        return sum(f.info.exposure_total for f in self.frames)
 
     @property
     def nights(self):
@@ -436,7 +454,7 @@ def group_lights(lights: list[LightFrame], rigs: Rigs) -> list[LightGroup]:
     groups = {}
     for lf in lights:
         i = lf.info
-        key = (target_name(i.target), i.filter, (i.camera or "").lower(), bool(i.bayer),
+        key = (target_name(i.target), i.filter, (i.camera or "").lower(), bool(i.bayer) or i.planes > 1,
                i.w, i.h, i.x0, i.y0, i.binning, rigs.name_for(i))
         groups.setdefault(key, []).append(lf)
     out = []
@@ -577,6 +595,16 @@ def plan_group(g: LightGroup, items: list[CalItem]) -> CalPlan:
     else:
         p.warnings.append(("flat", f"No flats for filter {L.filter} on {g.rig} — vignetting and dust "
                                    "shadows will not be corrected."))
+    if L.smart or L.planes > 1:
+        # smart telescopes calibrate on board (or the input is already a stack): missing
+        # calibration is normal here, so don't stop the user with warnings
+        if p.warnings:
+            p.notes.append(f"{L.smart or 'Stacked colour input'}: no separate calibration frames needed "
+                           "(add darks/flats from the scope if you have them)")
+        if L.planes > 1:
+            p.bias = p.dark = p.flat = p.flat_bias = p.flat_dark = None
+            p.dark_mode = "none"
+        p.warnings = []
     return p
 
 
@@ -736,11 +764,11 @@ def save_master_file(path_base: Path, data: np.ndarray, header: list, formats=("
     header = [h for h in header if h[0] != "PIXRANGE"] + [("PIXRANGE", ADU_FULL, "values x this = ADU (0..1 range)")]
     written = []
     if "fits" in formats:
-        p = path_base.with_suffix(".fits")
+        p = path_base.with_name(path_base.name + ".fits")    # names may contain dots ("20.0s")
         core.write_fits(p, data, header, bitpix=-32)
         written.append(p)
     if "xisf" in formats:
-        p = path_base.with_suffix(".xisf")
+        p = path_base.with_name(path_base.name + ".xisf")
         xisf.write_xisf(p, data, [(k, v, c) for k, v, c in header if k not in ("HISTORY", "COMMENT")],
                         image_type, bounds=(0.0, 1.0))
         written.append(p)
@@ -789,7 +817,7 @@ def save_calibration_master(item: CalItem, cal_root, rig: str, formats=("fits",)
 
 def _unique_base(base: Path, formats) -> Path:
     def exists(b):
-        return any(b.with_suffix("." + f).exists() for f in formats)
+        return any(b.with_name(f"{b.name}.{f}").exists() for f in formats)
     if not exists(base):
         return base
     k = 2
@@ -1206,7 +1234,7 @@ def common_reference(group_list: list, progress=None) -> dict | None:
         progress(f"Finding stars in the common reference {best.info.path.name}", 0.0)
     raw = ImageSource(best.info.path).read()
     if raw.ndim == 3:
-        raw = raw[0]
+        raw = raw.mean(axis=0) if raw.shape[0] == 3 and not best.info.bayer else raw[0]
     lum, fac = luminance(raw.astype(np.float32), bool(best.info.bayer))
     pts, _pk = find_stars(lum, fac)
     if len(pts) < 6:
@@ -1254,10 +1282,11 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         if cancel and cancel():
             raise Cancelled()
 
-    frames = sorted(g.frames, key=lambda f: -(f.score if f.score is not None else 0))
+    frames = sorted(g.frames, key=lambda f: (-(f.score if f.score is not None else 0), -f.info.exposure_total))
     ref_info = frames[0].info
     bayer = ref_info.bayer
-    channels = ["R", "G", "B"] if bayer else ["L"]
+    rgb_in = ref_info.planes == 3 and not bayer      # already-debayered colour stacks
+    channels = ["R", "G", "B"] if (bayer or rgb_in) else ["L"]
     cal = Calibrator(ref_info, plan)
     log.append(f"Group: {g.label()}  ({len(frames)} frames, {g.total_exposure / 3600:.2f} h)")
     log.append(f"Reference frame: {ref_info.path.name}")
@@ -1271,11 +1300,20 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
 
     def calibrated(info):
         raw = ImageSource(info.path).read()
+        if rgb_in:
+            if raw.ndim != 3 or raw.shape[0] != 3:
+                raise ValueError("not a 3-plane colour image like the reference")
+            return raw.astype(np.float32, copy=False)      # stacked colour: no calibration, no debayer
         if raw.ndim == 3:
             raw = raw[0]
         return cal.apply(raw)
 
+    def lumin(img):
+        return luminance(img.mean(axis=0) if img.ndim == 3 else img, bool(bayer))
+
     def planes(cal_img):
+        if rgb_in:
+            return [cal_img[0], cal_img[1], cal_img[2]]
         if bayer:
             if opts.osc_half:
                 return [debayer_channel(cal_img, bayer, c, half=True) for c in channels]
@@ -1285,12 +1323,15 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     # --- reference -------------------------------------------------------------
     prog(f"{g.label()}: reference frame", 0.0)
     ref_cal = calibrated(ref_info)
-    lum, fac = luminance(ref_cal, bool(bayer))
+    if rgb_in:
+        log.append("Input: colour images that are already stacked (e.g. by a smart telescope) — "
+                   "aligned and combined without calibration or debayering")
+    lum, fac = lumin(ref_cal)
     ref_pts, ref_peaks = find_stars(lum, fac)
     if len(ref_pts) < 6:
         raise ValueError(f"Too few stars in the reference frame {ref_info.path.name}")
     half = bayer and opts.osc_half
-    out_h, out_w = (ref_cal.shape[0] // 2, ref_cal.shape[1] // 2) if half else ref_cal.shape
+    out_h, out_w = (ref_cal.shape[-2] // 2, ref_cal.shape[-1] // 2) if half else ref_cal.shape[-2:]
     del ref_cal
     res.ref_path = ref_info.path
     T_g2c = None
@@ -1338,7 +1379,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     def prepare(idx, lf, write):
         info = lf.info
         img = calibrated(info)
-        lum, fac = luminance(img, bool(bayer))
+        lum, fac = lumin(img)
         pts, peaks = find_stars(lum, fac)
         if info is ref_info:
             T = np.array([[1.0, 0, 0], [0, 1.0, 0]])
@@ -1349,8 +1390,12 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             # photometric scale from matched stars
             pr, pt = ref_peaks[j[ok]], peaks[ok]
             good = (pr > 0) & (pt > 0)
+            if rgb_in and good.sum() >= 12:
+                # stacks from smart telescopes are each scaled differently, and their bright
+                # stars are clipped: use the fainter three quarters of the matched stars
+                good &= (pr < np.percentile(pr[good], 75)) & (pt < np.percentile(pt[good], 75))
             k_phot = float(np.median(pr[good] / pt[good])) if good.sum() >= 5 else 1.0
-            k_phot = float(np.clip(k_phot, 0.3, 3.0))
+            k_phot = float(np.clip(k_phot, 0.01, 100.0) if rgb_in else np.clip(k_phot, 0.3, 3.0))
         Tout = final_T(T)
         pls = planes(img)
         del img
@@ -1498,8 +1543,10 @@ def reference_keywords(ref_path, half=False) -> list:
         return []
     out = [(k, look[k], "from reference frame") for k in _HINT_KEYS if look.get(k) not in (None, "")]
     f = 2.0 if half else 1.0
+    if not look.get("FOCALLEN") and _num(look.get("FOCAL")):            # Vespera writes FOCAL
+        out.append(("FOCALLEN", _num(look.get("FOCAL")), "[mm] from reference frame"))
     for k in ("XPIXSZ", "YPIXSZ"):
-        v = _num(look.get(k))
+        v = _num(look.get(k)) or _num(look.get("PIXSZ"))
         if v:
             out.append((k, v * f, "[um] effective pixel size" + (" (half-resolution colour)" if half else "")))
     if all(look.get(k) not in (None, "") for k in ("CTYPE1", "CTYPE2", "CRVAL1", "CRVAL2", "CRPIX1", "CRPIX2")):
@@ -1613,10 +1660,13 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
     header = [("IMAGETYP", "Master Light", ""), ("OBJECT", i0.target, ""), ("FILTER", g.filter, ""),
               ("INSTRUME", g.camera, ""), ("TELESCOP", g.rig, "rig name"), ("FOCALLEN", i0.focal, "[mm]"),
               ("EXPTIME", i0.exptime, "[s] subframe exposure"),
-              ("EXPTOTAL", round(sum((f.info.exptime or 0) for f in g.frames
+              ("EXPTOTAL", round(sum(f.info.exposure_total for f in g.frames
                                      if f.info.path.name not in {s for s, _ in res.skipped}), 1),
                "[s] total exposure combined"),
-              ("NCOMBINE", res.used, "frames combined"), ("GAIN", i0.gain, ""),
+              ("NCOMBINE", res.used, "files combined"), ("GAIN", i0.gain, ""),
+              ("STACKCNT", sum((f.info.stackcnt or 1) for f in g.frames
+                               if f.info.path.name not in {s for s, _ in res.skipped})
+               if any(f.info.stackcnt for f in g.frames) else None, "subframes inside the combined stacks"),
               ("CCD-TEMP", round(float(np.mean(temps)), 1) if temps else None, "[C] mean"),
               ("DATE-OBS", dates[0] if dates else None, "first frame"),
               ("DATE-END", dates[-1] if dates else None, "last frame"),

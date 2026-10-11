@@ -313,8 +313,44 @@ def write_fits(path, data: np.ndarray, header=None, bitpix: int = -32):
 # --------------------------------------------------------------------------
 
 def is_bayer(look: dict) -> bool:
+    """Raw one-shot-colour data. A 3-plane image (e.g. a Seestar stack) is already
+    debayered even if it still carries BAYERPAT."""
+    try:
+        if int(look.get("NAXIS3") or 1) > 1 or int(look.get("_XISF_CHANNELS") or 1) > 1:
+            return False
+    except (TypeError, ValueError):
+        pass
     pat = str(look.get("BAYERPAT", "") or "").strip().upper()
     return pat in {"RGGB", "BGGR", "GRBG", "GBRG"}
+
+
+def smart_scope(look: dict) -> str | None:
+    """Model name of a smart telescope (Seestar, DWARF, Vespera, Stellina, eVscope), else None."""
+    text = " ".join(str(look.get(k) or "") for k in ("INSTRUME", "TELESCOP", "CREATOR", "ORIGIN", "PRODUCER",
+                                                    "CAMERA")).lower()
+    comments = " ".join(str(c) for c in (look.get("COMMENT") or [])).lower() \
+        if isinstance(look.get("COMMENT"), list) else str(look.get("COMMENT") or "").lower()
+    m = re.search(r"seestar\s*(s\d+)", text)
+    if m:
+        return f"Seestar {m.group(1).upper()}"
+    if "seestar" in text:
+        return "Seestar"
+    m = re.search(r"dwarf\s*(mini|ii|iii|2|3)?", text)
+    if m:
+        v = (m.group(1) or "").lower()
+        return {"mini": "DWARF mini", "ii": "DWARF II", "2": "DWARF II", "iii": "DWARF 3", "3": "DWARF 3"}.get(v,
+                                                                                                         "DWARF")
+    if "vespera" in text or "vaonis" in text or "vaonis" in comments:
+        if "vesperapro" in text.replace(" ", "") or "vespera pro" in comments:
+            return "Vespera Pro"
+        if re.search(r"vespera\s*(ii|2)", text):
+            return "Vespera II"
+        return "Vespera"
+    if "stellina" in text:
+        return "Stellina"
+    if "evscope" in text or "unistellar" in text:
+        return "eVscope"
+    return None
 
 
 def to_display_plane(data: np.ndarray, look: dict) -> np.ndarray:
@@ -415,27 +451,36 @@ def frame_info(look: dict) -> dict:
                 return v
         return None
 
-    focal = get("FOCALLEN")
-    pix = get("XPIXSZ", "PIXSIZE1")
+    focal = get("FOCALLEN", "FOCAL")
+    pix = get("XPIXSZ", "PIXSIZE1", "PIXSZ")
     scale = None
     try:
         if focal and pix and float(focal) > 0:
             scale = 206.265 * float(pix) / float(focal)      # arcsec per pixel
     except (TypeError, ValueError):
         pass
+    smart = smart_scope(look)
+    camera = get("INSTRUME", "CAMERA")
+    telescope = get("TELESCOP")
+    if smart:                       # serial numbers make every session look like a new rig
+        camera = smart
+        telescope = smart
     return {
+        "smart": smart,
+        "stackcnt": get("STACKCNT"),
+        "totalexp": get("TOTALEXP"),
         "object": get("OBJECT", "OBJNAME", "TARGET"),
         "filter": normalize_filter(get("FILTER", "FILTER1", "FILTNAME")),
         "exptime": get("EXPTIME", "EXPOSURE"),
         "date_obs": get("DATE-OBS", "DATE-LOC", "DATE"),
         "date_loc": get("DATE-LOC"),
         "longitude": get("SITELONG", "OBSGEO-L", "LONG-OBS"),
-        "camera": get("INSTRUME", "CAMERA"),
-        "telescope": get("TELESCOP"),
+        "camera": camera,
+        "telescope": telescope,
         "software": get("SWCREATE", "CREATOR", "PROGRAM"),
         "gain": get("GAIN"),
         "offset": get("OFFSET"),
-        "temp": get("CCD-TEMP", "SET-TEMP"),
+        "temp": get("CCD-TEMP", "SET-TEMP", "DET-TEMP", "TEMP"),
         "bayer": str(look.get("BAYERPAT", "")).strip() if is_bayer(look) else None,
         "imagetyp": get("IMAGETYP", "FRAME"),
         "scale": scale,
