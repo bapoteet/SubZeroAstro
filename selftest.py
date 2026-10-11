@@ -211,6 +211,9 @@ def run(app, out_dir: Path) -> int:
         w.undo()
         check({f.name for f in w.frames.values() if f.flagged} == agg, "one Ctrl+Z undoes a whole Auto-cull preset")
         w.apply_preset("semi")
+        cdlg = fb.CheckpointDialog(w, w.settings)
+        check("Currently using" in cdlg.size_label.text(), "Saved Progress dialog shows the space used")
+        cdlg.close()
         w.save_session()
         state["sess_flags"] = {f.name for f in w.frames.values() if f.flagged}
         QTimer.singleShot(600, shots_6)

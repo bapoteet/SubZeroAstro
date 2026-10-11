@@ -57,6 +57,31 @@ from versions released under the earlier name "FITS Blaster for Windows".
 
 Optional: **`build_exe.bat`** makes a stand-alone `dist\SubZeroAstro\SubZeroAstro.exe`.
 
+## Saving progress and going back (new in 0.6)
+
+SubZeroAstro now saves your progress as it works, so a crash, a frozen laptop or a
+power cut doesn't cost you the evening — and you can step back when you don't like a result.
+
+- **Culling** — the folders you loaded and the frames you flagged are saved as you go. If
+  SubZeroAstro didn't close normally it offers to reopen the session at the next start
+  (measurements come from the cache, so it's quick). *File › Reopen Last Session* does it any time.
+  **Ctrl+Z** now also undoes a whole Auto-cull preset, Auto-Flag, Clear All Flags or
+  Reject Flagged (files *and* flags come back) in one step.
+- **Stacking** — each master is noted as soon as it's saved. If a run is interrupted, the next
+  run offers **Continue With the Rest**: finished masters are kept and calibration masters it
+  already built are reused instead of rebuilt. Stacking again never overwrites a master — new
+  versions are saved as `_2`, `_3`, …
+- **Prepare for PixInsight** — the image is saved after every step (crop, plate solve, gradient,
+  BXT, NXT, SXT). The **Step history** under the preview lets you look at the result of any step,
+  hold **Before** to compare with the step before it, and **Go Back & Redo This Step**: change its
+  settings and press Prepare — only that step and the ones after it run again. Changing a setting
+  is noticed automatically too (e.g. a stronger BXT sharpen re-runs BXT, NXT and SXT, but not
+  ASTAP or GraXpert). After a crash, Prepare simply continues from the last finished step.
+
+*Settings › Saved Progress* shows how much space this uses, lets you move it to another drive,
+and sets how long unused progress is kept (30 days by default; Prepare copies are roughly
+100–400 MB per filter per step). Saved progress never touches your subframes or masters.
+
 ## Prepare for PixInsight (new in 0.5.0)
 
 After stacking, click **Prepare for PixInsight…** in the Stacking window (or
@@ -274,6 +299,7 @@ and it only sees the frames you kept.
 - `stacking.py` — calibration masters, star alignment and stacking
 - `stack_window.py` — the Stacking window
 - `xisf.py` — PixInsight XISF reading and writing
+- `checkpoints.py` — saved progress (crash recovery, step history)
 - `prepare.py` — Stage 4 pipeline: crop, solve, gradients, XTerminators, quick-look, PixInsight plan
 - `prepare_window.py` — the Prepare for PixInsight window
 - `tools.py` — running ASTAP, GraXpert and the RC-Astro CLI

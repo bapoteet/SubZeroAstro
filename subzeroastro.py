@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
                                QGraphicsView, QGridLayout, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QListView,
                                QListWidget, QListWidgetItem, QMainWindow,
-                               QMessageBox, QProgressBar, QSpinBox, QSplitter,
+                               QMessageBox, QProgressBar, QPushButton, QSpinBox, QSplitter,
                                QStyle, QTableWidget, QTableWidgetItem,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
@@ -226,6 +226,84 @@ class ImageView(QGraphicsView):
 # --------------------------------------------------------------------------
 # Auto-Flag dialog
 # --------------------------------------------------------------------------
+
+class CheckpointDialog(QDialog):
+    """Settings › Saved Progress: where checkpoints go and how long they are kept."""
+
+    def __init__(self, parent, settings):
+        super().__init__(parent)
+        self.settings = settings
+        self.setWindowTitle("Saved Progress")
+        self.resize(640, 300)
+        lay = QVBoxLayout(self)
+        intro = QLabel(f"{APP_NAME} saves your progress as it works — the culling session, each finished "
+                       "master while stacking, and the image after every Prepare step — so you can carry on "
+                       "after a crash and go back to an earlier step. Prepare copies are the big ones "
+                       "(roughly 100–400 MB per filter per step), so a fast local drive is best.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        form = QFormLayout()
+        row = QHBoxLayout()
+        self.dir_edit = QLineEdit(settings.value("checkpoints/dir", "") or "")
+        self.dir_edit.setPlaceholderText(str(cp.default_root()))
+        row.addWidget(self.dir_edit, 1)
+        b = QPushButton("Browse…")
+        b.clicked.connect(self.browse)
+        row.addWidget(b)
+        b2 = QPushButton("Default")
+        b2.clicked.connect(self.dir_edit.clear)
+        row.addWidget(b2)
+        form.addRow("Folder:", row)
+        self.days = QSpinBox()
+        self.days.setRange(0, 365)
+        self.days.setSpecialValueText("never")
+        self.days.setSuffix(" days")
+        self.days.setValue(int(settings.value("checkpoints/days", 30)))
+        form.addRow("Delete progress not used for:", self.days)
+        lay.addLayout(form)
+        self.size_label = QLabel()
+        lay.addWidget(self.size_label)
+        b3 = QPushButton("Delete All Saved Progress Now")
+        b3.clicked.connect(self.clear_all)
+        lay.addWidget(b3, 0, Qt.AlignLeft)
+        lay.addStretch(1)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self.save)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+        self.update_size()
+
+    def update_size(self):
+        self.size_label.setText(f"Currently using <b>{cp.human(cp.total_size())}</b> in {cp.root()}")
+
+    def browse(self):
+        d = QFileDialog.getExistingDirectory(self, "Folder for saved progress",
+                                             self.dir_edit.text() or str(cp.default_root()))
+        if d:
+            self.dir_edit.setText(d)
+
+    def clear_all(self):
+        if QMessageBox.question(self, "Saved Progress", "Delete all saved progress? You won't be able to resume "
+                                "interrupted runs or go back to earlier Prepare steps.\n\n(Your images, masters "
+                                "and the culling session are not touched.)") \
+                == QMessageBox.StandardButton.Yes:
+            freed = cp.clear_all()
+            self.update_size()
+            QMessageBox.information(self, "Saved Progress", f"Freed {cp.human(freed)}.")
+
+    def save(self):
+        d = self.dir_edit.text().strip()
+        if d:
+            try:
+                Path(d).mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                QMessageBox.warning(self, "Saved Progress", f"Can't use that folder:\n{e}")
+                return
+        self.settings.setValue("checkpoints/dir", d)
+        self.settings.setValue("checkpoints/days", self.days.value())
+        cp.set_root(d)
+        self.accept()
+
 
 class AutoFlagDialog(QDialog):
     """Flag frames that fall outside thresholds relative to their filter's median."""
@@ -531,9 +609,11 @@ class MainWindow(QMainWindow):
         self.session_timer.setInterval(1500)
         self.session_timer.timeout.connect(self.save_session)
 
+        cp.set_root(self.settings.value("checkpoints/dir", "") or None)
         self._build_ui()
         self._build_actions()
         self._restore_settings()
+        QTimer.singleShot(3000, self.cleanup_checkpoints)
         self.view.on_detail = self.request_detail
         self.update_status()
 
@@ -874,6 +954,9 @@ class MainWindow(QMainWindow):
         sm = m.addMenu("Star measurement")
         for a in self.mode_actions.values():
             sm.addAction(a)
+        a = QAction("Saved Progress (crash recovery)…", self)
+        a.triggered.connect(lambda: CheckpointDialog(self, self.settings).exec())
+        m.addAction(a)
         m = mb.addMenu("&Help")
         a = QAction("Keyboard Shortcuts", self)
         a.triggered.connect(self.show_keys)
@@ -1910,6 +1993,14 @@ class MainWindow(QMainWindow):
             self.show_combo.setCurrentText("Flagged")
             self.statusBar().showMessage(f"Flagged {len(uids)} frames — step through them and press X "
                                          "to reject, or Shift+X to reject them all", 8000)
+
+    def cleanup_checkpoints(self):
+        try:
+            freed = cp.cleanup(int(self.settings.value("checkpoints/days", 30)))
+        except (OSError, ValueError):
+            return
+        if freed:
+            self.statusBar().showMessage(f"Deleted old saved progress ({cp.human(freed)})", 5000)
 
     # ------------------------------------------------------------ session (0.6)
     @staticmethod
