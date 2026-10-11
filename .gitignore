@@ -20,3 +20,7 @@ selftest_exe/
 *.fts
 *.xisf
 *.zip
+
+# profiling output
+*.prof
+/p

@@ -1,5 +1,5 @@
 @echo off
-rem FITS Blaster for Windows - launcher
+rem SubZeroAstro - launcher
 rem First run: creates a private Python environment and installs PySide6 + NumPy (a few minutes).
 rem Later runs: starts straight away.
 
@@ -8,7 +8,7 @@ cd /d "%~dp0"
 if exist ".venv\Scripts\pythonw.exe" goto run
 
 echo.
-echo  FITS Blaster for Windows - first-time setup
+echo  SubZeroAstro - first-time setup
 echo  -------------------------------------------
 where py >nul 2>nul
 if %errorlevel%==0 (
@@ -43,4 +43,4 @@ if errorlevel 1 (
 echo  Setup complete.
 
 :run
-start "" ".venv\Scripts\pythonw.exe" fits_blaster.py %*
+start "" ".venv\Scripts\pythonw.exe" subzeroastro.py %*

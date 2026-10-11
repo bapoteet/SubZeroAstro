@@ -1,43 +1,57 @@
-# FITS Blaster for Windows — Stage 2 (culling with quality metrics)
+# SubZeroAstro
 
-A Windows app for reviewing a night's (or several nights') FITS frames, measuring
-star quality on every frame, and setting aside the bad ones. Inspired by Tom van
-Peer's FITS Blaster for macOS (https://astrophoto-app.com/), written independently
-for Windows.
+***From subs to masters - zero hassle.***
+
+A Windows app that takes a night's — or many nights' — subframes all the way to
+PixInsight-ready masters:
+
+1. **Cull** — star quality on every frame (FWHM, eccentricity, SNR, stars, background),
+   a session chart, and one-click Aggressive / Semi-aggressive / Less aggressive culling.
+2. **Stack** — calibration with your bias / darks / flats (and a calibration library that
+   remembers your masters), star alignment and outlier rejection.
+3. **Prepare for PixInsight** — crop, plate solve (ASTAP), gradient removal (GraXpert),
+   BlurXTerminator / NoiseXTerminator / StarXTerminator, a quick-look image, and a
+   step-by-step plan for finishing in PixInsight.
+
+SubZeroAstro doesn't replace PixInsight — it does the routine work so your PixInsight
+time goes into the creative part. The culling view was inspired by Tom van Peer's
+FITS Blaster for macOS (https://astrophoto-app.com/); SubZeroAstro is written
+independently for Windows.
 
 ## Download (easiest — no Python needed)
 
 Go to the repository's **Releases** page (right-hand side on GitHub), download
-**FITS-Blaster-Windows.zip** from the latest release, unzip it anywhere and run
-**`FITS Blaster.exe`** inside the folder. If Windows SmartScreen warns about an
+**SubZeroAstro-Windows.zip** from the latest release, unzip it anywhere and run
+**`SubZeroAstro.exe`** inside the folder. If Windows SmartScreen warns about an
 unrecognized app, click **More info → Run anyway**.
 
 Every change pushed to GitHub is built and tested automatically on Windows
 (see the **Actions** tab), including a self-test that opens the real window.
-You can run the same self-test yourself: `python fits_blaster.py --selftest`
-(or `"FITS Blaster.exe" --selftest`) — it writes `selftest_output\selftest_result.txt`
+You can run the same self-test yourself: `python subzeroastro.py --selftest`
+(or `"SubZeroAstro.exe" --selftest`) — it writes `selftest_output\selftest_result.txt`
 and screenshots.
 
-## Updating from Stage 1
+## Updating
 
-Unzip over your existing folder (or into a new one) and double-click **`run.bat`**
-as before. Nothing new needs installing. If you built an `.exe`, run
-`build_exe.bat` again.
+Download the newest **SubZeroAstro-Windows.zip** from Releases, delete the old app
+folder (or unzip to a new one) and run **SubZeroAstro.exe**. Your settings, tool paths,
+rig names and saved measurements are stored separately and carry over — including
+from versions released under the earlier name "FITS Blaster for Windows".
 
 ## Install and run (first time)
 
 1. Install **Python 3.11 or newer** from https://www.python.org/downloads/ and tick
    **"Add python.exe to PATH"** during setup.
-2. Unzip this folder somewhere permanent, e.g. `C:\Astro\FITS Blaster`.
+2. Unzip this folder somewhere permanent, e.g. `C:\Astro\SubZeroAstro`.
 3. Double-click **`run.bat`**. The first run sets things up (2–5 minutes, needs internet).
 
-Optional: **`build_exe.bat`** makes a stand-alone `dist\FITS Blaster\FITS Blaster.exe`.
+Optional: **`build_exe.bat`** makes a stand-alone `dist\SubZeroAstro\SubZeroAstro.exe`.
 
 ## Prepare for PixInsight (new in 0.5.0)
 
 After stacking, click **Prepare for PixInsight…** in the Stacking window (or
 **Stack › Prepare Masters for PixInsight…**). The masters you just made are loaded,
-grouped by target. FITS Blaster then takes them as far as it sensibly can on linear
+grouped by target. SubZeroAstro then takes them as far as it sensibly can on linear
 data and hands over to PixInsight with a step-by-step plan.
 
 **Your tools** (top of the window — auto-detected, or Browse… to point at them):
@@ -62,7 +76,7 @@ data and hands over to PixInsight with a step-by-step plan.
 5. **Quick-look image** — auto-stretched JPG, PNG and 16-bit TIFF in RGB, LRGB, SHO or HOO.
 
 Prepared masters (linear, 32-bit, 0–1, plate solved) go to a **Prepared** folder next to the
-masters — originals are never changed. At the end FITS Blaster says your images are **ready for
+masters — originals are never changed. At the end SubZeroAstro says your images are **ready for
 final processing** and shows (and saves as `<target>_PixInsight_next_steps.html`) the
 recommended PixInsight processes and scripts in order — e.g. SPCC, stretching with GHS, star
 recombination with PixelMath — with the steps already done here ticked off.
@@ -240,7 +254,7 @@ and it only sees the frames you kept.
 
 ## Files
 
-- `fits_blaster.py` — the app window
+- `subzeroastro.py` — the main (culling) window
 - `chart.py` — the session chart
 - `metrics.py` — star detection and fitting
 - `fits_core.py` — FITS reading, fast sampled reads, stretching, scanning, cache,

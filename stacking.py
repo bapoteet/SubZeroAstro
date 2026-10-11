@@ -777,7 +777,7 @@ def save_calibration_master(item: CalItem, cal_root, rig: str, formats=("fits",)
               ("FOCALLEN", i.focal, ""), ("ROWORDER", i.roworder, ""), ("DATE-OBS", i.date_obs, "first subframe"),
               ("NCOMBINE", len(item.infos), "subframes combined"),
               ("XPIXSZ", _num(ImageSource(i.path).look.get("XPIXSZ")), "[um]"),
-              ("SWCREATE", "FITS Blaster for Windows", ""),
+              ("SWCREATE", "SubZeroAstro", ""),
               ("HISTORY", f"Sigma-clipped mean of {len(item.infos)} subframes", "")]
     header += [("HISTORY", f"  {x.path.name}", "") for x in item.infos[:200]]
     base = folder / "_".join(name)
@@ -1545,7 +1545,7 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
                if plan.flat else "none", ""),
               ("STACKREJ", f"sigma clip k={opts.kappa:g}", ""),
               ("STACKWGT", "noise" if opts.weighting else "equal", ""),
-              ("SWCREATE", "FITS Blaster for Windows", "")]
+              ("SWCREATE", "SubZeroAstro", "")]
     if g.ref.bayer:
         header.append(("COLORSPC", "RGB", "debayered" + (" (superpixel)" if opts.osc_half else " (bilinear)")))
     header += reference_keywords(res.ref_path or g.ref.path, half=bool(g.ref.bayer) and opts.osc_half)

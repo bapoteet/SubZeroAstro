@@ -1,8 +1,8 @@
 """
 selftest.py - run the real app window on synthetic frames and check it works.
 
-    python fits_blaster.py --selftest [output_folder]
-    "FITS Blaster.exe" --selftest [output_folder]
+    python subzeroastro.py --selftest [output_folder]
+    "SubZeroAstro.exe" --selftest [output_folder]
 
 Creates a small two-filter session with a few deliberately bad frames, opens it
 in the real window, waits for measuring to finish, exercises flag / reject /
@@ -67,7 +67,7 @@ def make_session(folder: Path):
 def run(app, out_dir: Path) -> int:
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
-    import fits_blaster as fb
+    import subzeroastro as fb
 
     out_dir.mkdir(parents=True, exist_ok=True)
     log_lines: list[str] = []

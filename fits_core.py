@@ -1,5 +1,5 @@
 """
-fits_core.py - the non-GUI parts of FITS Blaster for Windows.
+fits_core.py - the non-GUI parts of SubZeroAstro.
 
 Contains:
   * a small, dependency-free FITS reader/writer (NumPy only)
@@ -963,6 +963,7 @@ CACHE_VERSION = 2
 
 def cache_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA")
+    # storage keeps its original name so saved measurements survive the rename to SubZeroAstro
     d = Path(base) / "FITSBlasterWin" / "cache" if base else Path.home() / ".cache" / "fitsblasterwin"
     d.mkdir(parents=True, exist_ok=True)
     return d

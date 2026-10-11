@@ -369,7 +369,7 @@ def _open(path):
 class PrepareWindow(QMainWindow):
     def __init__(self, parent, settings, master_files=None):
         super().__init__(parent)
-        self.setWindowTitle("FITS Blaster — Prepare for PixInsight")
+        self.setWindowTitle("SubZeroAstro — Prepare for PixInsight")
         self.settings = settings
         self.sets = []                       # list of lists of Master (preview copies)
         self.crops = {}                      # set index -> rect

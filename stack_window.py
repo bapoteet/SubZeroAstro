@@ -185,7 +185,7 @@ class StackWindow(QMainWindow):
 
     def __init__(self, parent, frames, settings):
         super().__init__(parent)
-        self.setWindowTitle("FITS Blaster — Stacking")
+        self.setWindowTitle("SubZeroAstro — Stacking")
         self.settings = settings
         self.worker = None
         self.rigs = st.Rigs(self._load_json("stack/rigs", []))

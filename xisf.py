@@ -181,7 +181,7 @@ def write_xisf(path, data: np.ndarray, keywords: list | dict | None = None, imag
                 f'colorSpace="{color}"{itype} location="attachment:{pos}:{len(body)}">'
                 f'{kw_xml}</Image>'
                 '<Metadata><Property id="XISF:CreatorApplication" type="String">'
-                'FITS Blaster for Windows</Property></Metadata></xisf>').encode("utf-8")
+                'SubZeroAstro</Property></Metadata></xisf>').encode("utf-8")
 
     pos = 4096
     while True:

@@ -1,10 +1,12 @@
 """
-FITS Blaster for Windows - Stage 2 (culling with star quality metrics)
+SubZeroAstro - From subs to masters - zero hassle.
+
+Culling with star quality metrics, stacking, and preparing masters for PixInsight.
 
 Open a folder of FITS frames, see star quality for every frame (FWHM,
 eccentricity, SNR, star count, background) in the sidebar and on a session
 chart, flag suspects (by hand or with Auto-Flag) and move bad frames into a
-REJECTED subfolder. Inspired by Tom van Peer's FITS Blaster for macOS
+REJECTED subfolder. The culling view was inspired by Tom van Peer's FITS Blaster for macOS
 (https://astrophoto-app.com/); written independently for Windows.
 """
 
@@ -36,7 +38,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
 import fits_core as core
 from chart import ChartPoint, SessionChart, filter_color
 
-APP_NAME = "FITS Blaster for Windows"
+APP_NAME = "SubZeroAstro"
+APP_TAGLINE = "From subs to masters - zero hassle."
 APP_VERSION = "0.5.0 (stage 4)"
 ICON_W, ICON_H = 120, 84
 CACHE_SIZE = 8
@@ -482,8 +485,9 @@ class LoadDataDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(f"{APP_NAME} — {APP_TAGLINE}")
         self.setAcceptDrops(True)
+        # Settings keep their original storage name so nothing is lost after the rename
         self.settings = QSettings("FITSBlasterWin", "FITSBlasterWin")
 
         self.frames: dict[int, core.Frame] = {}
@@ -1840,7 +1844,7 @@ class MainWindow(QMainWindow):
         self.ready_bar.hide()
         self.update_chart()
         self.update_preset_tooltips()
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(f"{APP_NAME} — {APP_TAGLINE}")
         self.update_status()
 
     def auto_flag(self):
@@ -1941,11 +1945,13 @@ class MainWindow(QMainWindow):
 
     def show_about(self):
         QMessageBox.about(self, f"About {APP_NAME}", (
-            f"<b>{APP_NAME}</b> {APP_VERSION}<br><br>"
-            "Fast culling of astrophotography FITS frames on Windows, with star quality metrics.<br>"
+            f"<h2 style='margin-bottom:0'>{APP_NAME}</h2>"
+            f"<i>{APP_TAGLINE}</i><br><br>Version {APP_VERSION}<br><br>"
+            "Cull your subframes with star-quality metrics, stack them with calibration, and prepare the "
+            "masters for PixInsight — plate solving, gradient removal and the RC-Astro XTerminators included.<br>"
             "Rejected frames are moved to a <i>REJECTED</i> subfolder — nothing is ever deleted "
             "and your images are never modified.<br><br>"
-            "Inspired by FITS Blaster for macOS by Tom van Peer "
+            "The culling view was inspired by FITS Blaster for macOS by Tom van Peer "
             "(<a href='https://astrophoto-app.com/'>astrophoto-app.com</a>)."))
 
 

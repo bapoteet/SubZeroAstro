@@ -485,7 +485,7 @@ def plan_html(target: str, masters: list, steps: list, files: list) -> str:
 h1{{font-size:22px}} table{{border-collapse:collapse;width:100%}} td{{border-bottom:1px solid #3a3a42;padding:8px;vertical-align:top}}
 tr.d td{{opacity:.6}} .where{{color:#8fb4ff}} .done{{color:#5fd27a;font-size:12px}} li{{margin:2px 0}}</style></head><body>
 <h1>{target}: your images are ready for final processing</h1>
-<p>FITS Blaster prepared these linear masters. Open them in PixInsight and continue with the steps below —
+<p>SubZeroAstro prepared these linear masters. Open them in PixInsight and continue with the steps below —
 steps marked ✅ were already done here.</p>
 <h3>Prepared files</h3><ul>{flist}</ul>
 <h3>What was done</h3><ul>{did or '<li>(nothing — masters copied as they were)</li>'}</ul>
@@ -644,8 +644,8 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
     for i, m in enumerate(masters):
         pr(f"Saving {m.name}", 0.8 + 0.1 * i / n)
         hdr = [(k, v, c) for k, v, c in m.cards if k not in ("HISTORY",)]
-        hdr += [("HISTORY", f"FITS Blaster prepare: {t}", "") for _k, t in m.steps]
-        hdr.append(("PREPARED", True, "prepared for PixInsight by FITS Blaster"))
+        hdr += [("HISTORY", f"SubZeroAstro prepare: {t}", "") for _k, t in m.steps]
+        hdr.append(("PREPARED", True, "prepared for PixInsight by SubZeroAstro"))
         base = out_dir / f"{m.name}_prepared"
         data = m.data[0] if m.data.shape[0] == 1 else m.data
         written = st.save_master_file(base, data, hdr, opts.formats, "MasterLight")

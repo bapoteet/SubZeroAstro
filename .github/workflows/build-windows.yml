@@ -3,7 +3,7 @@ name: Build Windows app
 # Runs on every push to main, on version tags (v0.2.0, v0.3.0 …) and on demand.
 # 1. installs the libraries on a real Windows machine
 # 2. runs the self-test with the real app window (screenshots are kept)
-# 3. builds "FITS Blaster.exe" with PyInstaller and self-tests the .exe too
+# 3. builds "SubZeroAstro.exe" with PyInstaller and self-tests the .exe too
 # 4. uploads the zipped app; for version tags it also creates a GitHub Release
 
 on:
@@ -43,30 +43,30 @@ jobs:
           PYTHONFAULTHANDLER: "1"
         run: |
           mkdir -p selftest_python
-          python fits_blaster.py --selftest selftest_python 2>&1 | tee selftest_python/console.txt
+          python subzeroastro.py --selftest selftest_python 2>&1 | tee selftest_python/console.txt
           exit ${PIPESTATUS[0]}
 
-      - name: Build FITS Blaster.exe
-        run: pyinstaller --noconfirm --clean --windowed --name "FITS Blaster" fits_blaster.py
+      - name: Build SubZeroAstro.exe
+        run: pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" subzeroastro.py
 
       - name: Self-test (the built .exe)
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "dist\FITS Blaster\FITS Blaster.exe" -ArgumentList "--selftest", "$PWD\selftest_exe" -Wait -PassThru
+          $p = Start-Process -FilePath "dist\SubZeroAstro\SubZeroAstro.exe" -ArgumentList "--selftest", "$PWD\selftest_exe" -Wait -PassThru
           Get-Content selftest_exe\selftest_result.txt
           if ($p.ExitCode -ne 0) { throw "exe self-test failed with exit code $($p.ExitCode)" }
 
       - name: Package
         shell: pwsh
         run: |
-          Copy-Item README.md "dist\FITS Blaster\README.md"
-          Compress-Archive -Path "dist\FITS Blaster" -DestinationPath "FITS-Blaster-Windows.zip"
+          Copy-Item README.md "dist\SubZeroAstro\README.md"
+          Compress-Archive -Path "dist\SubZeroAstro" -DestinationPath "SubZeroAstro-Windows.zip"
 
       - name: Upload app
         uses: actions/upload-artifact@v4
         with:
-          name: FITS-Blaster-Windows
-          path: FITS-Blaster-Windows.zip
+          name: SubZeroAstro-Windows
+          path: SubZeroAstro-Windows.zip
 
       - name: Upload self-test screenshots
         if: always()
@@ -101,6 +101,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
         run: |
-          gh release create "$env:TAG" FITS-Blaster-Windows.zip --target "${{ github.sha }}" `
-            --title "FITS Blaster for Windows $env:TAG" `
-            --notes "Download FITS-Blaster-Windows.zip below, unzip it anywhere, and run 'FITS Blaster.exe' inside the folder. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway."
+          gh release create "$env:TAG" SubZeroAstro-Windows.zip --target "${{ github.sha }}" `
+            --title "SubZeroAstro $env:TAG" `
+            --notes "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder. From subs to masters - zero hassle. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway."
