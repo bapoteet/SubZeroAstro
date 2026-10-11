@@ -763,7 +763,6 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_reject)
         tb.addAction(self.act_flag)
         tb.addAction(self.act_autoflag)
-        tb.addAction(self.act_reject_flagged)
         tb.addAction(self.act_undo)
         tb.addSeparator()
         tb.addAction(self.act_fit)
