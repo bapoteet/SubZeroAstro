@@ -11,6 +11,11 @@ on:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Create a GitHub Release with this version tag (e.g. v0.2.0). Leave empty for a test build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -89,12 +94,13 @@ jobs:
           git commit -q -m "Self-test results for ${{ github.sha }}"
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" selftest-results
 
-      - name: Create release (version tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Create release (version tags, or a release_tag given when run by hand)
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
         run: |
-          gh release create "${{ github.ref_name }}" FITS-Blaster-Windows.zip `
-            --title "FITS Blaster for Windows ${{ github.ref_name }}" `
+          gh release create "$env:TAG" FITS-Blaster-Windows.zip --target "${{ github.sha }}" `
+            --title "FITS Blaster for Windows $env:TAG" `
             --notes "Download FITS-Blaster-Windows.zip below, unzip it anywhere, and run 'FITS Blaster.exe' inside the folder. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway."
