@@ -470,7 +470,16 @@ def plan_html(target: str, masters: list, steps: list, files: list) -> str:
                     f"<td><b>{s['title']}</b> {state}<br><span class='where'>{s['where']}</span><br>"
                     f"{s['why']}" + (f"<br><i>{s['note']}</i>" if s['note'] else "") + "</td></tr>")
     flist = "".join(f"<li>{Path(f).name}</li>" for f in files)
-    did = "".join(f"<li>{t}</li>" for m in masters for _k, t in m.steps)
+    order, who = [], {}
+    for m in masters:
+        for _k, t in m.steps:
+            if t not in who:
+                order.append(t)
+                who[t] = []
+            who[t].append(m.filter)
+    all_f = [m.filter for m in masters]
+    did = "".join(f"<li>{t}" + ("" if len(masters) == 1 or who[t] == all_f else
+                                f" <span class='where'>({', '.join(who[t])})</span>") + "</li>" for t in order)
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>{target} – next steps in PixInsight</title>
 <style>body{{font-family:Segoe UI,Arial,sans-serif;background:#1e1e22;color:#e4e4ea;max-width:900px;margin:24px auto;padding:0 16px}}
 h1{{font-size:22px}} table{{border-collapse:collapse;width:100%}} td{{border-bottom:1px solid #3a3a42;padding:8px;vertical-align:top}}
