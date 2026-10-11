@@ -73,10 +73,12 @@ data and hands over to PixInsight with a step-by-step plan.
    version. **Device**: a dedicated NVIDIA/AMD GPU is chosen by default — RC-Astro's own
    "auto" picks the first GPU, which on many laptops is the slower integrated one.
    (Running `rc-astro --benchmark-all` once also fixes RC-Astro's own choice.)
-5. **Quick-look image** — auto-stretched JPG, PNG and 16-bit TIFF in RGB, LRGB, SHO or HOO.
+5. **Quick-look image** — auto-stretched colour preview in RGB, LRGB, SHO or HOO.
 
-Prepared masters (linear, 32-bit, 0–1, plate solved) go to a **Prepared** folder next to the
-masters — originals are never changed. At the end SubZeroAstro says your images are **ready for
+Under **Save final images** pick the folder and tick the formats you want: linear masters as
+**XISF** and/or **FITS** (32-bit, 0–1, plate solved — these are what you process in PixInsight),
+and the stretched preview as **TIFF (16-bit)**, **JPG** and/or **PNG**. Leave the folder blank to
+use a **Prepared** folder next to the masters. Originals are never changed. At the end SubZeroAstro says your images are **ready for
 final processing** and shows (and saves as `<target>_PixInsight_next_steps.html`) the
 recommended PixInsight processes and scripts in order — e.g. SPCC, stretching with GHS, star
 recombination with PixelMath — with the steps already done here ticked off.

@@ -520,8 +520,9 @@ class PrepareOptions:
     rcastro: str | None = None
     xt: dict = field(default_factory=dict)  # key -> {"enabled", "values", "mode"}
     device: str = "auto"
-    formats: tuple = ("xisf",)
+    formats: tuple = ("xisf",)              # linear prepared masters: "xisf" and/or "fits" (may be empty)
     quicklook: bool = True
+    image_formats: tuple = ("tif", "jpg", "png")   # stretched quick-look colour image
     palette: str | None = None
     out_dir: str | None = None              # default: <master folder>/Prepared
     work_dir: str | None = None
@@ -648,6 +649,8 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
         hdr.append(("PREPARED", True, "prepared for PixInsight by SubZeroAstro"))
         base = out_dir / f"{m.name}_prepared"
         data = m.data[0] if m.data.shape[0] == 1 else m.data
+        if not opts.formats:
+            continue
         written = st.save_master_file(base, data, hdr, opts.formats, "MasterLight")
         m.outputs += written
         files += written
@@ -659,18 +662,20 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
             files += sw
 
     # 8. quick look
-    if opts.quicklook:
+    img_fmts = tuple(f.lower().lstrip(".") for f in (opts.image_formats or ()))
+    if opts.quicklook and img_fmts:
         pal = opts.palette or (palettes_for(masters) or [None])[0]
         if pal:
             pr(f"Quick-look image ({pal})", 0.92)
             rgb = quick_look(masters, pal)
             stem = f"{target}_{re.sub(r'[^A-Za-z0-9]+', '', pal.split(' ')[0])}_quicklook"
-            tif = out_dir / f"{stem}.tif"
-            write_tiff16(tif, rgb)
-            files.append(tif)
+            if "tif" in img_fmts or "tiff" in img_fmts:
+                tif = out_dir / f"{stem}.tif"
+                write_tiff16(tif, rgb)
+                files.append(tif)
             if save_image:
                 rgb8 = (rgb * 255 + 0.5).astype(np.uint8)
-                for ext in ("jpg", "png"):
+                for ext in [e for e in ("jpg", "png") if e in img_fmts]:
                     p = out_dir / f"{stem}.{ext}"
                     if save_image(p, rgb8):
                         files.append(p)

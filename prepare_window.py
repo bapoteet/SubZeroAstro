@@ -344,7 +344,7 @@ class ReadyDialog(QDialog):
         lay.addWidget(view, 1)
         row = QHBoxLayout()
         self.results = results
-        b_folder = QPushButton("Open Prepared Folder")
+        b_folder = QPushButton("Open Output Folder")
         b_folder.clicked.connect(lambda: _open(results[0]["out_dir"]))
         b_report = QPushButton("Open Plan in Browser")
         b_report.clicked.connect(lambda: _open(results[0]["report"]))
@@ -531,27 +531,55 @@ class PrepareWindow(QMainWindow):
         dv.addWidget(self.device, 1)
         sl.addLayout(dv)
 
-        self.chk_quick = QCheckBox("Quick-look image (auto-stretched JPG, PNG and 16-bit TIFF)")
-        self.chk_quick.setChecked(s.value("prep/quicklook", True, type=bool))
-        sl.addWidget(self.chk_quick)
+        # ---- final output: where, and in which formats
+        outbox = QGroupBox("Save final images")
+        ov = QVBoxLayout(outbox)
+        orow = QHBoxLayout()
+        orow.addWidget(QLabel("Folder:"))
+        self.out_edit = QLineEdit(s.value("prep/out_dir", "") or "")
+        self.out_edit.setPlaceholderText("blank = a 'Prepared' folder next to the masters")
+        self.out_edit.setToolTip("Where the finished images go. Leave blank to use a 'Prepared' folder next to "
+                                 "each set of master lights. Your original masters are never changed.")
+        orow.addWidget(self.out_edit, 1)
+        b_out = QPushButton("Browse…")
+        b_out.clicked.connect(self.browse_out_dir)
+        orow.addWidget(b_out)
+        b_clear = QPushButton("Default")
+        b_clear.setToolTip("Go back to a 'Prepared' folder next to the masters")
+        b_clear.clicked.connect(lambda: self.out_edit.clear())
+        orow.addWidget(b_clear)
+        ov.addLayout(orow)
+
+        def fmt_box(label, key, default, tip):
+            cb = QCheckBox(label)
+            cb.setChecked(s.value(key, default, type=bool))
+            cb.setToolTip(tip)
+            return cb
+        lin = QHBoxLayout()
+        lin.addWidget(QLabel("Linear masters (for PixInsight):"))
+        self.fmt_xisf = fmt_box("XISF", "prep/xisf", True, "PixInsight's own format — recommended")
+        self.fmt_fits = fmt_box("FITS", "prep/fits", False, "Standard astronomy format, opens anywhere")
+        lin.addWidget(self.fmt_xisf)
+        lin.addWidget(self.fmt_fits)
+        lin.addStretch(1)
+        ov.addLayout(lin)
+        qrow = QHBoxLayout()
+        qrow.addWidget(QLabel("Stretched colour preview:"))
+        self.fmt_tif = fmt_box("TIFF (16-bit)", "prep/img_tif", True, "Full quality, good for Photoshop/Affinity")
+        self.fmt_jpg = fmt_box("JPG", "prep/img_jpg", True, "Small, for sharing and phone viewing")
+        self.fmt_png = fmt_box("PNG", "prep/img_png", False, "Lossless 8-bit")
+        for cb in (self.fmt_tif, self.fmt_jpg, self.fmt_png):
+            qrow.addWidget(cb)
+        qrow.addStretch(1)
+        ov.addLayout(qrow)
         qv = QHBoxLayout()
-        qv.addSpacing(22)
-        qv.addWidget(QLabel("Palette:"))
+        qv.addWidget(QLabel("Preview palette:"))
         self.palette = QComboBox()
         qv.addWidget(self.palette, 1)
-        sl.addLayout(qv)
-        fv = QHBoxLayout()
-        fv.addWidget(QLabel("Save prepared masters as:"))
-        self.fmt_xisf = QCheckBox("XISF")
-        self.fmt_xisf.setChecked(s.value("prep/xisf", True, type=bool))
-        self.fmt_fits = QCheckBox("FITS")
-        self.fmt_fits.setChecked(s.value("prep/fits", False, type=bool))
-        fv.addWidget(self.fmt_xisf)
-        fv.addWidget(self.fmt_fits)
-        fv.addStretch(1)
-        sl.addLayout(fv)
-        sl.addWidget(QLabel("<span style='color:#9a9aa6'>Prepared files go to a <i>Prepared</i> folder next to "
-                            "the masters. Your original masters are not changed.</span>"))
+        ov.addLayout(qv)
+        ov.addWidget(QLabel("<span style='color:#9a9aa6'>The linear masters are what you process in PixInsight; "
+                            "the stretched preview is a quick auto-stretched look at the result.</span>"))
+        sl.addWidget(outbox)
         sl.addStretch(1)
         right.setWidget(steps)
         split.addWidget(right)
@@ -723,8 +751,10 @@ class PrepareWindow(QMainWindow):
     def _save_settings(self):
         s = self.settings
         for k, w in (("prep/crop", self.chk_crop), ("prep/solve", self.chk_solve), ("prep/gradient", self.chk_grad),
-                     ("prep/quicklook", self.chk_quick), ("prep/xisf", self.fmt_xisf), ("prep/fits", self.fmt_fits)):
+                     ("prep/xisf", self.fmt_xisf), ("prep/fits", self.fmt_fits), ("prep/img_tif", self.fmt_tif),
+                     ("prep/img_jpg", self.fmt_jpg), ("prep/img_png", self.fmt_png)):
             s.setValue(k, w.isChecked())
+        s.setValue("prep/out_dir", self.out_edit.text().strip())
         s.setValue("prep/solve_radius", self.solve_radius.value())
         s.setValue("prep/grad_tool", self.grad_tool.currentIndex())
         s.setValue("prep/gx_smoothing", self.gx_smooth.value())
@@ -739,7 +769,9 @@ class PrepareWindow(QMainWindow):
             s.setValue(f"prep/xt_{key}", json.dumps(cfg))
 
     def options_for(self, index):
-        fmts = tuple(f for f, cb in (("xisf", self.fmt_xisf), ("fits", self.fmt_fits)) if cb.isChecked()) or ("xisf",)
+        fmts = tuple(f for f, cb in (("xisf", self.fmt_xisf), ("fits", self.fmt_fits)) if cb.isChecked())
+        imgs = tuple(f for f, cb in (("tif", self.fmt_tif), ("jpg", self.fmt_jpg), ("png", self.fmt_png))
+                     if cb.isChecked())
         xt = {}
         for key in XT_KEYS:
             panel = self.panels.get(key)
@@ -751,13 +783,30 @@ class PrepareWindow(QMainWindow):
             gradient_tool="graxpert" if self.grad_tool.currentIndex() == 0 and self.gx_path else "builtin",
             graxpert=self.gx_path, gx_smoothing=self.gx_smooth.value(), gx_correction=self.gx_corr.currentText(),
             rcastro=self.rc_path, xt=xt, device=self.device.currentData() or "auto", formats=fmts,
-            quicklook=self.chk_quick.isChecked(),
+            quicklook=bool(imgs), image_formats=imgs, out_dir=self.out_edit.text().strip() or None,
             palette=self.palette.currentText() if index == self.set_list.currentRow() else None)
+
+    def browse_out_dir(self):
+        start = self.out_edit.text().strip() or self.settings.value("stack/masters_root", "") or ""
+        d = QFileDialog.getExistingDirectory(self, "Save final images to", start)
+        if d:
+            self.out_edit.setText(d)
+            self.settings.setValue("prep/out_dir", d)
 
     def start(self, show_dialog=True):
         if not self.sets:
             QMessageBox.information(self, "Prepare", "Add some master lights first.")
             return
+        if not any(cb.isChecked() for cb in (self.fmt_xisf, self.fmt_fits, self.fmt_tif, self.fmt_jpg, self.fmt_png)):
+            QMessageBox.information(self, "Prepare", "Tick at least one format under 'Save final images'.")
+            return
+        out = self.out_edit.text().strip()
+        if out:
+            try:
+                Path(out).mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                QMessageBox.warning(self, "Prepare", f"Can't use the output folder:\n{out}\n\n{e}")
+                return
         self.show_dialog = show_dialog
         self._save_settings()
         jobs = [[m.path for m in s] for s in self.sets]

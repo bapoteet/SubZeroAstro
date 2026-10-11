@@ -97,7 +97,7 @@ def run(app, out_dir: Path) -> int:
 
     sys.excepthook = excepthook
 
-    session = Path(tempfile.mkdtemp(prefix="fb_selftest_")) / "M33"
+    session = Path(tempfile.mkdtemp(prefix="sza_selftest_")) / "M33"
     session.mkdir()
     t0 = time.time()
     bad = make_session(session)
@@ -377,6 +377,11 @@ def run(app, out_dir: Path) -> int:
     def shots_11():
         pw = state["pw"]
         shot("11_prepare_window.png", pw)
+        state["prep_out"] = session.parent / "Final Images"
+        pw.out_edit.setText(str(state["prep_out"]))
+        for cb, on in ((pw.fmt_xisf, True), (pw.fmt_fits, True), (pw.fmt_tif, True), (pw.fmt_jpg, True),
+                       (pw.fmt_png, False)):
+            cb.setChecked(on)
         state["t4"] = time.time()
         pw.start(show_dialog=False)
         QTimer.singleShot(500, wait_prepare)
@@ -403,6 +408,9 @@ def run(app, out_dir: Path) -> int:
                                                                            for n in names),
                   "quick-look JPG and 16-bit TIFF saved")
             check(any(n.endswith("PixInsight_next_steps.html") for n in names), "PixInsight plan saved")
+            check(not any(n.endswith(".png") for n in names), "unticked PNG format not saved")
+            check(all(Path(f).parent == state["prep_out"] for f in res[0]["files"]),
+                  f"final images saved to the chosen folder ({state['prep_out'].name})")
             prepared = next(Path(f) for f in res[0]["files"] if str(f).endswith("_prepared.fits"))
             _d, _c, lk = core.read_fits(prepared)
             if state["fake"]:

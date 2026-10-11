@@ -40,7 +40,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.5.0 (stage 4)"
+APP_VERSION = "0.5.1"
 ICON_W, ICON_H = 120, 84
 CACHE_SIZE = 8
 ROLE_UID = Qt.UserRole + 1
