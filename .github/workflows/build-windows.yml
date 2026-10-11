@@ -102,6 +102,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
         run: |
-          gh release create "$env:TAG" SubZeroAstro-Windows.zip --target "${{ github.sha }}" `
+          $pre = @()
+          if ($env:TAG -match 'beta|rc|alpha') { $pre = @('--prerelease') }
+          gh release create "$env:TAG" SubZeroAstro-Windows.zip --target "${{ github.sha }}" @pre `
             --title "SubZeroAstro $env:TAG" `
             --notes "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder. From subs to masters - zero hassle. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway."
