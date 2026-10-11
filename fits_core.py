@@ -140,6 +140,78 @@ def cards_to_dict(cards) -> dict:
     return d
 
 
+class Layout:
+    """Where the image lives inside a FITS file, plus its header."""
+    __slots__ = ("cards", "look", "offset", "shape", "bitpix", "bscale", "bzero")
+
+    def __init__(self, cards, look, offset, shape, bitpix, bscale, bzero):
+        self.cards, self.look, self.offset = cards, look, offset
+        self.shape, self.bitpix, self.bscale, self.bzero = shape, bitpix, bscale, bzero
+
+    @property
+    def bytes_per_pixel(self):
+        return abs(self.bitpix) // 8
+
+    @property
+    def row_bytes(self):
+        return self.shape[-1] * self.bytes_per_pixel
+
+
+def read_layout(f) -> Layout:
+    """Parse headers from an open binary file and locate the first image."""
+    first = f.read(9)
+    f.seek(0)
+    if not first.startswith(b"SIMPLE"):
+        raise ValueError("Not a FITS file (missing SIMPLE keyword)")
+    primary = _read_header_cards(f)
+    plook = cards_to_dict(primary)
+    cards = list(primary)
+    look = plook
+    nbytes = _data_nbytes(plook)
+    if nbytes == 0:
+        while True:
+            try:
+                ext = _read_header_cards(f)
+            except ValueError:
+                raise ValueError("No image data found in file")
+            elook = cards_to_dict(ext)
+            enbytes = _data_nbytes(elook)
+            xt = str(elook.get("XTENSION", "")).strip().upper()
+            if xt == "IMAGE" and enbytes > 0:
+                cards += [c for c in ext if c[0] not in plook]
+                look = dict(plook)
+                look.update(elook)
+                break
+            if xt == "BINTABLE" and elook.get("ZIMAGE"):
+                raise ValueError("Compressed FITS (fpack/.fz) is not supported")
+            f.seek(_padded(enbytes), os.SEEK_CUR)
+    bitpix = int(look["BITPIX"])
+    if bitpix not in _BITPIX_DTYPE:
+        raise ValueError(f"Unsupported BITPIX {bitpix}")
+    naxis = int(look["NAXIS"])
+    shape = tuple(int(look[f"NAXIS{i}"]) for i in range(naxis, 0, -1))
+    return Layout(cards, look, f.tell(), shape, bitpix,
+                  float(look.get("BSCALE", 1.0) or 1.0), float(look.get("BZERO", 0.0) or 0.0))
+
+
+def _decode(raw: bytes, lay: Layout, shape) -> np.ndarray:
+    data = np.frombuffer(raw, dtype=_BITPIX_DTYPE[lay.bitpix]).reshape(shape).astype(np.float32)
+    if lay.bscale != 1.0:
+        data *= np.float32(lay.bscale)
+    if lay.bzero != 0.0:
+        data += np.float32(lay.bzero)
+    return data
+
+
+def read_rows(f, lay: Layout, r0: int, n: int) -> np.ndarray:
+    """Read n consecutive rows (file order) of a 2-D image from an open file."""
+    f.seek(lay.offset + r0 * lay.row_bytes)
+    raw = f.read(n * lay.row_bytes)
+    if len(raw) < n * lay.row_bytes:
+        raise ValueError("File is truncated (image data incomplete)")
+    return _decode(raw, lay, (n, lay.shape[-1]))
+
+
 def read_fits(path, header_only: bool = False):
     """
     Read the first image in a FITS file.
@@ -151,60 +223,15 @@ def read_fits(path, header_only: bool = False):
     The file is fully read and closed before returning (important on Windows,
     where an open file cannot be moved).
     """
-    path = Path(path)
-    with open(path, "rb") as f:
-        first = f.read(9)
-        f.seek(0)
-        if not first.startswith(b"SIMPLE"):
-            raise ValueError("Not a FITS file (missing SIMPLE keyword)")
-
-        primary = _read_header_cards(f)
-        plook = cards_to_dict(primary)
-        cards = list(primary)
-        look = plook
-        nbytes = _data_nbytes(plook)
-
-        if nbytes == 0:
-            # Image is probably in an extension
-            while True:
-                try:
-                    ext = _read_header_cards(f)
-                except ValueError:
-                    raise ValueError("No image data found in file")
-                elook = cards_to_dict(ext)
-                enbytes = _data_nbytes(elook)
-                xt = str(elook.get("XTENSION", "")).strip().upper()
-                if xt == "IMAGE" and enbytes > 0:
-                    cards += [c for c in ext if c[0] not in plook]
-                    look = dict(plook)
-                    look.update(elook)
-                    nbytes = enbytes
-                    break
-                if xt == "BINTABLE" and elook.get("ZIMAGE"):
-                    raise ValueError("Compressed FITS (fpack/.fz) is not supported")
-                f.seek(_padded(enbytes), os.SEEK_CUR)
-
+    with open(Path(path), "rb") as f:
+        lay = read_layout(f)
         if header_only:
-            return None, cards, look
-
-        bitpix = int(look["BITPIX"])
-        if bitpix not in _BITPIX_DTYPE:
-            raise ValueError(f"Unsupported BITPIX {bitpix}")
-        naxis = int(look["NAXIS"])
-        shape = tuple(int(look[f"NAXIS{i}"]) for i in range(naxis, 0, -1))
-        count = int(np.prod(shape))
-        raw = f.read(count * abs(bitpix) // 8)
-        if len(raw) < count * abs(bitpix) // 8:
+            return None, lay.cards, lay.look
+        count = int(np.prod(lay.shape))
+        raw = f.read(count * lay.bytes_per_pixel)
+        if len(raw) < count * lay.bytes_per_pixel:
             raise ValueError("File is truncated (image data incomplete)")
-
-    data = np.frombuffer(raw, dtype=_BITPIX_DTYPE[bitpix]).reshape(shape).astype(np.float32)
-    bscale = float(look.get("BSCALE", 1.0) or 1.0)
-    bzero = float(look.get("BZERO", 0.0) or 0.0)
-    if bscale != 1.0:
-        data *= np.float32(bscale)
-    if bzero != 0.0:
-        data += np.float32(bzero)
-    return data, cards, look
+    return _decode(raw, lay, lay.shape), lay.cards, lay.look
 
 
 def write_fits(path, data: np.ndarray, header: dict | None = None, bitpix: int = -32):
@@ -360,7 +387,7 @@ def normalize_filter(raw) -> str:
 
 
 def frame_info(look: dict) -> dict:
-    """Pick out the header values the app shows."""
+    """Pick out the header values the app uses."""
     def get(*keys):
         for k in keys:
             v = look.get(k)
@@ -368,18 +395,71 @@ def frame_info(look: dict) -> dict:
                 return v
         return None
 
+    focal = get("FOCALLEN")
+    pix = get("XPIXSZ", "PIXSIZE1")
+    scale = None
+    try:
+        if focal and pix and float(focal) > 0:
+            scale = 206.265 * float(pix) / float(focal)      # arcsec per pixel
+    except (TypeError, ValueError):
+        pass
     return {
         "object": get("OBJECT", "OBJNAME", "TARGET"),
         "filter": normalize_filter(get("FILTER", "FILTER1", "FILTNAME")),
         "exptime": get("EXPTIME", "EXPOSURE"),
         "date_obs": get("DATE-OBS", "DATE-LOC", "DATE"),
+        "date_loc": get("DATE-LOC"),
+        "longitude": get("SITELONG", "OBSGEO-L", "LONG-OBS"),
         "camera": get("INSTRUME", "CAMERA"),
         "telescope": get("TELESCOP"),
+        "software": get("SWCREATE", "CREATOR", "PROGRAM"),
         "gain": get("GAIN"),
+        "offset": get("OFFSET"),
         "temp": get("CCD-TEMP", "SET-TEMP"),
         "bayer": str(look.get("BAYERPAT", "")).strip() if is_bayer(look) else None,
         "imagetyp": get("IMAGETYP", "FRAME"),
+        "scale": scale,
+        "rotator": get("ROTATOR", "ROTATANG", "OBJCTROT"),
     }
+
+
+def _parse_time(text):
+    from datetime import datetime
+    if not text:
+        return None
+    t = str(text).strip().replace("Z", "")
+    if "." in t:                       # trim to microseconds
+        head, frac = t.split(".", 1)
+        t = head + "." + frac[:6]
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(t, fmt)
+        except ValueError:
+            pass
+    return None
+
+
+def night_of(info: dict) -> str | None:
+    """
+    The calendar date of the evening a frame belongs to ("night of"), so that
+    frames taken after midnight count with the evening they started.
+    Uses local time if recorded, else UTC shifted by the site longitude,
+    else UTC minus 12 hours (right for the Americas and Europe).
+    """
+    from datetime import timedelta
+    loc = _parse_time(info.get("date_loc"))
+    if loc is not None:
+        return (loc - timedelta(hours=12)).date().isoformat()
+    utc = _parse_time(info.get("date_obs"))
+    if utc is None:
+        return None
+    lon = info.get("longitude")
+    try:
+        if lon is not None:
+            return (utc + timedelta(hours=float(lon) / 15.0 - 12)).date().isoformat()
+    except (TypeError, ValueError):
+        pass
+    return (utc - timedelta(hours=12)).date().isoformat()
 
 
 def natural_key(text: str):
@@ -397,13 +477,22 @@ class Frame:
     folder: Path            # the folder the frame belongs in (parent of REJECTED/)
     root: Path              # folder the user opened
     rejected: bool = False
+    size: int = 0
+    mtime_ns: int = 0
     loaded: bool = False
     error: str | None = None
-    thumb: np.ndarray | None = None
+    thumb: object = None                # QImage in the GUI
+    thumb_arr: np.ndarray | None = None
     stretch: tuple | None = None
     display_size: tuple | None = None   # (w, h) of the display plane
     cards: list = field(default_factory=list)
     info: dict = field(default_factory=dict)
+    metrics: dict = field(default_factory=dict)
+    flagged: bool = False
+    badge: str = "none"                 # green / amber / red / grey / none
+    reasons: list = field(default_factory=list)
+    score: float | None = None
+    night: str | None = None
 
     @property
     def name(self) -> str:
@@ -417,9 +506,30 @@ class Frame:
         except ValueError:
             return str(self.folder)
 
+    @property
+    def group(self) -> str:
+        """Frames are compared within a camera + filter group."""
+        return f"{self.info.get('camera') or '?'}|{self.info.get('filter') or 'No filter'}"
 
-def _is_fits(p: Path) -> bool:
-    return p.is_file() and p.suffix.lower() in FITS_EXTS
+    @property
+    def cache_key(self) -> str:
+        return f"{self.path.name}|{self.size}|{self.mtime_ns}"
+
+
+def _fits_entries(d: Path):
+    """(path, size, mtime_ns) for FITS files in d. os.scandir gets size and time
+    from the directory listing itself, which is much faster on network drives."""
+    out = []
+    try:
+        with os.scandir(d) as it:
+            for e in it:
+                if os.path.splitext(e.name)[1].lower() in FITS_EXTS and e.is_file():
+                    st = e.stat()
+                    out.append((Path(e.path), st.st_size, st.st_mtime_ns))
+    except OSError:
+        pass
+    out.sort(key=lambda t: natural_key(t[0].name))
+    return out
 
 
 def scan_folder(root, recursive: bool = False, skip_prefixes=None):
@@ -431,24 +541,14 @@ def scan_folder(root, recursive: bool = False, skip_prefixes=None):
     root = Path(root)
     skip = [s.upper() for s in (DEFAULT_SKIP_PREFIXES if skip_prefixes is None else skip_prefixes)]
     frames: list[Frame] = []
-    uid = 0
 
     def add_dir(d: Path):
-        nonlocal uid
-        try:
-            entries = sorted(d.iterdir(), key=lambda p: natural_key(p.name))
-        except OSError:
-            return
-        for p in entries:
-            if _is_fits(p):
-                frames.append(Frame(uid, p, d, root))
-                uid += 1
+        for p, size, mt in _fits_entries(d):
+            frames.append(Frame(len(frames), p, d, root, size=size, mtime_ns=mt))
         rej = d / REJECTED_DIR
         if rej.is_dir():
-            for p in sorted(rej.iterdir(), key=lambda p: natural_key(p.name)):
-                if _is_fits(p):
-                    frames.append(Frame(uid, p, d, root, rejected=True))
-                    uid += 1
+            for p, size, mt in _fits_entries(rej):
+                frames.append(Frame(len(frames), p, d, root, rejected=True, size=size, mtime_ns=mt))
 
     if recursive:
         for dirpath, dirnames, _ in os.walk(root):
@@ -465,13 +565,19 @@ def scan_folder(root, recursive: bool = False, skip_prefixes=None):
 def frames_from_files(files):
     """Frames for individually chosen/dropped files."""
     frames = []
-    for i, f in enumerate(sorted((Path(x) for x in files), key=lambda p: natural_key(str(p)))):
+    for f in sorted((Path(x) for x in files), key=lambda p: natural_key(str(p))):
         if f.suffix.lower() not in FITS_EXTS:
             continue
+        try:
+            st = f.stat()
+            size, mt = st.st_size, st.st_mtime_ns
+        except OSError:
+            size, mt = 0, 0
         if f.parent.name.upper() == REJECTED_DIR:
-            frames.append(Frame(i, f, f.parent.parent, f.parent.parent, rejected=True))
+            frames.append(Frame(len(frames), f, f.parent.parent, f.parent.parent, rejected=True,
+                                size=size, mtime_ns=mt))
         else:
-            frames.append(Frame(i, f, f.parent, f.parent))
+            frames.append(Frame(len(frames), f, f.parent, f.parent, size=size, mtime_ns=mt))
     return frames
 
 
@@ -508,27 +614,280 @@ def set_rejected(frame: Frame, reject: bool):
             pass
 
 
-def load_frame_preview(path):
-    """Worker helper: read a file and build everything the sidebar needs."""
-    data, cards, look = read_fits(path)
-    plane = to_display_plane(data, look)
-    thumb, params = make_thumbnail(plane)
-    h, w = plane.shape
+# --------------------------------------------------------------------------
+# One-pass analysis: thumbnail + star metrics
+# --------------------------------------------------------------------------
+
+THUMB_LONG = 320
+# Fast mode measures stars in three horizontal bands (top, middle, bottom),
+# each 1/12 of the height: about a quarter of the file is read.
+BANDS = (0.2, 0.5, 0.8)
+BAND_FRACTION = 1 / 12
+
+
+def _saturation_level(lay: Layout) -> float | None:
+    dm = lay.look.get("DATAMAX")
+    if isinstance(dm, (int, float)) and dm > 0:
+        return float(dm)
+    if lay.bitpix == 16:
+        return 65535.0 if lay.bzero == 32768 else 32767.0
+    if lay.bitpix == 8:
+        return 255.0
+    return None
+
+
+def _orient(plane: np.ndarray, look: dict) -> np.ndarray:
+    roworder = str(look.get("ROWORDER", "BOTTOM-UP") or "BOTTOM-UP").strip().upper()
+    return plane if roworder == "TOP-DOWN" else plane[::-1]
+
+
+def analyze_frame(path, mode: str = "fast") -> dict:
+    """
+    Read a frame once and return everything the sidebar, inspector and chart need.
+    mode: "fast" (sampled read, best for network drives), "full" (whole frame),
+          or "off" (thumbnail only, no star metrics).
+    """
+    import metrics as M
+    path = Path(path)
+    with open(path, "rb") as f:
+        lay = read_layout(f)
+        look = lay.look
+        bayer = is_bayer(look)
+        ny, nx = lay.shape[-2], lay.shape[-1]
+        sat = _saturation_level(lay)
+        result = {"cards": lay.cards, "info": frame_info(look), "mode": mode}
+
+        if len(lay.shape) != 2 or mode == "full":
+            count = int(np.prod(lay.shape))
+            raw = f.read(count * lay.bytes_per_pixel)
+            if len(raw) < count * lay.bytes_per_pixel:
+                raise ValueError("File is truncated (image data incomplete)")
+            data = _decode(raw, lay, lay.shape)
+            plane = to_display_plane(data, look)
+            thumb, params = make_thumbnail(plane)
+            result.update(thumb=thumb, stretch=params, display_size=(plane.shape[1], plane.shape[0]))
+            if mode != "off":
+                img = data if data.ndim == 2 else (data.mean(axis=0) if data.shape[0] == 3 else data[0])
+                result["metrics"] = M.measure(img, bayer=bayer and data.ndim == 2, saturation=sat)
+            return result
+
+        # --- sampled read ---------------------------------------------------
+        k = 2 if bayer else 1
+        dny, dnx = ny // k, nx // k                       # display-plane size
+        step = max(1, int(np.ceil(max(dny, dnx) / THUMB_LONG)))
+        rows = []
+        for r in range(0, dny, step):
+            block = read_rows(f, lay, r * k, k)          # 1 row (mono) or a Bayer row pair
+            if bayer:
+                w2 = (nx // 2) * 2
+                block = block[:, :w2].reshape(2, nx // 2, 2).mean(axis=(0, 2))
+            else:
+                block = block[0]
+            rows.append(block[::step])
+        small = _orient(np.asarray(rows, dtype=np.float32), look)
+        params = stretch_params(small)
+        result.update(thumb=apply_stretch(small, *params), stretch=params, display_size=(dnx, dny))
+
+        if mode == "off":
+            return result
+
+        band_h = max(64, int(ny * BAND_FRACTION)) // 2 * 2
+        parts = []
+        for c in BANDS:
+            r0 = int(ny * c - band_h / 2) // 2 * 2
+            r0 = min(max(r0, 0), max(ny - band_h, 0))
+            parts.append(M.measure(read_rows(f, lay, r0, min(band_h, ny)), bayer=bayer,
+                                   saturation=sat, area_fraction=1.0))
+    result["metrics"] = _combine_bands(parts, (band_h * len(BANDS)) / ny)
+    return result
+
+
+def _combine_bands(parts, fraction):
+    """Merge per-band measurements into one set of frame metrics."""
+    def wmed(key):
+        vals = [(p[key], p["fitted"]) for p in parts if p.get(key) is not None and p["fitted"] > 0]
+        if not vals:
+            return None
+        v = np.array([a for a, _ in vals])
+        w = np.array([b for _, b in vals], dtype=float)
+        return float(np.sum(v * w) / np.sum(w))
+
+    snrs = [(p["snr"], p.get("snr_n", 0)) for p in parts if p.get("snr") is not None]
+    snr = (float(sum(a * b for a, b in snrs) / max(sum(b for _, b in snrs), 1)) if snrs else None)
     return {
-        "thumb": thumb,
-        "stretch": params,
-        "display_size": (w, h),
-        "cards": cards,
-        "info": frame_info(look),
+        "fwhm": wmed("fwhm"),
+        "eccentricity": wmed("eccentricity"),
+        "snr": snr,
+        "stars": int(round(sum(p["stars"] for p in parts) / max(fraction, 1e-3))),
+        "background": float(np.median([p["background"] for p in parts])),
+        "noise": float(np.median([p["noise"] for p in parts])),
+        "fitted": int(sum(p["fitted"] for p in parts)),
     }
 
 
-def load_frame_display(path, params=None):
-    """Worker helper: read a file and return the stretched full-size uint8 image."""
+def load_frame_display(path, params=None, max_pixels: float | None = 25e6):
+    """
+    Read a frame and return (uint8 image, factor). Large mono frames are reduced
+    2x2 (factor 2) unless max_pixels is None; the viewer loads full resolution
+    only when you zoom in.
+    """
     data, _cards, look = read_fits(path)
     plane = to_display_plane(data, look)
+    factor = 1
+    if max_pixels is not None and plane.size > max_pixels:
+        h, w = plane.shape[0] // 2 * 2, plane.shape[1] // 2 * 2
+        plane = plane[:h, :w].reshape(h // 2, 2, w // 2, 2).mean(axis=(1, 3))
+        factor = 2
     if params is None:
         h, w = plane.shape
         step = max(1, int(np.ceil(max(h, w) / 1000)))
         params = stretch_params(plane[::step, ::step])
-    return apply_stretch(plane, *params)
+    return apply_stretch(plane, *params), factor
+
+
+# --------------------------------------------------------------------------
+# Quality: per-group medians, badges and score
+# --------------------------------------------------------------------------
+
+METRIC_NAMES = {
+    "score": "Quality score",
+    "fwhm": "FWHM (px)",
+    "eccentricity": "Eccentricity",
+    "snr": "SNR",
+    "stars": "Star count",
+    "background": "Background (ADU)",
+}
+# True = bigger is better
+METRIC_HIGHER_BETTER = {"score": True, "fwhm": False, "eccentricity": False, "snr": True,
+                        "stars": True, "background": False}
+
+
+def frame_value(f: Frame, key: str):
+    if key == "score":
+        return f.score
+    return f.metrics.get(key) if f.metrics else None
+
+
+def group_medians(frames) -> dict:
+    """{group: {metric: median}} over frames that are not rejected."""
+    groups: dict[str, dict[str, list]] = {}
+    for f in frames:
+        if not f.metrics or f.rejected:
+            continue
+        g = groups.setdefault(f.group, {k: [] for k in ("fwhm", "eccentricity", "snr", "stars", "background")})
+        for k in g:
+            v = f.metrics.get(k)
+            if v is not None:
+                g[k].append(v)
+    return {g: {k: (float(np.median(v)) if v else None) for k, v in d.items()} for g, d in groups.items()}
+
+
+def assess(frames, med: dict | None = None):
+    """Set badge, reasons and score on every frame, relative to its group median."""
+    med = group_medians(frames) if med is None else med
+    for f in frames:
+        f.reasons = []
+        m = f.metrics
+        gm = med.get(f.group)
+        if not m:
+            f.badge, f.score = ("grey" if f.loaded and not f.error else "none"), None
+            continue
+        if m.get("fwhm") is None or gm is None or gm.get("fwhm") is None:
+            f.badge, f.score = "grey", None
+            f.reasons = ["No measurable stars"]
+            continue
+        rf = m["fwhm"] / gm["fwhm"]
+        rs = (m["stars"] / gm["stars"]) if gm.get("stars") else 1.0
+        rn = (m["snr"] / gm["snr"]) if gm.get("snr") and m.get("snr") else 1.0
+        e = m.get("eccentricity") or 0.0
+        em = gm.get("eccentricity") or 0.0
+        rb = (m["background"] / gm["background"]) if gm.get("background") else 1.0
+
+        red = amber = False
+        if e > 0.8 or e > max(0.6, em + 0.15):
+            red = True; f.reasons.append(f"Elongated / trailed stars (e = {e:.2f})")
+        elif e > max(0.5, em + 0.08):
+            amber = True; f.reasons.append(f"Slightly elongated stars (e = {e:.2f})")
+        if rf > 1.30:
+            red = True; f.reasons.append(f"Soft focus / poor seeing (FWHM {100*(rf-1):.0f}% above median)")
+        elif rf > 1.15:
+            amber = True; f.reasons.append(f"FWHM {100*(rf-1):.0f}% above median")
+        if rs < 0.5:
+            red = True; f.reasons.append(f"Few stars ({100*rs:.0f}% of median) - clouds?")
+        elif rs < 0.75:
+            amber = True; f.reasons.append(f"Fewer stars ({100*rs:.0f}% of median)")
+        if rn < 0.5:
+            red = True; f.reasons.append(f"Low SNR ({100*rn:.0f}% of median) - clouds, haze or dew?")
+        elif rn < 0.75:
+            amber = True; f.reasons.append(f"Lower SNR ({100*rn:.0f}% of median)")
+        if rb > 1.5:
+            amber = True; f.reasons.append(f"Bright background ({100*(rb-1):.0f}% above median)")
+        f.badge = "red" if red else ("amber" if amber else "green")
+
+        # 100 = a typical frame for its group; higher is better
+        score = 100.0 * (1.0 / rf) ** 1.5 * min(rs, 1.25) ** 0.5 * min(rn, 1.5) ** 0.3
+        score *= max(0.0, 1.0 - max(0.0, e - max(em, 0.3)) * 1.5)
+        f.score = float(score)
+    return med
+
+
+# --------------------------------------------------------------------------
+# Local cache of results (so reopening a session is fast)
+# --------------------------------------------------------------------------
+
+CACHE_VERSION = 2
+
+
+def cache_dir() -> Path:
+    base = os.environ.get("LOCALAPPDATA")
+    d = Path(base) / "FITSBlasterWin" / "cache" if base else Path.home() / ".cache" / "fitsblasterwin"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _cache_file(folder: Path) -> Path:
+    import hashlib
+    key = os.path.normcase(os.path.abspath(str(folder)))
+    return cache_dir() / (hashlib.sha1(key.encode("utf-8")).hexdigest() + ".cache")
+
+
+def load_cache(folder) -> dict:
+    """{cache_key: entry} for one folder; empty dict if missing or unreadable."""
+    import pickle
+    import zlib
+    p = _cache_file(Path(folder))
+    try:
+        obj = pickle.loads(zlib.decompress(p.read_bytes()))
+        if obj.get("version") == CACHE_VERSION:
+            return obj["entries"]
+    except Exception:  # noqa: BLE001
+        pass
+    return {}
+
+
+def save_cache(folder, entries: dict):
+    import pickle
+    import zlib
+    p = _cache_file(Path(folder))
+    tmp = p.with_suffix(".tmp")
+    tmp.write_bytes(zlib.compress(pickle.dumps({"version": CACHE_VERSION, "folder": str(folder),
+                                                "entries": entries}, protocol=4), 1))
+    os.replace(tmp, p)
+
+
+def cache_entry(result: dict) -> dict:
+    return {k: result.get(k) for k in ("thumb", "stretch", "display_size", "cards", "info", "metrics", "mode")}
+
+
+def is_network_path(path) -> bool:
+    """True for UNC paths (\\\\server\\share) and mapped network drives on Windows."""
+    p = os.path.abspath(str(path))
+    if p.startswith("\\\\") or p.startswith("//"):
+        return True
+    if os.name == "nt" and len(p) >= 2 and p[1] == ":":
+        try:
+            import ctypes
+            return ctypes.windll.kernel32.GetDriveTypeW(p[:2] + "\\") == 4   # DRIVE_REMOTE
+        except Exception:  # noqa: BLE001
+            return False
+    return False

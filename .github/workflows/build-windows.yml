@@ -1,0 +1,77 @@
+name: Build Windows app
+
+# Runs on every push to main, on version tags (v0.2.0, v0.3.0 …) and on demand.
+# 1. installs the libraries on a real Windows machine
+# 2. runs the self-test with the real app window (screenshots are kept)
+# 3. builds "FITS Blaster.exe" with PyInstaller and self-tests the .exe too
+# 4. uploads the zipped app; for version tags it also creates a GitHub Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install libraries
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Self-test (Python, real window)
+        run: python fits_blaster.py --selftest selftest_python
+
+      - name: Build FITS Blaster.exe
+        run: pyinstaller --noconfirm --clean --windowed --name "FITS Blaster" fits_blaster.py
+
+      - name: Self-test (the built .exe)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "dist\FITS Blaster\FITS Blaster.exe" -ArgumentList "--selftest", "$PWD\selftest_exe" -Wait -PassThru
+          Get-Content selftest_exe\selftest_result.txt
+          if ($p.ExitCode -ne 0) { throw "exe self-test failed with exit code $($p.ExitCode)" }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Copy-Item README.md "dist\FITS Blaster\README.md"
+          Compress-Archive -Path "dist\FITS Blaster" -DestinationPath "FITS-Blaster-Windows.zip"
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: FITS-Blaster-Windows
+          path: FITS-Blaster-Windows.zip
+
+      - name: Upload self-test screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-screenshots
+          path: |
+            selftest_python
+            selftest_exe
+
+      - name: Create release (version tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" FITS-Blaster-Windows.zip `
+            --title "FITS Blaster for Windows ${{ github.ref_name }}" `
+            --notes "Download FITS-Blaster-Windows.zip below, unzip it anywhere, and run 'FITS Blaster.exe' inside the folder. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway."

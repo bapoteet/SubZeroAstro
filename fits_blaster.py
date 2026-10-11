@@ -1,54 +1,59 @@
 """
-FITS Blaster for Windows - Stage 1 (culling)
+FITS Blaster for Windows - Stage 2 (culling with star quality metrics)
 
-Open a folder of FITS frames, flip through them with the keyboard, and move
-bad frames into a REJECTED subfolder. Inspired by Tom van Peer's FITS Blaster
-for macOS (https://astrophoto-app.com/); written independently for Windows.
-
-Keys
-  Up / Down / Left / Right   previous / next frame
-  Shift + arrows / click     select a range
-  X or Delete                reject (or restore) the frame or selected range
-  Ctrl+Z                     undo the last reject / restore
-  Ctrl+O                     open folder
-  F                          fit image to window      1  100% zoom
-  Mouse wheel                zoom        drag         pan
+Open a folder of FITS frames, see star quality for every frame (FWHM,
+eccentricity, SNR, star count, background) in the sidebar and on a session
+chart, flag suspects (by hand or with Auto-Flag) and move bad frames into a
+REJECTED subfolder. Inspired by Tom van Peer's FITS Blaster for macOS
+(https://astrophoto-app.com/); written independently for Windows.
 """
 
 from __future__ import annotations
 
+import os
 import sys
+import time
 import traceback
 from collections import OrderedDict
 from pathlib import Path
 
-from PySide6.QtCore import (QObject, QRectF, QRunnable, QSettings, QSize, Qt,
-                            QThreadPool, QTimer, Signal)
-from PySide6.QtGui import (QAction, QBrush, QColor, QFont, QIcon, QImage,
-                           QKeySequence, QPainter, QPalette, QPen, QPixmap,
-                           QShortcut)
+from PySide6.QtCore import (QItemSelectionModel, QObject, QPointF, QRectF, QRunnable,
+                            QSettings, QSize, Qt, QThreadPool, QTimer, Signal)
+from PySide6.QtGui import (QAction, QActionGroup, QBrush, QColor, QFont,
+                           QIcon, QImage, QKeySequence, QPainter, QPalette,
+                           QPen, QPixmap, QPolygonF)
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
-                               QComboBox, QFileDialog, QFormLayout, QFrame,
-                               QGraphicsPixmapItem, QGraphicsScene,
-                               QGraphicsView, QHBoxLayout, QHeaderView, QLabel,
-                               QLineEdit, QListView, QListWidget,
-                               QListWidgetItem, QMainWindow, QMessageBox,
-                               QProgressBar, QSplitter, QStyle,
-                               QTableWidget, QTableWidgetItem, QToolBar,
-                               QVBoxLayout, QWidget)
+                               QComboBox, QDialog, QDialogButtonBox,
+                               QDoubleSpinBox, QFileDialog, QFormLayout,
+                               QFrame, QGraphicsPixmapItem, QGraphicsScene,
+                               QGraphicsView, QGridLayout, QHBoxLayout,
+                               QHeaderView, QLabel, QLineEdit, QListView,
+                               QListWidget, QListWidgetItem, QMainWindow,
+                               QMessageBox, QProgressBar, QSpinBox, QSplitter,
+                               QStyle, QTableWidget, QTableWidgetItem,
+                               QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 import fits_core as core
+from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "FITS Blaster for Windows"
-APP_VERSION = "0.1 (stage 1)"
+APP_VERSION = "0.2.0 (stage 2)"
 ICON_W, ICON_H = 120, 84
-CACHE_SIZE = 10
-
+CACHE_SIZE = 8
 ROLE_UID = Qt.UserRole + 1
+
+BADGE_COLORS = {"green": QColor(70, 200, 95), "amber": QColor(235, 170, 50),
+                "red": QColor(230, 70, 70), "grey": QColor(130, 130, 140)}
+
+SORTS = ["File name", "Capture time", "Filter", "Quality score", "FWHM", "Eccentricity",
+         "SNR", "Star count", "Background"]
+SORT_METRIC = {"Quality score": "score", "FWHM": "fwhm", "Eccentricity": "eccentricity",
+               "SNR": "snr", "Star count": "stars", "Background": "background"}
+CHART_METRICS = ["score", "fwhm", "eccentricity", "snr", "stars", "background"]
 
 
 # --------------------------------------------------------------------------
-# Background loading
+# Background work
 # --------------------------------------------------------------------------
 
 def to_qimage(arr) -> QImage:
@@ -58,36 +63,36 @@ def to_qimage(arr) -> QImage:
 
 
 class LoaderSignals(QObject):
-    preview_ready = Signal(int, int, object)   # generation, uid, result dict
-    preview_failed = Signal(int, int, str)
-    display_ready = Signal(int, int, object, str)   # generation, uid, QImage, path
+    analyzed = Signal(int, int, object)          # generation, uid, result dict
+    analyze_failed = Signal(int, int, str)
+    display_ready = Signal(int, int, object, int, bool, str)   # gen, uid, QImage, factor, full, path
     display_failed = Signal(int, int, str, str)
 
 
-class PreviewTask(QRunnable):
-    def __init__(self, gen, uid, path, signals):
+class AnalyzeTask(QRunnable):
+    def __init__(self, gen, uid, path, mode, signals):
         super().__init__()
-        self.gen, self.uid, self.path, self.signals = gen, uid, str(path), signals
+        self.gen, self.uid, self.path, self.mode, self.signals = gen, uid, str(path), mode, signals
 
     def run(self):
         try:
-            res = core.load_frame_preview(self.path)
-            res["qthumb"] = to_qimage(res.pop("thumb"))
-            self.signals.preview_ready.emit(self.gen, self.uid, res)
+            res = core.analyze_frame(self.path, self.mode)
+            res["qthumb"] = to_qimage(res["thumb"])
+            self.signals.analyzed.emit(self.gen, self.uid, res)
         except Exception as e:  # noqa: BLE001
-            self.signals.preview_failed.emit(self.gen, self.uid, str(e) or type(e).__name__)
+            self.signals.analyze_failed.emit(self.gen, self.uid, str(e) or type(e).__name__)
 
 
 class DisplayTask(QRunnable):
-    def __init__(self, gen, uid, path, params, signals):
+    def __init__(self, gen, uid, path, params, full, signals):
         super().__init__()
         self.gen, self.uid, self.path = gen, uid, str(path)
-        self.params, self.signals = params, signals
+        self.params, self.full, self.signals = params, full, signals
 
     def run(self):
         try:
-            img = to_qimage(core.load_frame_display(self.path, self.params))
-            self.signals.display_ready.emit(self.gen, self.uid, img, self.path)
+            arr, factor = core.load_frame_display(self.path, self.params, None if self.full else 25e6)
+            self.signals.display_ready.emit(self.gen, self.uid, to_qimage(arr), factor, self.full, self.path)
         except Exception as e:  # noqa: BLE001
             self.signals.display_failed.emit(self.gen, self.uid, str(e) or type(e).__name__, self.path)
 
@@ -115,6 +120,7 @@ class ImageView(QGraphicsView):
         self.message = "Open a folder of FITS files  (Ctrl+O)\nor drag a folder onto this window"
         self.banner = ""
         self.subtitle = ""
+        self.on_detail = None        # called when zoomed in enough to want full resolution
 
     def clear(self, message=None):
         self.item.setPixmap(QPixmap())
@@ -125,17 +131,13 @@ class ImageView(QGraphicsView):
         self.subtitle = ""
         self.viewport().update()
 
-    def show_image(self, qimg: QImage, full_size=None):
-        """Show an image. If full_size (w, h) is given the image is a placeholder
-        (thumbnail) scaled up to that size so zoom stays consistent."""
+    def show_image(self, qimg: QImage, full_size):
+        """Show an image scaled to cover full_size (w, h) in scene coordinates, so
+        thumbnails, half- and full-resolution images all line up."""
         self.item.setPixmap(QPixmap.fromImage(qimg))
-        if full_size and qimg.width() > 0:
-            scale = full_size[0] / qimg.width()
-            self.item.setScale(scale)
-            rect = QRectF(0, 0, full_size[0], full_size[1])
-        else:
-            self.item.setScale(1.0)
-            rect = QRectF(0, 0, qimg.width(), qimg.height())
+        w = qimg.width() or 1
+        self.item.setScale(full_size[0] / w)
+        rect = QRectF(0, 0, full_size[0], full_size[1])
         self._scene.setSceneRect(rect)
         self.has_image = True
         if self.fit_mode:
@@ -146,13 +148,20 @@ class ImageView(QGraphicsView):
         self.fit_mode = True
         if self.has_image:
             self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+        self.viewport().update()
 
     def actual_size(self):
         self.fit_mode = False
         self.resetTransform()
+        self._check_detail()
+        self.viewport().update()
 
     def zoom_percent(self) -> int:
         return int(round(self.transform().m11() * 100))
+
+    def _check_detail(self):
+        if self.on_detail and self.transform().m11() >= 0.5:
+            self.on_detail()
 
     def wheelEvent(self, event):
         if not self.has_image:
@@ -166,6 +175,7 @@ class ImageView(QGraphicsView):
             factor = 16 / cur
         self.fit_mode = False
         self.scale(factor, factor)
+        self._check_detail()
         self.viewport().update()
 
     def mouseDoubleClickEvent(self, event):
@@ -173,7 +183,6 @@ class ImageView(QGraphicsView):
             self.actual_size()
         else:
             self.fit()
-        self.viewport().update()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -184,19 +193,18 @@ class ImageView(QGraphicsView):
         painter.save()
         painter.resetTransform()
         vp = self.viewport().rect()
+        f = QFont(painter.font())
         if not self.has_image:
             painter.setPen(QColor(150, 150, 160))
-            f = painter.font()
             f.setPointSize(13)
             painter.setFont(f)
             painter.drawText(vp, Qt.AlignCenter, self.message)
         else:
-            f = painter.font()
             if self.banner:
                 f.setPointSize(16)
                 f.setBold(True)
                 painter.setFont(f)
-                painter.setPen(QColor(255, 80, 80))
+                painter.setPen(QColor(255, 80, 80) if self.banner == "REJECTED" else QColor(255, 220, 60))
                 painter.drawText(vp.adjusted(14, 10, -14, -10), Qt.AlignTop | Qt.AlignLeft, self.banner)
             f.setPointSize(9)
             f.setBold(False)
@@ -207,6 +215,111 @@ class ImageView(QGraphicsView):
                 text = f"{self.subtitle}    {text}"
             painter.drawText(vp.adjusted(10, 6, -10, -6), Qt.AlignBottom | Qt.AlignRight, text)
         painter.restore()
+
+
+# --------------------------------------------------------------------------
+# Auto-Flag dialog
+# --------------------------------------------------------------------------
+
+class AutoFlagDialog(QDialog):
+    """Flag frames that fall outside thresholds relative to their filter's median."""
+
+    def __init__(self, parent, frames, medians, settings):
+        super().__init__(parent)
+        self.setWindowTitle("Auto-Flag")
+        self.frames = [f for f in frames if not f.rejected]
+        self.medians = medians
+        self.settings = settings
+        lay = QVBoxLayout(self)
+        intro = QLabel("Flag frames that are worse than the median of their own filter.\n"
+                       "Flagged frames are only marked — review them in the Flagged view, "
+                       "then reject the ones you don't want.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+
+        grid = QGridLayout()
+        self.rows = {}
+
+        def row(r, key, text, spin, suffix):
+            cb = QCheckBox(text)
+            cb.setChecked(settings.value(f"af/{key}/on", key in ("fwhm", "ecc", "stars", "snr"), type=bool))
+            spin.setValue(settings.value(f"af/{key}/val", spin.value(), type=float))
+            grid.addWidget(cb, r, 0)
+            grid.addWidget(spin, r, 1)
+            grid.addWidget(QLabel(suffix), r, 2)
+            cb.toggled.connect(self.update_count)
+            spin.valueChanged.connect(self.update_count)
+            self.rows[key] = (cb, spin)
+
+        def dspin(lo, hi, val, step, dec=2):
+            s = QDoubleSpinBox()
+            s.setRange(lo, hi)
+            s.setDecimals(dec)
+            s.setSingleStep(step)
+            s.setValue(val)
+            return s
+
+        row(0, "fwhm", "FWHM more than", dspin(1.0, 3.0, 1.20, 0.05), "× the median")
+        row(1, "ecc", "Eccentricity above", dspin(0.2, 0.99, 0.60, 0.05), "")
+        row(2, "stars", "Star count below", dspin(5, 100, 60, 5, 0), "% of the median")
+        row(3, "snr", "SNR below", dspin(5, 100, 60, 5, 0), "% of the median")
+        row(4, "bg", "Background above", dspin(101, 400, 140, 5, 0), "% of the median")
+        self.red_cb = QCheckBox("Every frame with a red badge")
+        self.red_cb.setChecked(settings.value("af/red", False, type=bool))
+        self.red_cb.toggled.connect(self.update_count)
+        grid.addWidget(self.red_cb, 5, 0, 1, 3)
+        lay.addLayout(grid)
+
+        self.count_label = QLabel()
+        f = self.count_label.font()
+        f.setBold(True)
+        self.count_label.setFont(f)
+        lay.addWidget(self.count_label)
+
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        lay.addWidget(self.buttons)
+        self.update_count()
+
+    def matches(self):
+        out = []
+        on = {k: (cb.isChecked(), sp.value()) for k, (cb, sp) in self.rows.items()}
+        for f in self.frames:
+            m = f.metrics
+            gm = self.medians.get(f.group)
+            if not m or not gm:
+                continue
+            hit = False
+            if on["fwhm"][0] and m.get("fwhm") and gm.get("fwhm"):
+                hit |= m["fwhm"] > gm["fwhm"] * on["fwhm"][1]
+            if on["ecc"][0] and m.get("eccentricity") is not None:
+                hit |= m["eccentricity"] > on["ecc"][1]
+            if on["stars"][0] and gm.get("stars"):
+                hit |= m.get("stars", 0) < gm["stars"] * on["stars"][1] / 100
+            if on["snr"][0] and m.get("snr") is not None and gm.get("snr"):
+                hit |= m["snr"] < gm["snr"] * on["snr"][1] / 100
+            if on["bg"][0] and gm.get("background"):
+                hit |= m.get("background", 0) > gm["background"] * on["bg"][1] / 100
+            if self.red_cb.isChecked():
+                hit |= f.badge == "red"
+            if hit:
+                out.append(f.uid)
+        return out
+
+    def update_count(self, *_):
+        n = len(self.matches())
+        self.count_label.setText(f"{n} of {len(self.frames)} frames match")
+        ok = self.buttons.button(QDialogButtonBox.Ok)
+        if ok is not None:
+            ok.setText(f"Flag {n} frames")
+            ok.setEnabled(n > 0)
+
+    def save(self):
+        for k, (cb, sp) in self.rows.items():
+            self.settings.setValue(f"af/{k}/on", cb.isChecked())
+            self.settings.setValue(f"af/{k}/val", sp.value())
+        self.settings.setValue("af/red", self.red_cb.isChecked())
 
 
 # --------------------------------------------------------------------------
@@ -221,36 +334,46 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("FITSBlasterWin", "FITSBlasterWin")
 
         self.frames: dict[int, core.Frame] = {}
-        self.order: list[int] = []          # uids in current list order
+        self.order: list[int] = []
         self.items: dict[int, QListWidgetItem] = {}
         self.current_uid: int | None = None
         self.generation = 0
         self.loaded_count = 0
+        self.to_load = 0
+        self.load_started = 0.0
         self.undo_stack: list[list[tuple[int, bool]]] = []
-        self.cache: OrderedDict[int, QImage] = OrderedDict()
-        self.pending_display: set[int] = set()
+        self.cache: OrderedDict[tuple[int, bool], tuple[QImage, int]] = OrderedDict()
+        self.pending_display: set[tuple[int, bool]] = set()
         self.known_filters: list[str] = []
         self.root: Path | None = None
+        self.medians: dict = {}
+        self.disk_cache: dict[Path, dict] = {}      # folder -> {cache_key: entry}
+        self.cache_dirty: set[Path] = set()
+        self.network = False
 
         self.signals = LoaderSignals()
-        self.signals.preview_ready.connect(self.on_preview_ready)
-        self.signals.preview_failed.connect(self.on_preview_failed)
+        self.signals.analyzed.connect(self.on_analyzed)
+        self.signals.analyze_failed.connect(self.on_analyze_failed)
         self.signals.display_ready.connect(self.on_display_ready)
         self.signals.display_failed.connect(self.on_display_failed)
 
-        self.preview_pool = QThreadPool(self)
-        self.preview_pool.setMaxThreadCount(max(2, QThreadPool.globalInstance().maxThreadCount() - 1))
+        self.analyze_pool = QThreadPool(self)
         self.display_pool = QThreadPool(self)
         self.display_pool.setMaxThreadCount(2)
+
+        self.stats_timer = QTimer(self)
+        self.stats_timer.setSingleShot(True)
+        self.stats_timer.setInterval(600)
+        self.stats_timer.timeout.connect(self.refresh_stats)
 
         self._build_ui()
         self._build_actions()
         self._restore_settings()
+        self.view.on_detail = self.request_detail
         self.update_status()
 
     # ---------------------------------------------------------------- UI
     def _build_ui(self):
-        # Left: sidebar
         side = QWidget()
         sl = QVBoxLayout(side)
         sl.setContentsMargins(6, 6, 6, 6)
@@ -261,8 +384,8 @@ class MainWindow(QMainWindow):
         self.filter_combo.addItem("All filters")
         self.filter_combo.setToolTip("Show only frames taken with this filter")
         self.show_combo = QComboBox()
-        self.show_combo.addItems(["All frames", "Kept", "Rejected"])
-        self.show_combo.setToolTip("Show all frames, only kept ones, or only rejected ones")
+        self.show_combo.addItems(["All frames", "Kept", "Flagged", "Rejected"])
+        self.show_combo.setToolTip("Which frames to list")
         row1.addWidget(self.filter_combo, 1)
         row1.addWidget(self.show_combo, 1)
         sl.addLayout(row1)
@@ -270,8 +393,11 @@ class MainWindow(QMainWindow):
         row2 = QHBoxLayout()
         row2.addWidget(QLabel("Sort:"))
         self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["File name", "Capture time", "Filter"])
+        self.sort_combo.addItems(SORTS)
         row2.addWidget(self.sort_combo, 1)
+        self.worst_first = QCheckBox("Worst first")
+        self.worst_first.setToolTip("For quality sorts: put the worst frames at the top")
+        row2.addWidget(self.worst_first)
         sl.addLayout(row2)
 
         self.list = QListWidget()
@@ -283,43 +409,88 @@ class MainWindow(QMainWindow):
         self.list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         sl.addWidget(self.list, 1)
 
-        self.filter_combo.currentIndexChanged.connect(self.rebuild_list)
-        self.show_combo.currentIndexChanged.connect(self.rebuild_list)
+        self.filter_combo.currentIndexChanged.connect(self.on_view_changed)
+        self.show_combo.currentIndexChanged.connect(self.on_view_changed)
         self.sort_combo.currentIndexChanged.connect(self.rebuild_list)
+        self.worst_first.toggled.connect(self.rebuild_list)
         self.list.currentItemChanged.connect(self.on_current_changed)
+        self.list.itemSelectionChanged.connect(self.on_selection_changed)
 
-        # Centre: viewer
+        # Centre: viewer above, chart below
         self.view = ImageView()
+        chart_box = QWidget()
+        cl = QVBoxLayout(chart_box)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(2)
+        bar = QHBoxLayout()
+        bar.setContentsMargins(6, 2, 6, 0)
+        bar.addWidget(QLabel("Chart:"))
+        self.chart_metric = QComboBox()
+        for k in CHART_METRICS:
+            self.chart_metric.addItem(core.METRIC_NAMES[k], k)
+        self.chart_metric.currentIndexChanged.connect(self.update_chart)
+        bar.addWidget(self.chart_metric)
+        self.legend = QLabel()
+        bar.addWidget(self.legend, 1)
+        self.warning_label = QLabel()
+        self.warning_label.setStyleSheet("color: #f0b040;")
+        self.warning_label.setWordWrap(True)
+        bar.addWidget(self.warning_label, 2)
+        cl.addLayout(bar)
+        self.chart = SessionChart()
+        self.chart.frameClicked.connect(self.goto_uid)
+        self.chart.rangeSelected.connect(self.select_uids)
+        cl.addWidget(self.chart, 1)
+
+        self.vsplit = QSplitter(Qt.Vertical)
+        self.vsplit.addWidget(self.view)
+        self.vsplit.addWidget(chart_box)
+        self.vsplit.setStretchFactor(0, 3)
+        self.vsplit.setStretchFactor(1, 1)
+        self.vsplit.setSizes([620, 220])
 
         # Right: inspector
         insp = QWidget()
         il = QVBoxLayout(insp)
         il.setContentsMargins(8, 8, 8, 8)
-        title = QLabel("Frame")
-        tf = title.font()
-        tf.setPointSize(tf.pointSize() + 2)
-        tf.setBold(True)
-        title.setFont(tf)
-        il.addWidget(title)
 
+        def heading(text):
+            lab = QLabel(text)
+            tf = lab.font()
+            tf.setPointSize(tf.pointSize() + 1)
+            tf.setBold(True)
+            lab.setFont(tf)
+            return lab
+
+        il.addWidget(heading("Quality"))
+        qform = QFormLayout()
+        qform.setLabelAlignment(Qt.AlignRight)
+        self.q_labels = {}
+        for key, label in [("score", "Score"), ("fwhm", "FWHM"), ("eccentricity", "Eccentricity"),
+                           ("snr", "SNR"), ("stars", "Stars"), ("background", "Background")]:
+            lab = QLabel("–")
+            lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            qform.addRow(label + ":", lab)
+            self.q_labels[key] = lab
+        il.addLayout(qform)
+        self.reasons_label = QLabel()
+        self.reasons_label.setWordWrap(True)
+        il.addWidget(self.reasons_label)
+
+        il.addWidget(heading("Frame"))
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignRight)
         self.info_labels = {}
         for key, label in [("file", "File"), ("status", "Status"), ("folder", "Folder"),
                            ("object", "Target"), ("filter", "Filter"), ("exptime", "Exposure"),
-                           ("date_obs", "Captured"), ("camera", "Camera"), ("gain", "Gain"),
-                           ("temp", "Sensor temp"), ("size", "Size"), ("bayer", "Bayer")]:
+                           ("date_obs", "Captured"), ("night", "Night of"), ("camera", "Camera"),
+                           ("gain", "Gain"), ("temp", "Sensor temp"), ("size", "Size"), ("bayer", "Bayer")]:
             lab = QLabel("–")
             lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
             lab.setWordWrap(True)
             form.addRow(label + ":", lab)
             self.info_labels[key] = lab
         il.addLayout(form)
-
-        note = QLabel("Quality metrics (FWHM, eccentricity, SNR, star count) arrive in stage 2.")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: #8a8a96; font-style: italic; padding: 6px 0;")
-        il.addWidget(note)
 
         il.addWidget(QLabel("FITS header"))
         self.header_search = QLineEdit()
@@ -339,18 +510,17 @@ class MainWindow(QMainWindow):
 
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(side)
-        self.splitter.addWidget(self.view)
+        self.splitter.addWidget(self.vsplit)
         self.splitter.addWidget(insp)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
-        self.splitter.setSizes([330, 900, 300])
+        self.splitter.setSizes([340, 900, 310])
         self.setCentralWidget(self.splitter)
 
-        # Status bar
         self.status_label = QLabel()
         self.progress = QProgressBar()
-        self.progress.setMaximumWidth(220)
+        self.progress.setMaximumWidth(260)
         self.progress.setTextVisible(True)
         self.progress.hide()
         self.statusBar().addWidget(self.status_label, 1)
@@ -384,25 +554,47 @@ class MainWindow(QMainWindow):
         self.act_open_files = act("Open Files…", self.choose_files, "Ctrl+Shift+O")
         self.act_reject = act("Reject / Restore", self.toggle_reject, ["X", "Delete"],
                               QStyle.SP_DialogDiscardButton,
-                              "Move the frame (or selected range) to REJECTED, or bring it back (X)")
+                              "Move the frame (or selected frames) to REJECTED, or bring back (X)")
+        self.act_flag = act("Flag", self.toggle_flag, "F", None,
+                            "Flag / unflag the frame or selected frames for review (F)")
+        self.act_autoflag = act("Auto-Flag…", self.auto_flag, "Ctrl+F", None,
+                                "Flag frames worse than thresholds you choose (Ctrl+F)")
+        self.act_reject_flagged = act("Reject Flagged", self.reject_flagged, "Shift+X", None,
+                                      "Reject every flagged frame (Shift+X)")
+        self.act_clear_flags = act("Clear All Flags", self.clear_flags, "D")
         self.act_undo = act("Undo", self.undo, "Ctrl+Z", QStyle.SP_ArrowBack, "Undo last reject/restore (Ctrl+Z)")
-        self.act_fit = act("Fit", self.view.fit, "F", None, "Fit image to window (F)")
+        self.act_fit = act("Fit", self.view.fit, "Ctrl+0", None, "Fit image to window (Ctrl+0)")
         self.act_100 = act("100%", self.view.actual_size, "1", None, "Actual pixels (1)")
         self.act_export = act("Export Keeper List…", self.export_keepers, "Ctrl+E")
         self.act_next = act("Next frame", lambda: self.step(1), ["Right", "Down"])
         self.act_prev = act("Previous frame", lambda: self.step(-1), ["Left", "Up"])
         self.act_reload = act("Reload Folder", self.reload, "F5")
+        self.act_remeasure = act("Re-measure All (ignore saved results)", self.remeasure)
         self.act_quit = act("Exit", self.close, "Ctrl+Q")
 
         self.chk_sub = QCheckBox("Include subfolders")
-        self.chk_sub.setToolTip("Also load FITS files in subfolders (FLAT, DARK, BIAS, CALIB folders are skipped)")
+        self.chk_sub.setToolTip("Also load FITS files in subfolders (FLAT, DARK, BIAS, CALIB, OFFSET "
+                                "folders are skipped) - use this for several nights at once")
         self.act_advance = QAction("Jump to next frame after rejecting", self, checkable=True)
         self.act_advance.setChecked(True)
+
+        self.mode_group = QActionGroup(self)
+        self.mode_actions = {}
+        for key, text in [("fast", "Fast — sample ¼ of each frame (best for network drives)"),
+                          ("full", "Full frame — most thorough, reads every pixel"),
+                          ("off", "Off — thumbnails only, no star metrics")]:
+            a = QAction(text, self, checkable=True)
+            a.setData(key)
+            self.mode_group.addAction(a)
+            self.mode_actions[key] = a
 
         tb.addAction(self.act_open)
         tb.addWidget(self.chk_sub)
         tb.addSeparator()
         tb.addAction(self.act_reject)
+        tb.addAction(self.act_flag)
+        tb.addAction(self.act_autoflag)
+        tb.addAction(self.act_reject_flagged)
         tb.addAction(self.act_undo)
         tb.addSeparator()
         tb.addAction(self.act_fit)
@@ -410,16 +602,18 @@ class MainWindow(QMainWindow):
 
         mb = self.menuBar()
         m = mb.addMenu("&File")
-        m.addAction(self.act_open)
-        m.addAction(self.act_open_files)
-        m.addAction(self.act_reload)
+        for a in (self.act_open, self.act_open_files, self.act_reload, self.act_remeasure):
+            m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_export)
         m.addSeparator()
         m.addAction(self.act_quit)
         m = mb.addMenu("&Frame")
-        m.addAction(self.act_reject)
-        m.addAction(self.act_undo)
+        for a in (self.act_reject, self.act_undo):
+            m.addAction(a)
+        m.addSeparator()
+        for a in (self.act_flag, self.act_autoflag, self.act_reject_flagged, self.act_clear_flags):
+            m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_prev)
         m.addAction(self.act_next)
@@ -428,9 +622,16 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&View")
         m.addAction(self.act_fit)
         m.addAction(self.act_100)
+        m = mb.addMenu("&Settings")
+        sm = m.addMenu("Star measurement")
+        for a in self.mode_actions.values():
+            sm.addAction(a)
         m = mb.addMenu("&Help")
         a = QAction("Keyboard Shortcuts", self)
         a.triggered.connect(self.show_keys)
+        m.addAction(a)
+        a = QAction("About the Quality Metrics", self)
+        a.triggered.connect(self.show_metrics_help)
         m.addAction(a)
         a = QAction("About", self)
         a.triggered.connect(self.show_about)
@@ -442,21 +643,37 @@ class MainWindow(QMainWindow):
         if g is not None:
             self.restoreGeometry(g)
         else:
-            self.resize(1500, 900)
-        s = self.settings.value("splitter")
-        if s is not None:
-            self.splitter.restoreState(s)
+            self.resize(1600, 950)
+        for key, w in (("splitter", self.splitter), ("vsplit", self.vsplit)):
+            s = self.settings.value(key)
+            if s is not None:
+                w.restoreState(s)
         self.chk_sub.setChecked(self.settings.value("subfolders", False, type=bool))
         self.act_advance.setChecked(self.settings.value("advance", True, type=bool))
+        mode = self.settings.value("measure_mode", "fast")
+        self.mode_actions.get(mode, self.mode_actions["fast"]).setChecked(True)
+        idx = self.chart_metric.findData(self.settings.value("chart_metric", "fwhm"))
+        if idx >= 0:
+            self.chart_metric.setCurrentIndex(idx)
+
+    def measure_mode(self) -> str:
+        for k, a in self.mode_actions.items():
+            if a.isChecked():
+                return k
+        return "fast"
 
     def closeEvent(self, event):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("splitter", self.splitter.saveState())
+        self.settings.setValue("vsplit", self.vsplit.saveState())
         self.settings.setValue("subfolders", self.chk_sub.isChecked())
         self.settings.setValue("advance", self.act_advance.isChecked())
+        self.settings.setValue("measure_mode", self.measure_mode())
+        self.settings.setValue("chart_metric", self.chart_metric.currentData())
         self.generation += 1
-        self.preview_pool.clear()
+        self.analyze_pool.clear()
         self.display_pool.clear()
+        self.save_disk_cache()
         super().closeEvent(event)
 
     # ------------------------------------------------------------ opening
@@ -473,25 +690,33 @@ class MainWindow(QMainWindow):
         if files:
             self.open_frames(core.frames_from_files(files), Path(files[0]).parent)
 
-    def open_folder(self, folder):
+    def open_folder(self, folder, use_cache=True):
         folder = Path(folder)
         self.settings.setValue("last_folder", str(folder))
+        self.statusBar().showMessage(f"Scanning {folder}…")
+        QApplication.processEvents()
         frames = core.scan_folder(folder, recursive=self.chk_sub.isChecked())
+        self.statusBar().clearMessage()
         if not frames:
             QMessageBox.information(self, APP_NAME,
                                     f"No FITS files (.fits, .fit, .fts) were found in:\n{folder}"
                                     + ("" if self.chk_sub.isChecked() else
                                        "\n\nTip: tick “Include subfolders” if your frames are in subfolders."))
             return
-        self.open_frames(frames, folder)
+        self.open_frames(frames, folder, use_cache)
 
     def reload(self):
         if self.root is not None:
             self.open_folder(self.root)
 
-    def open_frames(self, frames, root):
+    def remeasure(self):
+        if self.root is not None:
+            self.open_folder(self.root, use_cache=False)
+
+    def open_frames(self, frames, root, use_cache=True):
+        self.save_disk_cache()
         self.generation += 1
-        self.preview_pool.clear()
+        self.analyze_pool.clear()
         self.display_pool.clear()
         self.root = Path(root)
         self.frames = {f.uid: f for f in frames}
@@ -500,24 +725,55 @@ class MainWindow(QMainWindow):
         self.cache.clear()
         self.pending_display.clear()
         self.known_filters = []
+        self.medians = {}
         self.current_uid = None
+        self.disk_cache = {}
+        self.cache_dirty = set()
         self.filter_combo.blockSignals(True)
         self.filter_combo.clear()
         self.filter_combo.addItem("All filters")
         self.filter_combo.blockSignals(False)
         self.view.clear("Loading…")
         self.setWindowTitle(f"{APP_NAME} — {self.root}")
-        self.progress.setRange(0, len(frames))
-        self.progress.setValue(0)
-        self.progress.show()
+
+        self.network = core.is_network_path(self.root)
+        cores = os.cpu_count() or 4
+        self.analyze_pool.setMaxThreadCount(3 if self.network else max(2, min(cores - 1, 8)))
+
+        # Results saved from earlier sessions
+        mode = self.measure_mode()
+        todo = []
+        for f in frames:
+            if f.folder not in self.disk_cache:
+                self.disk_cache[f.folder] = core.load_cache(f.folder) if use_cache else {}
+            entry = self.disk_cache[f.folder].get(f.cache_key)
+            usable = entry is not None and (entry.get("mode") == mode or
+                                            (mode == "fast" and entry.get("mode") == "full"))
+            if usable:
+                self.apply_result(f, dict(entry, qthumb=to_qimage(entry["thumb"])), from_cache=True)
+            else:
+                todo.append(f)
+        cached = len(frames) - len(todo)
+        self.to_load = len(todo)
+        self.load_started = time.time()
+
+        self.progress.setRange(0, max(1, len(frames)))
+        self.progress.setValue(cached)
+        self.progress.setVisible(bool(todo))
+        self.loaded_count = cached
         self.rebuild_list()
-        # Queue previews in list order so the top of the list fills in first
-        for uid in self.order + [u for u in self.frames if u not in self.order]:
-            f = self.frames[uid]
-            self.preview_pool.start(PreviewTask(self.generation, uid, f.path, self.signals))
+        order_index = {u: i for i, u in enumerate(self.order)}
+        todo.sort(key=lambda f: order_index.get(f.uid, 1 << 30))
+        for f in todo:
+            self.analyze_pool.start(AnalyzeTask(self.generation, f.uid, f.path, mode, self.signals))
         if self.order:
             self.list.setCurrentRow(0)
-        self.update_status()
+        self.refresh_stats()
+        if cached:
+            self.statusBar().showMessage(f"{cached} frames loaded instantly from saved results"
+                                         + (f"; measuring {len(todo)} new frames…" if todo else ""), 6000)
+        if not todo:
+            self.loading_finished()
 
     # ------------------------------------------------------ drag and drop
     def dragEnterEvent(self, event):
@@ -542,20 +798,17 @@ class MainWindow(QMainWindow):
             self.open_frames(frames, frames[0].folder)
 
     # ----------------------------------------------------------- loading
-    def on_preview_ready(self, gen, uid, res):
-        if gen != self.generation or uid not in self.frames:
-            return
-        f = self.frames[uid]
+    def apply_result(self, f: core.Frame, res: dict, from_cache=False):
         f.loaded = True
         f.error = None
         f.thumb = res["qthumb"]
-        f.stretch = res["stretch"]
-        f.display_size = res["display_size"]
+        f.thumb_arr = res["thumb"]
+        f.stretch = tuple(res["stretch"])
+        f.display_size = tuple(res["display_size"])
         f.cards = res["cards"]
         f.info = res["info"]
-        self.loaded_count += 1
-        self.progress.setValue(self.loaded_count)
-
+        f.metrics = res.get("metrics") or {}
+        f.night = core.night_of(f.info)
         filt = f.info.get("filter") or "No filter"
         if filt not in self.known_filters:
             self.known_filters.append(filt)
@@ -566,13 +819,24 @@ class MainWindow(QMainWindow):
             self.filter_combo.addItems(sorted(self.known_filters))
             self.filter_combo.setCurrentText(cur)
             self.filter_combo.blockSignals(False)
+        if not from_cache:
+            self.disk_cache.setdefault(f.folder, {})[f.cache_key] = core.cache_entry(res)
+            self.cache_dirty.add(f.folder)
 
+    def on_analyzed(self, gen, uid, res):
+        if gen != self.generation or uid not in self.frames:
+            return
+        f = self.frames[uid]
+        self.apply_result(f, res)
+        self.loaded_count += 1
+        self.progress.setValue(self.loaded_count)
         self.refresh_item(uid)
         if uid == self.current_uid:
             self.show_current()
+        self.stats_timer.start()
         self.check_loading_done()
 
-    def on_preview_failed(self, gen, uid, msg):
+    def on_analyze_failed(self, gen, uid, msg):
         if gen != self.generation or uid not in self.frames:
             return
         f = self.frames[uid]
@@ -586,51 +850,190 @@ class MainWindow(QMainWindow):
         self.check_loading_done()
 
     def check_loading_done(self):
-        if self.loaded_count >= len(self.frames):
-            self.progress.hide()
-            if self.sort_combo.currentText() != "File name" or self.filter_combo.currentIndex() > 0:
-                self.rebuild_list()
+        n = len(self.frames)
+        if self.loaded_count >= n:
+            self.loading_finished()
+        else:
+            done = self.loaded_count
+            elapsed = time.time() - self.load_started
+            measured = done - (n - self.to_load)
+            if measured > 3 and elapsed > 2:
+                left = (n - done) * elapsed / measured
+                self.progress.setFormat(f"%v / %m  ·  ~{left / 60:.0f} min left" if left > 90
+                                        else f"%v / %m  ·  ~{left:.0f} s left")
+            self.update_status()
+
+    def loading_finished(self):
+        self.progress.hide()
+        self.progress.setFormat("%v / %m")
+        self.refresh_stats()
+        if self.sort_combo.currentText() != "File name" or self.filter_combo.currentIndex() > 0:
+            self.rebuild_list()
+        self.save_disk_cache()
+        if self.to_load:
+            el = time.time() - self.load_started
+            self.statusBar().showMessage(f"Measured {self.to_load} frames in {el:.0f} s"
+                                         + (" (network drive)" if self.network else ""), 8000)
         self.update_status()
 
-    def request_display(self, uid):
-        if uid in self.cache or uid in self.pending_display or uid not in self.frames:
+    def save_disk_cache(self):
+        for folder in list(self.cache_dirty):
+            try:
+                core.save_cache(folder, self.disk_cache.get(folder, {}))
+            except OSError:
+                pass
+        self.cache_dirty.clear()
+
+    # ------------------------------------------------------------ stats
+    def refresh_stats(self):
+        """Recompute group medians, badges and scores; refresh what changed."""
+        frames = list(self.frames.values())
+        before = {f.uid: (f.badge, None if f.score is None else round(f.score)) for f in frames}
+        self.medians = core.assess(frames)
+        for f in frames:
+            if before.get(f.uid) != (f.badge, None if f.score is None else round(f.score)):
+                self.refresh_item(f.uid)
+        self.update_chart()
+        self.update_warnings()
+        if self.current_uid is not None:
+            self.fill_quality(self.frames.get(self.current_uid))
+        self.update_status()
+
+    def update_warnings(self):
+        msgs = []
+        groups = {}
+        for f in self.frames.values():
+            if f.metrics and f.metrics.get("eccentricity") is not None and not f.rejected:
+                groups.setdefault(f.info.get("filter") or "No filter", []).append(f.metrics["eccentricity"])
+        for filt, es in sorted(groups.items()):
+            if len(es) >= 3:
+                es.sort()
+                med = es[len(es) // 2]
+                if med > 0.7:
+                    msgs.append(f"⚠ {filt}: stars elongated in most frames (median e {med:.2f}) — "
+                                "check tracking, guiding or wind")
+                elif med > 0.55:
+                    msgs.append(f"⚠ {filt}: stars slightly out of round in most frames (median e {med:.2f}) — "
+                                "possible tilt, collimation or pinched optics")
+        self.warning_label.setText("\n".join(msgs))
+        self.warning_label.setToolTip("\n".join(msgs))
+
+    # ------------------------------------------------------------- chart
+    def chart_frames(self):
+        fi = self.filter_combo.currentIndex()
+        filt = self.filter_combo.currentText()
+        frames = [f for f in self.frames.values()
+                  if fi <= 0 or (f.info.get("filter") or "No filter") == filt]
+        frames.sort(key=lambda f: (str(f.info.get("date_obs") or "~"), core.natural_key(str(f.path))))
+        return frames
+
+    def update_chart(self, *_):
+        key = self.chart_metric.currentData() or "fwhm"
+        sel = set(self.selected_uids(multi_only=True))
+        pts = []
+        for f in self.chart_frames():
+            filt = f.info.get("filter") or "No filter"
+            pts.append(ChartPoint(f.uid, core.frame_value(f, key), filter_color(filt), f.rejected,
+                                  f.flagged, f.uid in sel, f.night, f.name, f.group))
+        medians = []
+        if key != "score":
+            fi = self.filter_combo.currentIndex()
+            for g, gm in self.medians.items():
+                filt = g.split("|", 1)[1]
+                if fi > 0 and filt != self.filter_combo.currentText():
+                    continue
+                if gm.get(key) is not None:
+                    medians.append((filter_color(filt), gm[key]))
+        self.chart.set_data(pts, medians, self.current_uid, core.METRIC_NAMES[key],
+                            core.METRIC_HIGHER_BETTER[key])
+        filts = sorted({p.group.split("|", 1)[1] for p in pts})
+        self.legend.setText("  ".join(f"<span style='color:{filter_color(x).name()}'>●</span> {x}"
+                                      for x in filts))
+
+    def goto_uid(self, uid):
+        if uid not in self.items:
+            # Not in the current list (e.g. rejected frame while showing Kept): show all
+            self.show_combo.setCurrentIndex(0)
+        it = self.items.get(uid)
+        if it is not None:
+            self.list.setCurrentItem(it)
+            self.list.scrollToItem(it)
+
+    def select_uids(self, uids):
+        visible = [u for u in uids if u in self.items]
+        if not visible:
+            return
+        self.list.blockSignals(True)
+        self.list.clearSelection()
+        self.list.setCurrentItem(self.items[visible[0]], QItemSelectionModel.SelectionFlag.NoUpdate)
+        for u in visible:
+            self.items[u].setSelected(True)
+        self.list.blockSignals(False)
+        self.list.scrollToItem(self.items[visible[0]])
+        self.current_uid = visible[0]
+        self.show_current()
+        self.update_chart()
+        self.statusBar().showMessage(f"{len(visible)} frames selected — press X to reject or F to flag", 6000)
+
+    # ----------------------------------------------------- display loads
+    def request_display(self, uid, full=False):
+        key = (uid, full)
+        if key in self.cache or key in self.pending_display or uid not in self.frames:
             return
         f = self.frames[uid]
         if f.error:
             return
-        self.pending_display.add(uid)
-        self.display_pool.start(DisplayTask(self.generation, uid, f.path, f.stretch, self.signals))
+        self.pending_display.add(key)
+        self.display_pool.start(DisplayTask(self.generation, uid, f.path, f.stretch, full, self.signals))
 
-    def on_display_ready(self, gen, uid, img, path):
+    def request_detail(self):
+        uid = self.current_uid
+        if uid is None or (uid, True) in self.cache:
+            return
+        half = self.cache.get((uid, False))
+        if half is not None and half[1] == 1:
+            return          # the "half" image is already full resolution
+        self.request_display(uid, full=True)
+
+    def on_display_ready(self, gen, uid, img, factor, full, path):
         if gen != self.generation:
             return
-        self.pending_display.discard(uid)
-        self.cache[uid] = img
-        self.cache.move_to_end(uid)
+        key = (uid, full)
+        self.pending_display.discard(key)
+        self.cache[key] = (img, factor)
+        self.cache.move_to_end(key)
         while len(self.cache) > CACHE_SIZE:
             old = next(iter(self.cache))
-            if old == self.current_uid:
+            if old[0] == self.current_uid:
                 self.cache.move_to_end(old)
-                if len(self.cache) <= 1:
+                if all(k[0] == self.current_uid for k in self.cache):
                     break
                 continue
             del self.cache[old]
         if uid == self.current_uid:
-            self.view.show_image(img)
+            f = self.frames[uid]
+            if full or (uid, True) not in self.cache:
+                self.view.show_image(img, self.full_size(f))
+            if not full and factor > 1 and not self.view.fit_mode and self.view.transform().m11() >= 0.5:
+                self.request_display(uid, full=True)
 
     def on_display_failed(self, gen, uid, msg, path):
         if gen != self.generation:
             return
-        self.pending_display.discard(uid)
+        self.pending_display.discard((uid, False))
+        self.pending_display.discard((uid, True))
         f = self.frames.get(uid)
         if f is None:
             return
         if str(f.path) != path:
-            # File was moved (rejected/restored) while loading - try again.
             self.request_display(uid)
             return
         if uid == self.current_uid:
             self.view.clear(f"Could not display {f.name}:\n{msg}")
+
+    @staticmethod
+    def full_size(f: core.Frame):
+        return f.display_size or (f.thumb.width(), f.thumb.height())
 
     # -------------------------------------------------------------- list
     def frame_visible(self, f: core.Frame) -> bool:
@@ -639,26 +1042,44 @@ class MainWindow(QMainWindow):
             return False
         if show == "Rejected" and not f.rejected:
             return False
-        filt = self.filter_combo.currentText()
-        if self.filter_combo.currentIndex() > 0 and (f.info.get("filter") or "No filter") != filt:
+        if show == "Flagged" and not f.flagged:
+            return False
+        if self.filter_combo.currentIndex() > 0 and \
+                (f.info.get("filter") or "No filter") != self.filter_combo.currentText():
             return False
         return True
 
-    def sort_key(self):
+    def sorted_frames(self, frames):
         mode = self.sort_combo.currentText()
+        if mode in SORT_METRIC:
+            key = SORT_METRIC[mode]
+            hb = core.METRIC_HIGHER_BETTER[key]
+            worst = self.worst_first.isChecked()
+
+            def k(f):
+                v = core.frame_value(f, key)
+                if v is None:
+                    return (1, 0.0, core.natural_key(f.name))
+                good_first = -v if hb else v
+                return (0, -good_first if worst else good_first, core.natural_key(f.name))
+            return sorted(frames, key=k)
         if mode == "Capture time":
-            return lambda f: (str(f.info.get("date_obs") or "~"), core.natural_key(str(f.path)))
+            return sorted(frames, key=lambda f: (str(f.info.get("date_obs") or "~"), core.natural_key(str(f.path))))
         if mode == "Filter":
-            return lambda f: (f.info.get("filter") or "~", core.natural_key(f.rel_folder),
-                              core.natural_key(f.name))
-        return lambda f: (core.natural_key(f.rel_folder), core.natural_key(f.name))
+            return sorted(frames, key=lambda f: (f.info.get("filter") or "~", core.natural_key(f.rel_folder),
+                                                 core.natural_key(f.name)))
+        return sorted(frames, key=lambda f: (core.natural_key(f.rel_folder), core.natural_key(f.name)))
+
+    def on_view_changed(self, *_):
+        self.rebuild_list()
+        self.update_chart()
 
     def rebuild_list(self, *_):
         keep = self.current_uid
         self.list.blockSignals(True)
         self.list.clear()
         self.items.clear()
-        frames = sorted((f for f in self.frames.values() if self.frame_visible(f)), key=self.sort_key())
+        frames = self.sorted_frames([f for f in self.frames.values() if self.frame_visible(f)])
         self.order = [f.uid for f in frames]
         for f in frames:
             it = QListWidgetItem()
@@ -670,8 +1091,13 @@ class MainWindow(QMainWindow):
         if keep in self.items:
             self.list.setCurrentItem(self.items[keep])
             self.list.scrollToItem(self.items[keep])
+            if self.current_uid != keep:
+                self.current_uid = keep
+                self.show_current()
         elif self.order:
             self.list.setCurrentRow(0)
+            self.current_uid = self.order[0]
+            self.show_current()
         else:
             self.current_uid = None
             self.show_current()
@@ -681,6 +1107,7 @@ class MainWindow(QMainWindow):
         pm = QPixmap(ICON_W, ICON_H)
         pm.fill(QColor(20, 20, 24))
         p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
         if f.thumb is not None and not f.thumb.isNull():
             t = QPixmap.fromImage(f.thumb).scaled(ICON_W, ICON_H, Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -697,6 +1124,14 @@ class MainWindow(QMainWindow):
             font.setPointSize(9)
             p.setFont(font)
             p.drawText(pm.rect(), Qt.AlignCenter, "REJECTED")
+        if f.badge in BADGE_COLORS:
+            p.setPen(QPen(QColor(0, 0, 0), 1.5))
+            p.setBrush(BADGE_COLORS[f.badge])
+            p.drawEllipse(ICON_W - 17, 4, 13, 13)
+        if f.flagged:
+            p.setPen(QPen(QColor(0, 0, 0), 1))
+            p.setBrush(QColor(255, 220, 60))
+            p.drawPolygon(QPolygonF([QPointF(4, 4), QPointF(18, 4), QPointF(4, 18)]))
         p.end()
         return QIcon(pm)
 
@@ -712,20 +1147,36 @@ class MainWindow(QMainWindow):
             exp = f.info.get("exptime")
             if isinstance(exp, (int, float)):
                 details.append(f"{exp:g} s")
+        if f.score is not None:
+            details.append(f"score {f.score:.0f}")
         if f.error:
             details.append("⚠ unreadable")
         if details:
             lines.append(" · ".join(details))
+        m = f.metrics
+        if m and m.get("fwhm") is not None:
+            lines.append(f"FWHM {m['fwhm']:.2f} · e {m['eccentricity']:.2f} · {m['stars']}★")
+        elif m:
+            lines.append("no stars measured")
         if f.rel_folder:
             lines.append(f"📁 {f.rel_folder}")
         it.setText("\n".join(lines))
         it.setIcon(self.make_icon(f))
-        it.setToolTip(str(f.path) + (f"\n\n{f.error}" if f.error else ""))
+        tip = str(f.path)
+        if f.reasons:
+            tip += "\n\n" + "\n".join(f.reasons)
+        if f.error:
+            tip += f"\n\n{f.error}"
+        it.setToolTip(tip)
         it.setForeground(QBrush(QColor(230, 110, 110) if f.rejected else QColor(225, 225, 230)))
 
     def on_current_changed(self, cur, _prev):
         self.current_uid = cur.data(ROLE_UID) if cur is not None else None
         self.show_current()
+        self.chart.set_current(self.current_uid)
+
+    def on_selection_changed(self):
+        self.update_chart()
 
     def step(self, delta):
         if not self.order:
@@ -744,27 +1195,72 @@ class MainWindow(QMainWindow):
             return
         if f.error:
             self.view.clear(f"Could not read {f.name}:\n{f.error}")
-        elif uid in self.cache:
-            self.cache.move_to_end(uid)
-            self.view.show_image(self.cache[uid])
+        elif (uid, True) in self.cache:
+            self.cache.move_to_end((uid, True))
+            self.view.show_image(self.cache[(uid, True)][0], self.full_size(f))
+        elif (uid, False) in self.cache:
+            self.cache.move_to_end((uid, False))
+            self.view.show_image(self.cache[(uid, False)][0], self.full_size(f))
+            if not self.view.fit_mode and self.view.transform().m11() >= 0.5:
+                self.request_detail()
         elif f.thumb is not None:
-            self.view.show_image(f.thumb, f.display_size)
+            self.view.show_image(f.thumb, self.full_size(f))
             self.request_display(uid)
         else:
             self.view.clear("Loading…")
             self.request_display(uid)
-        self.view.banner = "REJECTED" if f.rejected else ""
+        self.view.banner = "REJECTED" if f.rejected else ("FLAGGED" if f.flagged else "")
         self.view.subtitle = f.name
         self.view.viewport().update()
-        # Prefetch neighbours for instant stepping
         if uid in self.order:
             i = self.order.index(uid)
             for j in (i + 1, i - 1, i + 2):
                 if 0 <= j < len(self.order) and self.frames[self.order[j]].loaded:
                     self.request_display(self.order[j])
 
+    def fill_quality(self, f):
+        Q = self.q_labels
+        if f is None or not f.metrics:
+            for lab in Q.values():
+                lab.setText("–")
+            self.reasons_label.setText("")
+            return
+        m = f.metrics
+        gm = self.medians.get(f.group, {})
+
+        def vs(key, fmt, unit=""):
+            v = m.get(key)
+            if v is None:
+                return "–"
+            s = fmt.format(v) + unit
+            med = gm.get(key)
+            if med:
+                s += f"   <span style='color:#8a8a96'>(median {fmt.format(med)}{unit})</span>"
+            return s
+
+        Q["score"].setText("–" if f.score is None else
+                           f"<b style='color:{BADGE_COLORS.get(f.badge, QColor('#ccc')).name()}'>{f.score:.0f}</b>"
+                           "   <span style='color:#8a8a96'>(100 = typical)</span>")
+        fw = vs("fwhm", "{:.2f}", " px")
+        sc = f.info.get("scale")
+        if sc and m.get("fwhm"):
+            fw = fw.replace(" px", f" px = {m['fwhm'] * sc:.1f}″", 1)
+        Q["fwhm"].setText(fw)
+        Q["eccentricity"].setText(vs("eccentricity", "{:.2f}"))
+        Q["snr"].setText(vs("snr", "{:.0f}"))
+        Q["stars"].setText(vs("stars", "{:.0f}"))
+        Q["background"].setText(vs("background", "{:.0f}", " ADU"))
+        if f.reasons:
+            col = BADGE_COLORS.get(f.badge, QColor("#ccc")).name()
+            self.reasons_label.setText("<br>".join(f"<span style='color:{col}'>• {r}</span>" for r in f.reasons))
+        elif f.badge == "green":
+            self.reasons_label.setText("<span style='color:#46c85f'>• Within the normal range for this filter</span>")
+        else:
+            self.reasons_label.setText("")
+
     def fill_inspector(self, f):
         L = self.info_labels
+        self.fill_quality(f)
         if f is None:
             for lab in L.values():
                 lab.setText("–")
@@ -780,26 +1276,29 @@ class MainWindow(QMainWindow):
             return f"{v}{suffix}"
 
         L["file"].setText(f.name)
-        L["status"].setText("<span style='color:#ff6060'><b>Rejected</b></span>" if f.rejected
-                            else "<span style='color:#60d060'>Kept</span>")
+        if f.rejected:
+            L["status"].setText("<span style='color:#ff6060'><b>Rejected</b></span>")
+        elif f.flagged:
+            L["status"].setText("<span style='color:#ffdc3c'><b>Flagged</b></span> (kept)")
+        else:
+            L["status"].setText("<span style='color:#60d060'>Kept</span>")
         L["folder"].setText(str(f.path.parent))
         L["object"].setText(fmt(i.get("object")))
         L["filter"].setText(fmt(i.get("filter")))
         L["exptime"].setText(fmt(i.get("exptime"), " s"))
-        L["date_obs"].setText(fmt(i.get("date_obs")))
+        L["date_obs"].setText(fmt(i.get("date_loc") or i.get("date_obs")) + ("" if i.get("date_loc") else " UTC"
+                                                                             if i.get("date_obs") else ""))
+        L["night"].setText(fmt(f.night))
         L["camera"].setText(fmt(i.get("camera")))
         L["gain"].setText(fmt(i.get("gain")))
         L["temp"].setText(fmt(i.get("temp"), " °C"))
         if f.display_size:
             w, h = f.display_size
-            if i.get("bayer"):
-                L["size"].setText(f"{w * 2} × {h * 2}")
-            else:
-                L["size"].setText(f"{w} × {h}")
+            L["size"].setText(f"{w * 2} × {h * 2}" if i.get("bayer") else f"{w} × {h}")
         else:
             L["size"].setText("–")
-        L["bayer"].setText(f"{i['bayer']} (shown as greyscale)" if i.get("bayer") else "No (mono)"
-                           if f.info else "–")
+        L["bayer"].setText(f"{i['bayer']} (colour camera, shown in greyscale)" if i.get("bayer")
+                           else ("No (mono)" if f.info else "–"))
         self.fill_header_table()
 
     def fill_header_table(self, *_):
@@ -808,9 +1307,12 @@ class MainWindow(QMainWindow):
         if f is not None:
             q = self.header_search.text().strip().lower()
             for k, v, c in f.cards:
-                val = "" if v is None else (("T" if v else "F") if isinstance(v, bool) else str(v))
                 if v is None:
                     val = c
+                elif isinstance(v, bool):
+                    val = "T" if v else "F"
+                else:
+                    val = str(v)
                 if q and q not in k.lower() and q not in val.lower():
                     continue
                 rows.append((k, val, c))
@@ -825,10 +1327,12 @@ class MainWindow(QMainWindow):
             self.header_table.setItem(r, 1, vi)
 
     # ---------------------------------------------------- reject / undo
-    def selected_uids(self):
+    def selected_uids(self, multi_only=False):
         uids = [it.data(ROLE_UID) for it in self.list.selectedItems()]
-        if len(uids) <= 1 and self.current_uid is not None:
-            return [self.current_uid]
+        if len(uids) <= 1:
+            if multi_only:
+                return []
+            return [self.current_uid] if self.current_uid is not None else []
         return sorted(uids, key=lambda u: self.order.index(u) if u in self.order else 0)
 
     def toggle_reject(self):
@@ -841,6 +1345,24 @@ class MainWindow(QMainWindow):
             self.undo_stack.append(done)
         if reject and len(uids) == 1 and self.act_advance.isChecked() and self.show_combo.currentText() == "All frames":
             self.step(1)
+
+    def reject_flagged(self):
+        uids = [u for u, f in self.frames.items() if f.flagged and not f.rejected]
+        if not uids:
+            QMessageBox.information(self, APP_NAME, "No frames are flagged.\n\n"
+                                    "Flag frames with F, by dragging across the chart, or with Auto-Flag.")
+            return
+        if QMessageBox.question(self, APP_NAME, f"Move {len(uids)} flagged frames to REJECTED?\n\n"
+                                "(You can undo this with Ctrl+Z.)") != QMessageBox.StandardButton.Yes:
+            return
+        done = self.apply_reject(uids, True)
+        for u, _r in done:
+            self.frames[u].flagged = False
+            self.refresh_item(u)
+        if done:
+            self.undo_stack.append(done)
+        self.rebuild_list()
+        self.update_chart()
 
     def apply_reject(self, uids, reject):
         done, errors = [], []
@@ -859,16 +1381,15 @@ class MainWindow(QMainWindow):
                                 + "\n".join(errors[:10]) + ("\n…" if len(errors) > 10 else ""))
         if done:
             if self.show_combo.currentText() != "All frames":
-                # Frames may leave the current view; keep position sensible
                 row = self.list.currentRow()
                 self.rebuild_list()
                 if self.list.count():
-                    self.list.setCurrentRow(min(row, self.list.count() - 1))
+                    self.list.setCurrentRow(min(max(row, 0), self.list.count() - 1))
             else:
                 for u, _r in done:
                     self.refresh_item(u)
                 self.show_current()
-            self.update_status()
+            self.refresh_stats()
         return done
 
     def undo(self):
@@ -885,6 +1406,45 @@ class MainWindow(QMainWindow):
         if uids and uids[0] in self.items:
             self.list.setCurrentItem(self.items[uids[0]])
         self.statusBar().showMessage(f"Undid {len(uids)} change(s)", 2000)
+
+    # -------------------------------------------------------------- flags
+    def toggle_flag(self):
+        uids = self.selected_uids()
+        if not uids:
+            return
+        state = not all(self.frames[u].flagged for u in uids)
+        self.set_flags(uids, state)
+
+    def set_flags(self, uids, state):
+        for u in uids:
+            self.frames[u].flagged = state
+        if self.show_combo.currentText() == "Flagged":
+            self.rebuild_list()
+        else:
+            for u in uids:
+                self.refresh_item(u)
+            self.show_current()
+        self.update_chart()
+        self.update_status()
+
+    def clear_flags(self):
+        uids = [u for u, f in self.frames.items() if f.flagged]
+        if uids:
+            self.set_flags(uids, False)
+
+    def auto_flag(self):
+        if not any(f.metrics for f in self.frames.values()):
+            QMessageBox.information(self, APP_NAME, "No quality metrics yet — wait for frames to be measured "
+                                    "(and check Settings → Star measurement is not Off).")
+            return
+        dlg = AutoFlagDialog(self, list(self.frames.values()), self.medians, self.settings)
+        if dlg.exec():
+            dlg.save()
+            uids = dlg.matches()
+            self.set_flags(uids, True)
+            self.show_combo.setCurrentText("Flagged")
+            self.statusBar().showMessage(f"Flagged {len(uids)} frames — step through them and press X "
+                                         "to reject, or Shift+X to reject them all", 8000)
 
     # ------------------------------------------------------------ export
     def export_keepers(self):
@@ -906,15 +1466,24 @@ class MainWindow(QMainWindow):
         if n == 0:
             self.status_label.setText("No folder open")
             return
-        rej = sum(1 for f in self.frames.values() if f.rejected)
-        err = sum(1 for f in self.frames.values() if f.error)
+        fr = list(self.frames.values())
+        rej = sum(1 for f in fr if f.rejected)
+        flg = sum(1 for f in fr if f.flagged and not f.rejected)
+        err = sum(1 for f in fr if f.error)
+        badges = {b: sum(1 for f in fr if f.badge == b and not f.rejected) for b in ("green", "amber", "red")}
         parts = [f"{n} frames", f"{n - rej} kept", f"{rej} rejected"]
+        if flg:
+            parts.append(f"{flg} flagged")
+        if any(badges.values()):
+            parts.append(f"<span style='color:#46c85f'>●</span> {badges['green']}  "
+                         f"<span style='color:#eba932'>●</span> {badges['amber']}  "
+                         f"<span style='color:#e64646'>●</span> {badges['red']}")
         if err:
             parts.append(f"{err} unreadable")
         if len(self.order) != n:
             parts.append(f"{len(self.order)} shown")
         if self.loaded_count < n:
-            parts.append(f"loading {self.loaded_count}/{n}")
+            parts.append(f"measuring {self.loaded_count}/{n}")
         self.status_label.setText("   ·   ".join(parts))
 
     # -------------------------------------------------------------- help
@@ -924,19 +1493,42 @@ class MainWindow(QMainWindow):
             "Shift + arrows\tSelect a range\n"
             "Shift / Ctrl + click\tSelect frames\n"
             "X or Delete\tReject / restore frame(s)\n"
-            "Ctrl+Z\tUndo\n"
-            "F\tFit to window\n"
+            "F\tFlag / unflag frame(s)\n"
+            "Shift+X\tReject all flagged frames\n"
+            "D\tClear all flags\n"
+            "Ctrl+F\tAuto-Flag…\n"
+            "Ctrl+Z\tUndo reject / restore\n"
+            "Ctrl+0\tFit to window\n"
             "1\t100% (actual pixels)\n"
             "Mouse wheel\tZoom   ·   drag to pan\n"
             "Double-click\tToggle fit / 100%\n"
+            "Chart: click\tJump to that frame\n"
+            "Chart: drag\tSelect a range of frames\n"
             "Ctrl+O\tOpen folder\n"
             "Ctrl+E\tExport list of kept frames\n"
             "F5\tReload folder"))
 
+    def show_metrics_help(self):
+        QMessageBox.information(self, "About the quality metrics", (
+            "FWHM — star size (sensor pixels; arcseconds too when the header has focal length "
+            "and pixel size). Lower is sharper. Fitted with an elliptical Moffat profile (β = 4), "
+            "the same default as PixInsight's SubframeSelector.\n\n"
+            "Eccentricity — 0 = round, 1 = a line. Above ~0.5 is visible elongation (tracking, "
+            "guiding, wind, tilt). A whole session that is high points to the rig, not the night.\n\n"
+            "SNR — how far the brighter stars rise above the sky noise. Drops with clouds, haze, "
+            "moonlight, light pollution or soft focus.\n\n"
+            "Stars — number of stars detected. A sudden drop usually means cloud.\n\n"
+            "Background — sky brightness. Rises with moonlight, twilight or haze.\n\n"
+            "Badges and score compare each frame with the median of its own camera + filter, "
+            "so Ha frames are never judged against luminance frames. Score 100 = a typical frame.\n\n"
+            "Star measurement 'Fast' measures three bands across each frame (about a quarter "
+            "of the file), which gives nearly the same numbers as 'Full frame' and is 3–4× "
+            "faster on network drives."))
+
     def show_about(self):
         QMessageBox.about(self, f"About {APP_NAME}", (
             f"<b>{APP_NAME}</b> {APP_VERSION}<br><br>"
-            "Fast culling of astrophotography FITS frames on Windows.<br>"
+            "Fast culling of astrophotography FITS frames on Windows, with star quality metrics.<br>"
             "Rejected frames are moved to a <i>REJECTED</i> subfolder — nothing is ever deleted "
             "and your images are never modified.<br><br>"
             "Inspired by FITS Blaster for macOS by Tom van Peer "
@@ -975,15 +1567,23 @@ def main():
     app.setApplicationName(APP_NAME)
     apply_dark_theme(app)
 
+    if "--selftest" in sys.argv:
+        import selftest
+        i = sys.argv.index("--selftest")
+        out = Path(sys.argv[i + 1]) if len(sys.argv) > i + 1 else Path("selftest_output")
+        sys.exit(selftest.run(app, out))
+
     def excepthook(etype, value, tb):
         msg = "".join(traceback.format_exception(etype, value, tb))
-        sys.__stderr__.write(msg)
+        try:
+            sys.__stderr__.write(msg)
+        except Exception:  # noqa: BLE001 - pythonw has no console
+            pass
         QMessageBox.critical(None, APP_NAME, f"Unexpected error:\n\n{value}\n\n{msg[-1500:]}")
     sys.excepthook = excepthook
 
     w = MainWindow()
     w.show()
-    # Allow "FITS Blaster.exe <folder>" or dropping a folder onto the exe
     if len(sys.argv) > 1:
         target = Path(sys.argv[1])
         QTimer.singleShot(0, lambda: w.open_folder(target) if target.is_dir()
