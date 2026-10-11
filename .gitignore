@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PyInstaller output
+build/
+dist/
+*.spec
+
+# Self-test output
+selftest_output/
+selftest_python/
+selftest_exe/
+
+# Never commit image data (GitHub limits files to 100 MB)
+*.fits
+*.fit
+*.fts
+*.xisf
+*.zip
