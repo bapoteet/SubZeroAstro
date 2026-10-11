@@ -337,6 +337,9 @@ def run(app, out_dir: Path) -> int:
         # --- Stage 4: prepare for PixInsight ---------------------------------------
         win = state["win"]
         check(win.btn_prepare.isEnabled(), "Prepare for PixInsight button enabled after stacking")
+        import checkpoints as cpm
+        left = [p.name for p in cpm.root().glob("stack*_*.json")]
+        check(win.worker.completed and not left, f"a finished stacking run leaves no resume notes ({left})")
         fake = Path(__file__).resolve().parent / "tests" / "fake_tools"
         state["fake"] = fake.is_dir() and not getattr(sys, "frozen", False)
         if state["fake"]:

@@ -32,6 +32,7 @@ from pathlib import Path
 
 import numpy as np
 
+import checkpoints as cp
 import fits_core as core
 import metrics as M
 import xisf
@@ -1514,6 +1515,89 @@ def reference_keywords(ref_path, half=False) -> list:
                 v = v * 2
             out.append((k, v, ""))
     return out
+
+
+# --------------------------------------------------------------------------
+# Resume after a crash (0.6): remember each master as soon as it is saved
+# --------------------------------------------------------------------------
+
+def _group_key(g, opts) -> str:
+    plan = g.plan or CalPlan()
+    cal = []
+    for c in (plan.bias, plan.dark, plan.flat):
+        cal.append(sorted(str(i.path) for i in c.infos) if c is not None else None)
+    extra = repr((g.label(), cal, opts.kappa, opts.weighting, opts.osc_half, tuple(opts.formats),
+                  os.path.normcase(str(opts.masters_root)), opts.align_common))
+    return cp.file_key([f.info.path for f in g.frames], extra)
+
+
+def _cal_key(item) -> str:
+    return cp.file_key([i.path for i in item.infos], item.kind)
+
+
+class StackRunLog:
+    """Masters (and calibration masters) saved by a stacking run that did not finish,
+    so the next run can skip them. Cleared when a run completes."""
+
+    def __init__(self, opts):
+        self.opts = opts
+        self.written = []
+        self._keys = {}                     # keys are fixed on first use (calibration may be swapped later)
+
+    def _gpath(self, g):
+        if id(g) not in self._keys:
+            self._keys[id(g)] = _group_key(g, self.opts)
+        return cp.root() / f"stack_{self._keys[id(g)]}.json"
+
+    def _cpath(self, item):
+        return cp.root() / f"stackcal_{_cal_key(item)}.json"
+
+    def done(self, g):
+        """The saved entry for this group if all its files still exist, else None."""
+        d = cp.read_json(self._gpath(g))
+        if d and d.get("files") and all(Path(f).exists() for f in d["files"]):
+            return d
+        return None
+
+    def mark(self, g, res):
+        p = self._gpath(g)
+        cp.write_json(p, {"label": g.label(), "files": [str(f) for f in res.files], "used": res.used,
+                          "time": time.strftime("%Y-%m-%d %H:%M")})
+        self.written.append(p)
+
+    def cal_saved(self, item):
+        d = cp.read_json(self._cpath(item))
+        files = [f for f in (d or {}).get("files", []) if Path(f).exists()]
+        return files or None
+
+    def mark_cal(self, item, files):
+        p = self._cpath(item)
+        cp.write_json(p, {"label": item.label(), "files": [str(f) for f in files]})
+        self.written.append(p)
+
+    def finish(self, groups=()):
+        """The run completed: forget it (a later run stacks again, as _2 versions)."""
+        for g in groups:
+            cp.remove(self._gpath(g))
+        for p in self.written:
+            cp.remove(p)
+        self.written = []
+
+
+def use_saved_calibration(item, files) -> bool:
+    """Swap a calibration item built from subframes for the master an interrupted run
+    already saved (much faster than rebuilding it)."""
+    f = next((Path(x) for x in files if Path(x).suffix.lower() in (".fits", ".fit", ".xisf")), None)
+    if f is None:
+        return False
+    try:
+        info = read_info(f)
+    except Exception:  # noqa: BLE001
+        return False
+    item.replaced = [str(i.path) for i in item.infos]      # the subframes it stands in for
+    item.infos, item.master, item.origin, item.data = [info], True, "library", None
+    item.saved = [Path(x) for x in files]
+    return True
 
 
 def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) -> list:

@@ -57,9 +57,12 @@ class StackWorker(QThread):
     group_done = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, groups, items, opts, rigs):
+    def __init__(self, groups, items, opts, rigs, runlog=None, skip=()):
         super().__init__()
         self.groups, self.items, self.opts, self.rigs = groups, items, opts, rigs
+        self.runlog = runlog or st.StackRunLog(opts)
+        self.skip = set(skip)               # id(group) already saved by an interrupted run
+        self.completed = False
         self.cancel_requested = False
         self.results = []
         self.saved_cal = []
@@ -101,12 +104,26 @@ class StackWorker(QThread):
                 self.progress.emit(text, (gi + max(0.0, min(frac, 1.0))) / n)
                 if self.cancel_requested:
                     raise st.Cancelled()
+            if id(g) in self.skip:
+                d = self.runlog.done(g)
+                if d:
+                    res = st.StackResult(g, files=[Path(f) for f in d["files"]], used=d.get("used", 0))
+                    self.log.emit(f"\n=== {g.label()} — already saved by the interrupted run ({d.get('time', '')}) ===")
+                    for f in d["files"]:
+                        self.log.emit(f"Kept {f}")
+                    self.results.append(res)
+                    self.group_done.emit(res)
+                    continue
             p = g.plan
             # build / load the calibration masters this group needs
             for item, helper_b, helper_d in ((p.bias, None, None), (p.dark, None, None),
                                              (p.flat, p.flat_bias, p.flat_dark)):
                 if item is None:
                     continue
+                if not item.master and id(item) not in built:
+                    prev = self.runlog.cal_saved(item)
+                    if prev and st.use_saved_calibration(item, prev):
+                        self.log.emit(f"Using {Path(prev[0]).name} saved by the interrupted run")
                 first = id(item) not in built
                 st.build_master(item, helper_b, helper_d, opts.kappa,
                                 progress=lambda t, f: prog(t, 0.15 * f), cancel=lambda: self.cancel_requested)
@@ -117,6 +134,10 @@ class StackWorker(QThread):
                         if opts.save_cal_masters and opts.cal_root:
                             files = st.save_calibration_master(item, opts.cal_root, g.rig, opts.formats)
                             self.saved_cal += files
+                            try:
+                                self.runlog.mark_cal(item, files)
+                            except OSError:
+                                pass
                             for f in files:
                                 self.log.emit(f"  saved {f}")
             self.log.emit(f"\n=== {g.label()} — {len(g.frames)} frames ===")
@@ -125,6 +146,10 @@ class StackWorker(QThread):
                                      progress=lambda t, f: prog(t, 0.15 + 0.8 * f),
                                      cancel=lambda: self.cancel_requested, common=common_for.get(id(g)))
                 files = st.save_master_light(res, opts, multi_camera=len(cams[g.target]) > 1)
+                try:
+                    self.runlog.mark(g, res)
+                except OSError:
+                    pass
                 for line in res.log:
                     self.log.emit(line)
                 for f in files:
@@ -137,6 +162,8 @@ class StackWorker(QThread):
                 self.log.emit(f"FAILED: {e}")
             self.results.append(res)
             self.group_done.emit(res)
+        self.completed = True
+        self.runlog.finish(self.groups)
         self.progress.emit("Done", 1.0)
 
 
@@ -630,16 +657,51 @@ class StackWindow(QMainWindow):
         if few:
             self.log("Note: fewer than 5 frames in " + "; ".join(few) +
                      " — outlier rejection needs at least 5, so these are averaged.")
+        runlog = st.StackRunLog(opts)
+        skip = set()
+        done = [(g, runlog.done(g)) for g in groups]
+        done = [(g, d) for g, d in done if d]
+        if done:
+            r = self.ask_resume(done, len(groups))
+            if r is None:
+                return
+            if r:
+                skip = {id(g) for g, _d in done}
+            else:
+                runlog.finish([g for g, _d in done])
         self._save_settings()
         self.btn_start.setEnabled(False)
         self.btn_cancel.setEnabled(True)
-        self.log(f"Stacking {len(groups)} group(s)…")
-        self.worker = StackWorker(groups, self.items, opts, self.rigs)
+        self.log(f"Stacking {len(groups)} group(s)…" + (f" ({len(skip)} already saved, skipped)" if skip else ""))
+        self.worker = StackWorker(groups, self.items, opts, self.rigs, runlog=runlog, skip=skip)
         self.worker.progress.connect(self.on_progress)
         self.worker.log.connect(self.log)
         self.worker.failed.connect(self.on_failed)
         self.worker.finished.connect(self.on_finished)
         self.worker.start()
+
+    def ask_resume(self, done, total):
+        """True = skip the masters an interrupted run saved, False = stack all again, None = cancel."""
+        names = "\n".join(f"  • {g.label()}  ({d.get('time', '')})" for g, d in done)
+        box = QMessageBox(self)
+        box.setWindowTitle("Continue where you left off?")
+        box.setIcon(QMessageBox.Question)
+        box.setText(f"An earlier stacking run didn't finish, but {len(done)} of these {total} masters were "
+                    "already saved:")
+        box.setInformativeText(names + "\n\nContinue with the rest, or stack everything again "
+                               "(new versions are saved as _2, nothing is overwritten)?")
+        b_cont = box.addButton("Continue With the Rest", QMessageBox.AcceptRole)
+        b_all = box.addButton("Stack Everything Again", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(b_cont)
+        if getattr(self, "auto_answer_resume", None) is not None:      # self-test
+            return self.auto_answer_resume
+        box.exec()
+        if box.clickedButton() is b_cont:
+            return True
+        if box.clickedButton() is b_all:
+            return False
+        return None
 
     def cancel(self):
         if self.worker:
@@ -681,6 +743,8 @@ class StackWindow(QMainWindow):
                     c.data = None
                     if not c.master and c.saved:
                         built_paths |= {str(i.path) for i in c.infos}
+                    if getattr(c, "replaced", None):     # swapped for a master saved by an earlier run
+                        built_paths |= set(c.replaced)
         if built_paths:                    # use the saved library masters from now on
             self.added_infos = [i for i in self.added_infos if str(i.path) not in built_paths]
         self.refresh_all()                 # newly saved masters now come from the library
