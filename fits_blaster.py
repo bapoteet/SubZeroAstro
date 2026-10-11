@@ -411,8 +411,8 @@ class MainWindow(QMainWindow):
 
         self.filter_combo.currentIndexChanged.connect(self.on_view_changed)
         self.show_combo.currentIndexChanged.connect(self.on_view_changed)
-        self.sort_combo.currentIndexChanged.connect(self.rebuild_list)
-        self.worst_first.toggled.connect(self.rebuild_list)
+        self.sort_combo.currentIndexChanged.connect(self.on_sort_changed)
+        self.worst_first.toggled.connect(self.on_sort_changed)
         self.list.currentItemChanged.connect(self.on_current_changed)
         self.list.itemSelectionChanged.connect(self.on_selection_changed)
 
@@ -507,6 +507,10 @@ class MainWindow(QMainWindow):
         self.header_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.header_table.setWordWrap(False)
         il.addWidget(self.header_table, 1)
+        insp.setMinimumWidth(240)
+        insp.setMaximumWidth(420)
+        for lab in list(self.info_labels.values()) + list(self.q_labels.values()) + [self.reasons_label]:
+            lab.setMinimumWidth(1)          # long text wraps instead of widening the panel
 
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(side)
@@ -1078,6 +1082,13 @@ class MainWindow(QMainWindow):
                                                  core.natural_key(f.name)))
         return sorted(frames, key=lambda f: (core.natural_key(f.rel_folder), core.natural_key(f.name)))
 
+    def on_sort_changed(self, *_):
+        """A new sort order shows the top of the list (e.g. the worst frames)."""
+        self.rebuild_list()
+        if self.list.count():
+            self.list.setCurrentRow(0)
+            self.list.scrollToTop()
+
     def on_view_changed(self, *_):
         self.rebuild_list()
         self.update_chart()
@@ -1292,7 +1303,10 @@ class MainWindow(QMainWindow):
             L["status"].setText("<span style='color:#ffdc3c'><b>Flagged</b></span> (kept)")
         else:
             L["status"].setText("<span style='color:#60d060'>Kept</span>")
-        L["folder"].setText(str(f.path.parent))
+        parent = f.path.parent
+        short = str(Path(*parent.parts[-2:])) if len(parent.parts) > 2 else str(parent)
+        L["folder"].setText(("…" + os.sep if len(parent.parts) > 2 else "") + short)
+        L["folder"].setToolTip(str(parent))
         L["object"].setText(fmt(i.get("object")))
         L["filter"].setText(fmt(i.get("filter")))
         L["exptime"].setText(fmt(i.get("exptime"), " s"))
