@@ -1954,7 +1954,8 @@ class MainWindow(QMainWindow):
             "Rejected frames are moved to a <i>REJECTED</i> subfolder — nothing is ever deleted "
             "and your images are never modified.<br><br>"
             f"Created by {APP_AUTHOR}, built with Claude (Anthropic).<br>"
-            f"<a href='{APP_URL}'>{APP_URL}</a><br><br>"
+            f"<a href='{APP_URL}'>{APP_URL}</a><br>"
+            "Free software under the MIT License. Provided as is, with no warranty.<br><br>"
             "The culling view was inspired by FITS Blaster for macOS by Tom van Peer "
             "(<a href='https://astrophoto-app.com/'>astrophoto-app.com</a>)."))
 

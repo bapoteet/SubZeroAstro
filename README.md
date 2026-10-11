@@ -284,3 +284,8 @@ and it only sees the frames you kept.
 ## Credits
 
 Created by [bapoteet](https://github.com/bapoteet), built with Claude (Anthropic).
+
+## License
+
+SubZeroAstro is free software under the [MIT License](LICENSE): you may use, copy, modify and share
+it, as long as the copyright notice and license text stay with it. It comes with no warranty.

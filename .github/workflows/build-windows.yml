@@ -60,6 +60,7 @@ jobs:
         shell: pwsh
         run: |
           Copy-Item README.md "dist\SubZeroAstro\README.md"
+          Copy-Item LICENSE "dist\SubZeroAstro\LICENSE.txt"
           Compress-Archive -Path "dist\SubZeroAstro" -DestinationPath "SubZeroAstro-Windows.zip"
 
       - name: Upload app
