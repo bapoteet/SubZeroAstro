@@ -365,6 +365,13 @@ def scan_library(cal_root, progress=None) -> list[CalItem]:
         if not mdir.is_dir():
             continue
         infos, _ = scan_paths([mdir], progress)
+        # the same master saved as both .fits and .xisf counts once (FITS preferred)
+        by_base = {}
+        for i in infos:
+            b = i.path.with_suffix("")
+            if b not in by_base or i.path.suffix.lower() != ".xisf":
+                by_base[b] = i
+        infos = list(by_base.values())
         for i in infos:
             if i.type in KIND_FOLDER:
                 i.master = True

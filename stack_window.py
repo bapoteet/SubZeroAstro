@@ -256,7 +256,10 @@ class StackWindow(QMainWindow):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeToContents)
-        hh.setStretchLastSection(True)
+        hh.setSectionResizeMode(4, QHeaderView.Stretch)          # telescope column takes spare width
+        for c in (8, 9, 10):
+            hh.setSectionResizeMode(c, QHeaderView.Fixed)
+            self.table.setColumnWidth(c, 64)
         self.table.itemSelectionChanged.connect(self.show_plan_details)
         gl.addWidget(self.table, 2)
         self.details = QLabel("Select a row to see which calibration will be used.")
