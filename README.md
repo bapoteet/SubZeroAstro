@@ -2,6 +2,16 @@
 
 ***From subs to masters - zero hassle.***
 
+> **Abstract.** SubZeroAstro is a free Windows app for deep-sky astrophotographers that
+> automates the routine work between capture and creative processing. It grades every
+> subframe (FWHM, eccentricity, SNR, star count, background) and culls the bad ones with one
+> click; calibrates and stacks the keepers with your bias, darks and flats into per-filter master
+> lights, keeping a reusable calibration library; and prepares those masters for PixInsight by
+> cropping, plate solving with ASTAP, removing gradients with GraXpert, and running RC-Astro's
+> BlurXTerminator, NoiseXTerminator and StarXTerminator. It works with mono and one-shot-colour
+> cameras and with NINA and ASIAIR files, and it ends with a quick-look colour preview and a
+> step-by-step PixInsight plan for finishing the image.
+
 A Windows app that takes a night's — or many nights' — subframes all the way to
 PixInsight-ready masters:
 
@@ -271,3 +281,6 @@ and it only sees the frames you kept.
 - `selftest.py` — the automatic real-window self-test
 - `run.bat`, `build_exe.bat`, `requirements.txt` — setup and launch
 
+## Credits
+
+Created by [bapoteet](https://github.com/bapoteet), built with Claude (Anthropic).

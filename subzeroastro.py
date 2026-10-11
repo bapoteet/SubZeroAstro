@@ -41,6 +41,8 @@ from chart import ChartPoint, SessionChart, filter_color
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
 APP_VERSION = "0.5.1"
+APP_AUTHOR = "bapoteet"
+APP_URL = "https://github.com/bapoteet/FitsBlasterWindows"
 ICON_W, ICON_H = 120, 84
 CACHE_SIZE = 8
 ROLE_UID = Qt.UserRole + 1
@@ -1951,6 +1953,8 @@ class MainWindow(QMainWindow):
             "masters for PixInsight — plate solving, gradient removal and the RC-Astro XTerminators included.<br>"
             "Rejected frames are moved to a <i>REJECTED</i> subfolder — nothing is ever deleted "
             "and your images are never modified.<br><br>"
+            f"Created by {APP_AUTHOR}, built with Claude (Anthropic).<br>"
+            f"<a href='{APP_URL}'>{APP_URL}</a><br><br>"
             "The culling view was inspired by FITS Blaster for macOS by Tom van Peer "
             "(<a href='https://astrophoto-app.com/'>astrophoto-app.com</a>)."))
 
