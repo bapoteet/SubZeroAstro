@@ -198,6 +198,58 @@ def run(app, out_dir: Path) -> int:
 
     def shots_5():
         shot("5_zoom_100.png")
+        w.view.fit()
+        # --- auto-cull presets
+        for key in ("less", "semi", "aggressive"):
+            w.apply_preset(key)
+            names = {f.name for f in w.frames.values() if f.flagged}
+            check(set(bad) <= names, f"{key} preset flags all bad frames ({len(names)} flagged)")
+            check(not (names - set(bad)) or key == "aggressive",
+                  f"{key} preset flags no good frames ({sorted(names - set(bad))})")
+        w.apply_preset("semi")
+        QTimer.singleShot(600, shots_6)
+
+    def shots_6():
+        shot("6_semi_aggressive_flagged.png")
+        # --- Load Data window with two folders
+        second = session.parent / "M33_night2"
+        second.mkdir()
+        make_session(second)
+        state["second"] = second
+        dlg = fb.LoadDataDialog(w, w.settings, False)
+        dlg.add_source(("folder", session, False))
+        dlg.add_source(("folder", second, False))
+        dlg.add_source(("folder", second, False))           # duplicate is ignored
+        check(len(dlg.sources()) == 2, "Load Data lists 2 folders (duplicate ignored)")
+        dlg.show()
+        QTimer.singleShot(500, lambda: shots_7(dlg))
+
+    def shots_7(dlg):
+        shot("7_load_data_window.png", dlg)
+        sources = dlg.sources()
+        dlg.close()
+        # --- Start Over, then process both folders together
+        w.reset_session()
+        check(not w.frames and w.list.count() == 0 and not w.chart.points, "Start Over clears the session")
+        state["t2"] = time.time()
+        w.open_sources(sources)
+        QTimer.singleShot(300, wait_two)
+
+    def wait_two():
+        if w.loaded_count >= len(w.frames) and len(w.frames) > 0:
+            check(len(w.frames) == 32, f"two folders loaded together ({len(w.frames)} frames)")
+            folders = {f.rel_folder for f in w.frames.values()}
+            check(folders == {"M33", "M33_night2"}, f"frames keep their folder names ({sorted(folders)})")
+            w.refresh_stats()
+            QTimer.singleShot(800, shots_8)
+        elif time.time() - state["t2"] > 240:
+            check(False, "second session measured within 4 minutes")
+            finish(1)
+        else:
+            QTimer.singleShot(250, wait_two)
+
+    def shots_8():
+        shot("8_two_folders.png")
         finish(0 if not failures else 1)
 
     QTimer.singleShot(300, start)

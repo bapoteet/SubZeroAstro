@@ -489,6 +489,7 @@ class Frame:
     info: dict = field(default_factory=dict)
     metrics: dict = field(default_factory=dict)
     flagged: bool = False
+    flag_note: str = ""                 # why an auto-cull preset flagged it
     badge: str = "none"                 # green / amber / red / grey / none
     reasons: list = field(default_factory=list)
     score: float | None = None
@@ -579,6 +580,48 @@ def frames_from_files(files):
         else:
             frames.append(Frame(len(frames), f, f.parent, f.parent, size=size, mtime_ns=mt))
     return frames
+
+
+def scan_sources(sources):
+    """
+    Combine several folders and/or file lists into one session.
+    sources: list of ("folder", path, recursive) or ("files", [paths]).
+    Returns (frames, root): frames with unique uids (duplicates dropped) and a
+    root folder used to show short folder names in the sidebar.
+    """
+    frames: list[Frame] = []
+    seen = set()
+    folders = []
+    for src in sources:
+        if src[0] == "folder":
+            found = scan_folder(src[1], recursive=src[2])
+            folders.append(Path(src[1]))
+        else:
+            found = frames_from_files(src[1])
+            folders += sorted({f.folder for f in found})
+        for f in found:
+            key = os.path.normcase(os.path.abspath(str(f.path)))
+            if key in seen:
+                continue
+            seen.add(key)
+            f.uid = len(frames)
+            frames.append(f)
+    root = common_root(folders)
+    for f in frames:
+        f.root = root
+    return frames, root
+
+
+def common_root(folders) -> Path:
+    """Deepest folder containing all of them (or the first one if they are on
+    different drives)."""
+    folders = [Path(f) for f in folders]
+    if not folders:
+        return Path.home()
+    try:
+        return Path(os.path.commonpath([str(f) for f in folders]))
+    except ValueError:
+        return folders[0]
 
 
 def _unique(dest: Path) -> Path:
@@ -829,6 +872,66 @@ def assess(frames, med: dict | None = None):
         score *= max(0.0, 1.0 - max(0.0, e - max(em, 0.3)) * 1.5)
         f.score = float(score)
     return med
+
+
+# --------------------------------------------------------------------------
+# Auto-cull presets
+# --------------------------------------------------------------------------
+
+# Limits relative to each camera + filter median.
+#   fwhm:  flag if FWHM is more than this many times the median
+#   stars: flag if the star count is below this fraction of the median
+#   ecc:   flag if eccentricity is above max(abs, median + rel)
+#   snr:   flag if SNR is below this fraction of the median (thin cloud or haze
+#          can dim every star without making any disappear)
+#   combo: also flag when the "how close to the limit" scores add up to this
+#          much, i.e. a frame that is somewhat worse in two ways at once
+CULL_PRESETS = {
+    "aggressive": {"label": "Aggressive", "fwhm": 1.10, "stars": 0.80, "snr": 0.75,
+                   "ecc_abs": 0.55, "ecc_rel": 0.08, "combo": 1.2},
+    "semi": {"label": "Semi-aggressive", "fwhm": 1.20, "stars": 0.65, "snr": 0.60,
+             "ecc_abs": 0.65, "ecc_rel": 0.12, "combo": 1.5},
+    "less": {"label": "Less aggressive", "fwhm": 1.35, "stars": 0.50, "snr": 0.45,
+             "ecc_abs": 0.75, "ecc_rel": 0.20, "combo": 1.8},
+}
+
+
+def cull_reasons(f: Frame, gm: dict, p: dict) -> list[str]:
+    """Why a frame would be culled under preset p (empty list = keep)."""
+    m = f.metrics
+    if not m or not gm or m.get("fwhm") is None or not gm.get("fwhm"):
+        return []
+    out = []
+    rf = m["fwhm"] / gm["fwhm"]
+    rs = (m.get("stars", 0) / gm["stars"]) if gm.get("stars") else 1.0
+    rn = (m["snr"] / gm["snr"]) if m.get("snr") is not None and gm.get("snr") else 1.0
+    e = m.get("eccentricity") or 0.0
+    em = gm.get("eccentricity") or 0.0
+    e_lim = max(p["ecc_abs"], em + p["ecc_rel"])
+
+    # 0 = at the median, 1 = at the limit
+    s_f = max(0.0, (rf - 1) / (p["fwhm"] - 1))
+    s_s = max(0.0, (1 - rs) / (1 - p["stars"]))
+    s_e = max(0.0, (e - em) / max(e_lim - em, 1e-6)) if e > em else 0.0
+    s_n = max(0.0, (1 - rn) / (1 - p["snr"]))
+    if s_f >= 1:
+        out.append(f"FWHM {100 * (rf - 1):.0f}% above median")
+    if s_s >= 1:
+        out.append(f"star count {100 * rs:.0f}% of median")
+    if e > e_lim:
+        out.append(f"eccentricity {e:.2f} (limit {e_lim:.2f})")
+    if s_n >= 1:
+        out.append(f"SNR {100 * rn:.0f}% of median (cloud or haze?)")
+    if not out and s_f + s_s + s_e + s_n >= p["combo"]:
+        out.append("worse than usual in several ways at once")
+    return out
+
+
+def cull_preset(frames, medians: dict, level: str) -> list[int]:
+    """uids of not-yet-rejected frames that preset `level` would flag."""
+    p = CULL_PRESETS[level]
+    return [f.uid for f in frames
+            if not f.rejected and cull_reasons(f, medians.get(f.group, {}), p)]
 
 
 # --------------------------------------------------------------------------

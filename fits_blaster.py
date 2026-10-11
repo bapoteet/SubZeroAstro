@@ -37,7 +37,7 @@ import fits_core as core
 from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "FITS Blaster for Windows"
-APP_VERSION = "0.2.0 (stage 2)"
+APP_VERSION = "0.3.0 (stage 2)"
 ICON_W, ICON_H = 120, 84
 CACHE_SIZE = 8
 ROLE_UID = Qt.UserRole + 1
@@ -117,7 +117,7 @@ class ImageView(QGraphicsView):
         self.setRenderHint(QPainter.SmoothPixmapTransform)
         self.fit_mode = True
         self.has_image = False
-        self.message = "Open a folder of FITS files  (Ctrl+O)\nor drag a folder onto this window"
+        self.message = "Click Load Data… (Ctrl+O) to choose folders\nor drag folders onto this window"
         self.banner = ""
         self.subtitle = ""
         self.on_detail = None        # called when zoomed in enough to want full resolution
@@ -323,6 +323,159 @@ class AutoFlagDialog(QDialog):
 
 
 # --------------------------------------------------------------------------
+# Load Data dialog: collect folders / files from several places, then start
+# --------------------------------------------------------------------------
+
+class LoadDataDialog(QDialog):
+    """Build a list of folders and files to process. Nothing is measured until
+    Start Processing is pressed."""
+
+    ROLE_SRC = Qt.UserRole + 2
+
+    def __init__(self, parent, settings, recursive_default=False, initial=None):
+        super().__init__(parent)
+        self.setWindowTitle("Load Data")
+        self.setAcceptDrops(True)
+        self.settings = settings
+        self.resize(760, 440)
+        lay = QVBoxLayout(self)
+        intro = QLabel("Add the folders (or individual files) to process — from as many places as you like, "
+                       "for example several nights on your NAS. Nothing is read until you press "
+                       "<b>Start Processing</b>. You can also drag folders and files onto this window.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+
+        self.list = QListWidget()
+        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        lay.addWidget(self.list, 1)
+
+        row = QHBoxLayout()
+        b_folder = QToolButton()
+        b_folder.setText("Add Folder…")
+        b_folder.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        b_folder.setIcon(self.style().standardIcon(QStyle.SP_DirOpenIcon))
+        b_folder.clicked.connect(self.add_folder_dialog)
+        b_files = QToolButton()
+        b_files.setText("Add Files…")
+        b_files.clicked.connect(self.add_files_dialog)
+        b_remove = QToolButton()
+        b_remove.setText("Remove Selected")
+        b_remove.clicked.connect(self.remove_selected)
+        b_clear = QToolButton()
+        b_clear.setText("Clear All")
+        b_clear.clicked.connect(self.clear_all)
+        self.chk_sub = QCheckBox("Include subfolders")
+        self.chk_sub.setToolTip("For folders added from now on: also load FITS files in their subfolders "
+                                "(FLAT, DARK, BIAS, CALIB and OFFSET folders are skipped)")
+        self.chk_sub.setChecked(recursive_default)
+        for b in (b_folder, b_files, b_remove, b_clear):
+            row.addWidget(b)
+        row.addStretch(1)
+        row.addWidget(self.chk_sub)
+        lay.addLayout(row)
+
+        self.total = QLabel()
+        f = self.total.font()
+        f.setBold(True)
+        self.total.setFont(f)
+        lay.addWidget(self.total)
+
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        lay.addWidget(self.buttons)
+        ok = self.buttons.button(QDialogButtonBox.Ok)
+        if ok is not None:
+            ok.setText("Start Processing")
+        for src in initial or []:
+            self.add_source(src)
+        self.update_total()
+
+    # -- adding
+    def last_folder(self):
+        return self.settings.value("last_folder", str(Path.home()))
+
+    def add_folder_dialog(self):
+        d = QFileDialog.getExistingDirectory(self, "Add a folder of FITS files", self.last_folder())
+        if d:
+            self.settings.setValue("last_folder", str(Path(d).parent))
+            self.add_source(("folder", Path(d), self.chk_sub.isChecked()))
+
+    def add_files_dialog(self):
+        files, _ = QFileDialog.getOpenFileNames(self, "Add FITS files", self.last_folder(),
+                                                "FITS files (*.fits *.fit *.fts);;All files (*)")
+        if files:
+            self.settings.setValue("last_folder", str(Path(files[0]).parent))
+            self.add_source(("files", [Path(x) for x in files]))
+
+    def add_source(self, src):
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            if src[0] == "folder":
+                path, rec = Path(src[1]), src[2]
+                for i in range(self.list.count()):          # already listed?
+                    s2 = self.list.item(i).data(self.ROLE_SRC)
+                    if s2[0] == "folder" and Path(s2[1]) == path and s2[2] == rec:
+                        return
+                frames = core.scan_folder(path, recursive=rec)
+                n_rej = sum(1 for f in frames if f.rejected)
+                text = f"📁  {path}\n      {len(frames) - n_rej} FITS files" + \
+                       (f" + {n_rej} already rejected" if n_rej else "") + \
+                       ("  ·  including subfolders" if rec else "")
+                if not frames:
+                    text += "   ⚠ no FITS files found" + ("" if rec else " (try Include subfolders)")
+            else:
+                files = [Path(x) for x in src[1]]
+                frames = core.frames_from_files(files)
+                parents = sorted({str(f.path.parent) for f in frames})
+                text = f"🗎  {len(frames)} selected file{'s' if len(frames) != 1 else ''}\n      from " + \
+                       (parents[0] if len(parents) == 1 else f"{len(parents)} folders")
+            it = QListWidgetItem(text)
+            it.setData(self.ROLE_SRC, src)
+            it.setData(self.ROLE_SRC + 1, len(frames))
+            it.setToolTip(str(src[1]) if src[0] == "folder" else "\n".join(str(x) for x in src[1][:30]))
+            self.list.addItem(it)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.update_total()
+
+    def remove_selected(self):
+        for it in self.list.selectedItems():
+            self.list.takeItem(self.list.row(it))
+        self.update_total()
+
+    def clear_all(self):
+        self.list.clear()
+        self.update_total()
+
+    def update_total(self):
+        n_src = self.list.count()
+        n = sum(int(self.list.item(i).data(self.ROLE_SRC + 1) or 0) for i in range(n_src))
+        self.total.setText(f"{n_src} source{'s' if n_src != 1 else ''}  ·  {n} frames" if n_src
+                           else "Nothing added yet — click Add Folder…")
+        ok = self.buttons.button(QDialogButtonBox.Ok)
+        if ok is not None:
+            ok.setEnabled(n > 0)
+
+    def sources(self):
+        return [self.list.item(i).data(self.ROLE_SRC) for i in range(self.list.count())]
+
+    # -- drag and drop
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        paths = [Path(u.toLocalFile()) for u in event.mimeData().urls() if u.isLocalFile()]
+        files = [p for p in paths if p.is_file()]
+        for p in paths:
+            if p.is_dir():
+                self.add_source(("folder", p, self.chk_sub.isChecked()))
+        if files:
+            self.add_source(("files", files))
+
+
+# --------------------------------------------------------------------------
 # Main window
 # --------------------------------------------------------------------------
 
@@ -346,6 +499,7 @@ class MainWindow(QMainWindow):
         self.pending_display: set[tuple[int, bool]] = set()
         self.known_filters: list[str] = []
         self.root: Path | None = None
+        self.sources: list = []              # what was loaded, for Reload / Re-measure
         self.medians: dict = {}
         self.disk_cache: dict[Path, dict] = {}      # folder -> {cache_key: entry}
         self.cache_dirty: set[Path] = set()
@@ -553,9 +707,10 @@ class MainWindow(QMainWindow):
             self.addAction(a)
             return a
 
-        self.act_open = act("Open Folder…", self.choose_folder, "Ctrl+O", QStyle.SP_DirOpenIcon,
-                            "Open a folder of FITS files (Ctrl+O)")
-        self.act_open_files = act("Open Files…", self.choose_files, "Ctrl+Shift+O")
+        self.act_load = act("Load Data…", self.load_data, "Ctrl+O", QStyle.SP_DirOpenIcon,
+                            "Choose folders and files from one or more places, then start processing (Ctrl+O)")
+        self.act_open = act("Open One Folder…", self.choose_folder, "Ctrl+Shift+O", None,
+                            "Quickly open a single folder (Ctrl+Shift+O)")
         self.act_reject = act("Reject / Restore", self.toggle_reject, ["X", "Delete"],
                               QStyle.SP_DialogDiscardButton,
                               "Move the frame (or selected frames) to REJECTED, or bring back (X)")
@@ -576,9 +731,19 @@ class MainWindow(QMainWindow):
         self.act_remeasure = act("Re-measure All (ignore saved results)", self.remeasure)
         self.act_quit = act("Exit", self.close, "Ctrl+Q")
 
+        self.act_start_over = act("Start Over – Load New Data…", self.start_over, "Ctrl+N",
+                                  QStyle.SP_BrowserReload,
+                                  "Clear this session and open a new folder (Ctrl+N)")
+        self.preset_actions = {}
+        for key, p in core.CULL_PRESETS.items():
+            a = QAction(p["label"], self)
+            a.triggered.connect(lambda _=False, k=key: self.apply_preset(k))
+            self.addAction(a)
+            self.preset_actions[key] = a
+
         self.chk_sub = QCheckBox("Include subfolders")
         self.chk_sub.setToolTip("Also load FITS files in subfolders (FLAT, DARK, BIAS, CALIB, OFFSET "
-                                "folders are skipped) - use this for several nights at once")
+                                "folders are skipped) - the default for Load Data and Open One Folder")
         self.act_advance = QAction("Jump to next frame after rejecting", self, checkable=True)
         self.act_advance.setChecked(True)
 
@@ -592,7 +757,7 @@ class MainWindow(QMainWindow):
             self.mode_group.addAction(a)
             self.mode_actions[key] = a
 
-        tb.addAction(self.act_open)
+        tb.addAction(self.act_load)
         tb.addWidget(self.chk_sub)
         tb.addSeparator()
         tb.addAction(self.act_reject)
@@ -604,9 +769,33 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_fit)
         tb.addAction(self.act_100)
 
+        # Second row: auto-cull presets and Start Over
+        self.addToolBarBreak()
+        tb2 = QToolBar("Auto-cull")
+        tb2.setMovable(False)
+        tb2.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.addToolBar(tb2)
+        lab = QLabel("  Auto-cull:  ")
+        lab.setToolTip("Flag frames for rejection using FWHM, eccentricity and star count, each compared "
+                       "with the median of its own filter.\nFlagged frames are only marked: review them in "
+                       "the Flagged view, then press Shift+X (Reject Flagged).")
+        tb2.addWidget(lab)
+        colors = {"aggressive": "#e04848", "semi": "#e0a030", "less": "#46b85a"}
+        for key, a in self.preset_actions.items():
+            tb2.addAction(a)
+            btn = tb2.widgetForAction(a)
+            if btn is not None:
+                btn.setStyleSheet(f"QToolButton {{ border: 1px solid {colors[key]}; border-radius: 4px; "
+                                  f"padding: 3px 10px; margin: 2px 3px; }}"
+                                  f"QToolButton:hover {{ background: {colors[key]}40; }}")
+        tb2.addAction(self.act_reject_flagged)
+        tb2.addSeparator()
+        tb2.addAction(self.act_start_over)
+        self.update_preset_tooltips()
+
         mb = self.menuBar()
         m = mb.addMenu("&File")
-        for a in (self.act_open, self.act_open_files, self.act_reload, self.act_remeasure):
+        for a in (self.act_load, self.act_open, self.act_start_over, self.act_reload, self.act_remeasure):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_export)
@@ -618,6 +807,9 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         for a in (self.act_flag, self.act_autoflag, self.act_reject_flagged, self.act_clear_flags):
             m.addAction(a)
+        cm = m.addMenu("Auto-cull")
+        for a in self.preset_actions.values():
+            cm.addAction(a)
         m.addSeparator()
         m.addAction(self.act_prev)
         m.addAction(self.act_next)
@@ -681,41 +873,52 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     # ------------------------------------------------------------ opening
+    def load_data(self, initial=None):
+        """Show the Load Data window; start processing what was collected."""
+        dlg = LoadDataDialog(self, self.settings, self.chk_sub.isChecked(), initial)
+        if dlg.exec():
+            self.chk_sub.setChecked(dlg.chk_sub.isChecked())
+            self.open_sources(dlg.sources())
+
     def choose_folder(self):
         start = self.settings.value("last_folder", str(Path.home()))
         d = QFileDialog.getExistingDirectory(self, "Open folder of FITS files", start)
         if d:
             self.open_folder(d)
 
-    def choose_files(self):
-        start = self.settings.value("last_folder", str(Path.home()))
-        files, _ = QFileDialog.getOpenFileNames(self, "Open FITS files", start,
-                                                "FITS files (*.fits *.fit *.fts);;All files (*)")
-        if files:
-            self.open_frames(core.frames_from_files(files), Path(files[0]).parent)
-
     def open_folder(self, folder, use_cache=True):
         folder = Path(folder)
         self.settings.setValue("last_folder", str(folder))
-        self.statusBar().showMessage(f"Scanning {folder}…")
-        QApplication.processEvents()
-        frames = core.scan_folder(folder, recursive=self.chk_sub.isChecked())
-        self.statusBar().clearMessage()
+        self.open_sources([("folder", folder, self.chk_sub.isChecked())], use_cache)
+
+    def open_sources(self, sources, use_cache=True):
+        self.statusBar().showMessage("Scanning folders…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            QApplication.processEvents()
+            frames, root = core.scan_sources(sources)
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.statusBar().clearMessage()
         if not frames:
+            where = "\n".join(str(s[1]) for s in sources if s[0] == "folder")
             QMessageBox.information(self, APP_NAME,
-                                    f"No FITS files (.fits, .fit, .fts) were found in:\n{folder}"
-                                    + ("" if self.chk_sub.isChecked() else
-                                       "\n\nTip: tick “Include subfolders” if your frames are in subfolders."))
+                                    "No FITS files (.fits, .fit, .fts) were found" + (f" in:\n{where}" if where else ".")
+                                    + "\n\nTip: tick “Include subfolders” if your frames are in subfolders.")
             return
-        self.open_frames(frames, folder, use_cache)
+        self.sources = list(sources)
+        self.open_frames(frames, root, use_cache)
+        n_src = len(sources)
+        if n_src > 1:
+            self.setWindowTitle(f"{APP_NAME} — {n_src} sources under {root}")
 
     def reload(self):
-        if self.root is not None:
-            self.open_folder(self.root)
+        if self.sources:
+            self.open_sources(self.sources)
 
     def remeasure(self):
-        if self.root is not None:
-            self.open_folder(self.root, use_cache=False)
+        if self.sources:
+            self.open_sources(self.sources, use_cache=False)
 
     def open_frames(self, frames, root, use_cache=True):
         self.save_disk_cache()
@@ -791,15 +994,12 @@ class MainWindow(QMainWindow):
         if len(paths) == 1 and paths[0].is_dir():
             self.open_folder(paths[0])
             return
-        files = []
-        for p in paths:
-            if p.is_dir():
-                files += [f.path for f in core.scan_folder(p, recursive=self.chk_sub.isChecked())]
-            else:
-                files.append(p)
-        frames = core.frames_from_files(files)
-        if frames:
-            self.open_frames(frames, frames[0].folder)
+        rec = self.chk_sub.isChecked()
+        initial = [("folder", p, rec) for p in paths if p.is_dir()]
+        files = [p for p in paths if p.is_file()]
+        if files:
+            initial.append(("files", files))
+        self.load_data(initial)
 
     # ----------------------------------------------------------- loading
     def apply_result(self, f: core.Frame, res: dict, from_cache=False):
@@ -899,9 +1099,26 @@ class MainWindow(QMainWindow):
                 self.refresh_item(f.uid)
         self.update_chart()
         self.update_warnings()
+        self.update_preset_tooltips()
         if self.current_uid is not None:
             self.fill_quality(self.frames.get(self.current_uid))
         self.update_status()
+
+    def update_preset_tooltips(self):
+        frames = list(self.frames.values())
+        measured = sum(1 for f in frames if f.metrics and not f.rejected)
+        for key, a in self.preset_actions.items():
+            p = core.CULL_PRESETS[key]
+            desc = (f"{p['label']}: flag frames with FWHM over {p['fwhm']:.2f}× the median, "
+                    f"star count under {100 * p['stars']:.0f}% of the median, eccentricity over "
+                    f"{p['ecc_abs']:.2f} (or {p['ecc_rel']:.2f} above the median), SNR under "
+                    f"{100 * p['snr']:.0f}% of the median (cloud/haze), or that are somewhat worse "
+                    "in several of these at once.")
+            if measured:
+                n = len(core.cull_preset(frames, self.medians, key))
+                desc += f"\n\nWould flag {n} of {measured} frames ({100 * n / measured:.0f}%)."
+            a.setToolTip(desc)
+            a.setStatusTip(desc.replace("\n\n", "  "))
 
     def update_warnings(self):
         msgs = []
@@ -1271,13 +1488,15 @@ class MainWindow(QMainWindow):
         Q["snr"].setText(vs("snr", "{:.0f}"))
         Q["stars"].setText(vs("stars", "{:.0f}"))
         Q["background"].setText(vs("background", "{:.0f}", " ADU"))
+        lines = []
         if f.reasons:
             col = BADGE_COLORS.get(f.badge, QColor("#ccc")).name()
-            self.reasons_label.setText("<br>".join(f"<span style='color:{col}'>• {r}</span>" for r in f.reasons))
+            lines += [f"<span style='color:{col}'>• {r}</span>" for r in f.reasons]
         elif f.badge == "green":
-            self.reasons_label.setText("<span style='color:#46c85f'>• Within the normal range for this filter</span>")
-        else:
-            self.reasons_label.setText("")
+            lines.append("<span style='color:#46c85f'>• Within the normal range for this filter</span>")
+        if f.flagged and f.flag_note:
+            lines.append(f"<span style='color:#ffdc3c'>⚑ {f.flag_note}</span>")
+        self.reasons_label.setText("<br>".join(lines))
 
     def fill_inspector(self, f):
         L = self.info_labels
@@ -1442,6 +1661,8 @@ class MainWindow(QMainWindow):
     def set_flags(self, uids, state):
         for u in uids:
             self.frames[u].flagged = state
+            if not state:
+                self.frames[u].flag_note = ""
         if self.show_combo.currentText() == "Flagged":
             self.rebuild_list()
         else:
@@ -1455,6 +1676,95 @@ class MainWindow(QMainWindow):
         uids = [u for u, f in self.frames.items() if f.flagged]
         if uids:
             self.set_flags(uids, False)
+
+    def apply_preset(self, level):
+        """Flag exactly the frames this preset picks (replacing earlier flags)."""
+        p = core.CULL_PRESETS[level]
+        frames = list(self.frames.values())
+        measured = [f for f in frames if f.metrics and not f.rejected]
+        if not measured:
+            QMessageBox.information(self, APP_NAME, "No quality metrics yet — wait for frames to be measured "
+                                    "(and check Settings → Star measurement is not Off).")
+            return
+        if self.loaded_count < len(self.frames):
+            if QMessageBox.question(self, APP_NAME, f"{len(self.frames) - self.loaded_count} frames are still being "
+                                    "measured and will not be included.\n\nApply the preset anyway?") \
+                    != QMessageBox.StandardButton.Yes:
+                return
+        picked = set(core.cull_preset(frames, self.medians, level))
+        for f in frames:
+            if f.uid in picked:
+                f.flag_note = f"{p['label']}: " + "; ".join(
+                    core.cull_reasons(f, self.medians.get(f.group, {}), p))
+            elif f.flag_note:
+                f.flag_note = ""
+        cleared = [f.uid for f in frames if f.flagged and f.uid not in picked]
+        if cleared:
+            self.set_flags(cleared, False)
+        self.set_flags(sorted(picked), True)
+        if picked:
+            self.show_combo.setCurrentText("Flagged")
+            self.statusBar().showMessage(
+                f"{p['label']}: flagged {len(picked)} of {len(measured)} frames "
+                f"({100 * len(picked) / len(measured):.0f}%) — review them, then Shift+X to reject them all", 12000)
+        else:
+            self.statusBar().showMessage(f"{p['label']}: no frames need culling", 8000)
+
+    def start_over(self):
+        """Clear the session and open a new folder."""
+        if self.frames:
+            flagged = sum(1 for f in self.frames.values() if f.flagged and not f.rejected)
+            busy = self.loaded_count < len(self.frames)
+            if flagged or busy:
+                msg = "Clear this session and load new data?"
+                if flagged:
+                    msg += f"\n\n{flagged} frames are flagged but not rejected — the flags will be cleared."
+                if busy:
+                    msg += "\n\nMeasuring is still in progress — finished results are kept for next time."
+                msg += "\n\n(Rejected frames stay in their REJECTED folders.)"
+                if QMessageBox.question(self, APP_NAME, msg) != QMessageBox.StandardButton.Yes:
+                    return
+        self.reset_session()
+        self.load_data()
+
+    def reset_session(self):
+        self.save_disk_cache()
+        self.generation += 1
+        self.analyze_pool.clear()
+        self.display_pool.clear()
+        self.frames = {}
+        self.order = []
+        self.root = None
+        self.sources = []
+        self.current_uid = None
+        self.loaded_count = 0
+        self.to_load = 0
+        self.undo_stack.clear()
+        self.cache.clear()
+        self.pending_display.clear()
+        self.known_filters = []
+        self.medians = {}
+        self.disk_cache = {}
+        self.cache_dirty = set()
+        self.filter_combo.blockSignals(True)
+        self.filter_combo.clear()
+        self.filter_combo.addItem("All filters")
+        self.filter_combo.blockSignals(False)
+        self.show_combo.blockSignals(True)
+        self.show_combo.setCurrentIndex(0)
+        self.show_combo.blockSignals(False)
+        self.progress.hide()
+        self.list.blockSignals(True)
+        self.list.clear()
+        self.items.clear()
+        self.list.blockSignals(False)
+        self.view.clear("Click Load Data… (Ctrl+O) to choose folders\nor drag folders onto this window")
+        self.fill_inspector(None)
+        self.warning_label.setText("")
+        self.update_chart()
+        self.update_preset_tooltips()
+        self.setWindowTitle(APP_NAME)
+        self.update_status()
 
     def auto_flag(self):
         if not any(f.metrics for f in self.frames.values()):
@@ -1520,6 +1830,7 @@ class MainWindow(QMainWindow):
             "F\tFlag / unflag frame(s)\n"
             "Shift+X\tReject all flagged frames\n"
             "D\tClear all flags\n"
+            "Ctrl+N\tStart over – load new data\n"
             "Ctrl+F\tAuto-Flag…\n"
             "Ctrl+Z\tUndo reject / restore\n"
             "Ctrl+0\tFit to window\n"
@@ -1528,7 +1839,8 @@ class MainWindow(QMainWindow):
             "Double-click\tToggle fit / 100%\n"
             "Chart: click\tJump to that frame\n"
             "Chart: drag\tSelect a range of frames\n"
-            "Ctrl+O\tOpen folder\n"
+            "Ctrl+O\tLoad Data (one or more folders)\n"
+            "Ctrl+Shift+O\tOpen one folder\n"
             "Ctrl+E\tExport list of kept frames\n"
             "F5\tReload folder"))
 
@@ -1611,7 +1923,7 @@ def main():
     if len(sys.argv) > 1:
         target = Path(sys.argv[1])
         QTimer.singleShot(0, lambda: w.open_folder(target) if target.is_dir()
-                          else w.open_frames(core.frames_from_files(sys.argv[1:]), target.parent))
+                          else w.open_sources([("files", [Path(a) for a in sys.argv[1:]])]))
     sys.exit(app.exec())
 
 

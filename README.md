@@ -33,6 +33,31 @@ as before. Nothing new needs installing. If you built an `.exe`, run
 
 Optional: **`build_exe.bat`** makes a stand-alone `dist\FITS Blaster\FITS Blaster.exe`.
 
+## What's new in 0.3.0
+
+**Load Data window** (Ctrl+O, or the **Load Data…** button) — build a list of folders
+and/or individual files from as many places as you like (several nights, different
+NAS shares…). Nothing is read until you press **Start Processing**. You can also drag
+several folders onto the app. *Open One Folder…* (Ctrl+Shift+O) is still there for a
+quick single folder.
+
+**Auto-cull buttons** — **Aggressive**, **Semi-aggressive** and **Less aggressive**
+flag frames for rejection using FWHM, eccentricity and star count (plus SNR, which
+catches thin cloud and haze), each compared with the median of the frame's own
+filter. Frames that are somewhat worse in several ways at once are flagged too.
+Hover over a button to see how many frames it would flag. The picks are only
+*flagged*: review them in the Flagged view (the inspector says why each was picked),
+then press **Reject Flagged** (Shift+X).
+
+| Preset | FWHM above | Stars below | SNR below | Eccentricity above |
+|---|---|---|---|---|
+| Aggressive | 1.10 × median | 80% of median | 75% of median | 0.55 (or median + 0.08) |
+| Semi-aggressive | 1.20 × median | 65% of median | 60% of median | 0.65 (or median + 0.12) |
+| Less aggressive | 1.35 × median | 50% of median | 45% of median | 0.75 (or median + 0.20) |
+
+**Start Over – Load New Data** (Ctrl+N) — clears the session and opens the Load Data
+window. Rejected frames stay in their REJECTED folders and measurements stay saved.
+
 ## What's new in Stage 2
 
 **Star quality on every frame** — FWHM (pixels and arcseconds), eccentricity, SNR,
@@ -95,7 +120,10 @@ than the sky.
 | Ctrl+Z | Undo reject / restore |
 | Ctrl+0 / 1 / double-click | Fit / 100% / toggle |
 | Mouse wheel, drag | Zoom, pan |
-| Ctrl+O, F5 | Open folder, reload |
+| Ctrl+O | Load Data (one or more folders) |
+| Ctrl+Shift+O | Open one folder |
+| Ctrl+N | Start Over – load new data |
+| F5 | Reload |
 | Ctrl+E | Save a text list of kept frames |
 
 Note: **F** now flags (it was "fit" in Stage 1) — fit is **Ctrl+0**.
