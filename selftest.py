@@ -322,6 +322,10 @@ def run(app, out_dir: Path) -> int:
         d, _c, look = core.read_fits(masters / next(f for f in files if f.endswith("_Ha_Master_2026-10-10.fits")))
         check(look.get("NCOMBINE") == 16 and look.get("IMAGETYP") == "Master Light",
               f"master header records 16 frames ({look.get('NCOMBINE')}, {look.get('IMAGETYP')})")
+        check(look.get("PIXRANGE") == 65535.0 and float(d.max()) <= 1.0,
+              f"master saved in PixInsight's 0-1 range (max {float(d.max()):.3f})")
+        check(bool(look.get("ALIGNREF")) and look.get("FOCALLEN") == 1140.0,
+              f"master records its common reference and plate-solve hints ({look.get('ALIGNREF')})")
         origins = {(g.filter, k): getattr(g.plan, k).origin for g in win.groups for k in ("bias", "dark", "flat")
                    if getattr(g.plan, k) is not None}
         check(all(o == "library" for o in origins.values()),

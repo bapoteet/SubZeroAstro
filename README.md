@@ -75,7 +75,13 @@ frame to the best-scoring one by matching star patterns (handles meridian flips)
 normalise sky level and brightness (thin cloud) → weight by noise → sigma-clipped
 mean, which removes satellite trails, planes and remaining hot pixels.
 
-**Output** — 32-bit floating-point **FITS** and/or **XISF**. Each master records in its
+**Output** — 32-bit floating-point **FITS** and/or **XISF**, in PixInsight's 0–1
+convention (1.0 = 65535 ADU; the `PIXRANGE` keyword records this), so calibration
+masters load straight into PixInsight / WBPP. Master lights carry the reference frame's
+RA/Dec, pixel size and WCS (when the subframes had one) to help plate solving.
+With **Line up all filters of a target** (on by default) every master of the same
+target, camera and telescope shares one pixel grid, ready to combine (LRGB, SHO…)
+without re-aligning. Each master records in its
 header which frames, calibration masters and settings were used, and a
 `…_stacklog.txt` next to it lists every frame — so the record survives if you delete
 the subframes afterwards. Colour masters are not colour-calibrated (they look green,

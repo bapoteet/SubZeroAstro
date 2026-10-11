@@ -149,7 +149,8 @@ def _esc(s: str) -> str:
             .replace('"', "&quot;"))
 
 
-def write_xisf(path, data: np.ndarray, keywords: list | dict | None = None, image_type: str | None = None):
+def write_xisf(path, data: np.ndarray, keywords: list | dict | None = None, image_type: str | None = None,
+               bounds: tuple | None = None):
     """
     Write an uncompressed Float32 XISF file. data is (h, w) or (3, h, w) RGB.
     keywords: list of (name, value, comment) or dict name -> value.
@@ -168,7 +169,7 @@ def write_xisf(path, data: np.ndarray, keywords: list | dict | None = None, imag
         f'<FITSKeyword name="{_esc(k)}" value="{_esc(_fmt_value(v)) if v is not None else ""}" '
         f'comment="{_esc(cmt or "")}"/>'
         for k, v, cmt in (keywords or []))
-    lo, hi = float(np.nanmin(data)), float(np.nanmax(data))
+    lo, hi = bounds if bounds else (float(np.nanmin(data)), float(np.nanmax(data)))
     color = "RGB" if c == 3 else "Gray"
     itype = f' imageType="{_esc(image_type)}"' if image_type else ""
 

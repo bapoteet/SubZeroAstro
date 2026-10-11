@@ -82,6 +82,20 @@ class StackWorker(QThread):
         for g in self.groups:
             cams.setdefault(g.target, set()).add((g.camera or "").lower())
         built = set()
+        common_for = {}
+        if opts.align_common:
+            for gset in st.alignment_sets(self.groups):
+                if len(gset) > 1:
+                    try:
+                        c = st.common_reference(gset, progress=lambda t, f: self.progress.emit(t, 0.0))
+                    except Exception as e:  # noqa: BLE001
+                        self.log.emit(f"Could not prepare a common reference: {e}")
+                        c = None
+                    if c:
+                        self.log.emit(f"Common reference for {gset[0].target} "
+                                      f"({', '.join(g.filter for g in gset)}): {c['name']}")
+                        for g in gset:
+                            common_for[id(g)] = c
         for gi, g in enumerate(self.groups):
             def prog(text, frac, gi=gi):
                 self.progress.emit(text, (gi + max(0.0, min(frac, 1.0))) / n)
@@ -109,7 +123,7 @@ class StackWorker(QThread):
             try:
                 res = st.stack_group(g, opts, multi_camera=len(cams[g.target]) > 1,
                                      progress=lambda t, f: prog(t, 0.15 + 0.8 * f),
-                                     cancel=lambda: self.cancel_requested)
+                                     cancel=lambda: self.cancel_requested, common=common_for.get(id(g)))
                 files = st.save_master_light(res, opts, multi_camera=len(cams[g.target]) > 1)
                 for line in res.log:
                     self.log.emit(line)
@@ -203,6 +217,7 @@ class StackWindow(QMainWindow):
         s.setValue("stack/fits", self.fmt_fits.isChecked())
         s.setValue("stack/xisf", self.fmt_xisf.isChecked())
         s.setValue("stack/save_cal", self.save_cal.isChecked())
+        s.setValue("stack/align_common", self.align_common.isChecked())
 
     # ------------------------------------------------------------------ UI
     def _folder_row(self, key, tip):
@@ -333,6 +348,11 @@ class StackWindow(QMainWindow):
         self.save_cal = QCheckBox("Save new calibration masters")
         self.save_cal.setChecked(self.settings.value("stack/save_cal", True, type=bool))
         obox.addWidget(self.save_cal)
+        self.align_common = QCheckBox("Line up all filters of a target")
+        self.align_common.setToolTip("Put every master of the same target, camera and telescope on one pixel grid "
+                                     "(e.g. L, R, G, B or Ha, OIII, SII), ready to combine without re-aligning")
+        self.align_common.setChecked(self.settings.value("stack/align_common", True, type=bool))
+        obox.addWidget(self.align_common)
         obox.addStretch(1)
         lay.addLayout(obox)
 
@@ -366,7 +386,8 @@ class StackWindow(QMainWindow):
                                osc_half=self.osc_mode.currentIndex() == 1, formats=fmts,
                                masters_root=self.masters_root.text().strip(),
                                cal_root=self.cal_root.text().strip(),
-                               save_cal_masters=self.save_cal.isChecked())
+                               save_cal_masters=self.save_cal.isChecked(),
+                               align_common=self.align_common.isChecked())
 
     @staticmethod
     def open_folder(path):

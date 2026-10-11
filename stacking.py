@@ -67,16 +67,26 @@ class ImageSource:
             self.cards, self.look = self.lay.cards, self.lay.look
             self.h, self.w = self.lay.shape[-2], self.lay.shape[-1]
             self.channels = self.lay.shape[0] if len(self.lay.shape) == 3 else 1
+            # Floating-point masters saved in PixInsight's 0..1 convention
+            pr = self.look.get("PIXRANGE")
+            if isinstance(pr, (int, float)) and pr > 0:
+                self.scale = float(pr)
+            elif self.lay.bitpix < 0 and "master" in str(self.look.get("IMAGETYP", "")).lower():
+                self.scale = None            # decide from the data (0..1 or ADU)
+
+    def _scaled(self, d):
+        if self.scale is None:
+            self.scale = 65535.0 if float(np.nanmax(d[::7, ::7] if d.ndim == 2 else d[0, ::7, ::7])) <= 1.5 else 1.0
+        if self.scale != 1.0:
+            d = d * np.float32(self.scale)
+        return d
 
     def read(self) -> np.ndarray:
         if self._data is not None:
             return self._data
         if self.kind == "xisf":
-            d = xisf.read_xisf(self.path)[0]
-            if self.scale != 1.0:
-                d *= np.float32(self.scale)
-            return d
-        return core.read_fits(self.path)[0]
+            return self._scaled(xisf.read_xisf(self.path)[0])
+        return self._scaled(core.read_fits(self.path)[0])
 
     def keep_in_memory(self):
         self._data = self.read()
@@ -87,8 +97,12 @@ class ImageSource:
                 self._data = self.read()
             d = self._data if self._data.ndim == 2 else self._data[0]
             return d[r0:r0 + n]
+        if self.scale is None:
+            self._data = self.read()
+            return self._data[r0:r0 + n]
         with open(self.path, "rb") as f:
-            return core.read_rows(f, self.lay, r0, n)
+            rows = core.read_rows(f, self.lay, r0, n)
+        return rows * np.float32(self.scale) if self.scale != 1.0 else rows
 
 
 # ==========================================================================
@@ -710,8 +724,15 @@ def hot_pixels(dark: np.ndarray, bias: np.ndarray | None, limit=0.002):
     return ys, xs
 
 
+ADU_FULL = 65535.0
+
+
 def save_master_file(path_base: Path, data: np.ndarray, header: list, formats=("fits",), image_type=None):
+    """Write 32-bit float FITS and/or XISF in PixInsight's 0..1 convention
+    (1.0 = 65535 ADU). PIXRANGE records the factor so values can be restored."""
     path_base.parent.mkdir(parents=True, exist_ok=True)
+    data = np.clip(np.asarray(data, np.float32) / np.float32(ADU_FULL), 0.0, 1.0)
+    header = [h for h in header if h[0] != "PIXRANGE"] + [("PIXRANGE", ADU_FULL, "values x this = ADU (0..1 range)")]
     written = []
     if "fits" in formats:
         p = path_base.with_suffix(".fits")
@@ -720,7 +741,7 @@ def save_master_file(path_base: Path, data: np.ndarray, header: list, formats=("
     if "xisf" in formats:
         p = path_base.with_suffix(".xisf")
         xisf.write_xisf(p, data, [(k, v, c) for k, v, c in header if k not in ("HISTORY", "COMMENT")],
-                        image_type)
+                        image_type, bounds=(0.0, 1.0))
         written.append(p)
     return written
 
@@ -755,6 +776,7 @@ def save_calibration_master(item: CalItem, cal_root, rig: str, formats=("fits",)
               ("BAYERPAT", i.bayer, ""), ("XORGSUBF", i.x0, ""), ("YORGSUBF", i.y0, ""),
               ("FOCALLEN", i.focal, ""), ("ROWORDER", i.roworder, ""), ("DATE-OBS", i.date_obs, "first subframe"),
               ("NCOMBINE", len(item.infos), "subframes combined"),
+              ("XPIXSZ", _num(ImageSource(i.path).look.get("XPIXSZ")), "[um]"),
               ("SWCREATE", "FITS Blaster for Windows", ""),
               ("HISTORY", f"Sigma-clipped mean of {len(item.infos)} subframes", "")]
     header += [("HISTORY", f"  {x.path.name}", "") for x in item.infos[:200]]
@@ -1094,6 +1116,7 @@ class StackOptions:
     masters_root: str = ""
     cal_root: str = ""
     save_cal_masters: bool = True
+    align_common: bool = True               # line up all masters of a target (same camera + rig)
     work_dir: str = ""                      # local folder for temporary files
 
 
@@ -1106,6 +1129,38 @@ class StackResult:
     log: list = field(default_factory=list)
     data: np.ndarray | None = None
     error: str | None = None
+    ref_path: Path | None = None            # frame whose pixel grid the master uses
+    common_ref: str | None = None
+
+
+def common_reference(group_list: list, progress=None) -> dict | None:
+    """Pick one reference frame for several groups of the same target, camera
+    and rig (e.g. L, R, G, B or Ha, OIII, SII): the best-scored frame of the
+    group with the most frames. Returns {"name", "path", "pts"}."""
+    if len(group_list) < 2:
+        return None
+    big = max(group_list, key=lambda g: (len(g.frames), g.total_exposure))
+    best = max(big.frames, key=lambda f: (f.score if f.score is not None else 0))
+    if progress:
+        progress(f"Finding stars in the common reference {best.info.path.name}", 0.0)
+    raw = ImageSource(best.info.path).read()
+    if raw.ndim == 3:
+        raw = raw[0]
+    lum, fac = luminance(raw.astype(np.float32), bool(best.info.bayer))
+    pts, _pk = find_stars(lum, fac)
+    if len(pts) < 6:
+        return None
+    return {"name": best.info.path.name, "path": best.info.path, "pts": pts}
+
+
+def alignment_sets(groups: list) -> list:
+    """Groups that can share a pixel grid: same target, camera, rig and frame size."""
+    sets = {}
+    for g in groups:
+        r = g.ref
+        sets.setdefault((g.target, (g.camera or "").lower(), g.rig, r.w, r.h, r.binning,
+                         bool(r.bayer)), []).append(g)
+    return list(sets.values())
 
 
 def master_light_name(g: LightGroup, multi_camera: bool) -> str:
@@ -1121,9 +1176,12 @@ def master_light_name(g: LightGroup, multi_camera: bool) -> str:
     return "_".join(parts)
 
 
-def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=None, cancel=None) -> StackResult:
+def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=None, cancel=None,
+                common: dict | None = None) -> StackResult:
     """Calibrate, align and combine one group. Calibration masters in g.plan must
-    already be built (CalItem.data)."""
+    already be built (CalItem.data).
+    common: {"name", "pts"} of a shared reference frame - every frame is then
+    placed on that frame's pixel grid so all masters of a target line up."""
     res = StackResult(g)
     log = res.log
     t_start = time.time()
@@ -1171,9 +1229,34 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     if len(ref_pts) < 6:
         raise ValueError(f"Too few stars in the reference frame {ref_info.path.name}")
     half = bayer and opts.osc_half
-    scale_out = 0.5 if half else 1.0
     out_h, out_w = (ref_cal.shape[0] // 2, ref_cal.shape[1] // 2) if half else ref_cal.shape
     del ref_cal
+    res.ref_path = ref_info.path
+    T_g2c = None
+    if common and common.get("name") != ref_info.path.name:
+        try:
+            T_g2c, inl, rms, _ok, _j = match_frames(common["pts"], ref_pts)
+            log.append(f"Aligned to the common reference {common['name']} (stars matched {inl}, rms {rms:.2f} px) "
+                       "so all masters of this target line up")
+            res.ref_path = common.get("path", ref_info.path)
+        except ValueError as e:
+            log.append(f"WARNING: could not align to the common reference {common['name']} ({e}); "
+                       "this master uses its own reference frame")
+    elif common:
+        log.append("This group holds the common reference frame for the target")
+    res.common_ref = common.get("name") if common and (T_g2c is not None or
+                                                      common.get("name") == ref_info.path.name) else None
+    C_half = np.array([[0.5, 0, -0.25], [0, 0.5, -0.25]])
+    Cinv_half = np.array([[2.0, 0, 0.5], [0, 2.0, 0.5]])
+
+    def final_T(T):
+        """Frame -> output grid: via the group reference, then the common reference,
+        then (for half-resolution colour) into half-size pixel coordinates."""
+        Tf = T if T_g2c is None else _compose(T_g2c, T)
+        return _compose(C_half, _compose(Tf, Cinv_half)) if half else Tf
+
+    def is_identity(T):
+        return np.allclose(T, [[1, 0, 0], [0, 1, 0]], atol=1e-9)
 
     # --- local cache of aligned frames --------------------------------------------
     work = Path(opts.work_dir) if opts.work_dir else Path(tempfile.gettempdir())
@@ -1189,8 +1272,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
                f"Not enough free space for the cache ({need / 1e9:.1f} GB needed) — using two passes")
 
     ref_bg = None
-    entries = []          # (info, T, scale k, bg list, weight)
-    S = np.diag([scale_out, scale_out])
+    entries = []          # (info, output transform, scale k, bg list, weight)
 
     def prepare(idx, lf, write):
         info = lf.info
@@ -1208,17 +1290,11 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             good = (pr > 0) & (pt > 0)
             k_phot = float(np.median(pr[good] / pt[good])) if good.sum() >= 5 else 1.0
             k_phot = float(np.clip(k_phot, 0.3, 3.0))
-        # transform for the output grid (half-resolution colour scales coordinates)
-        Tout = T.copy()
-        if half:
-            # planes are half size: x_half = (x_full - 0.5)/2
-            C = np.array([[0.5, 0, -0.25], [0, 0.5, -0.25]])
-            Cinv = np.array([[2.0, 0, 0.5], [0, 2.0, 0.5]])
-            Tout = _compose(C, _compose(T, Cinv))
+        Tout = final_T(T)
         pls = planes(img)
         del img
         noises = [pixel_noise(p) for p in pls]
-        if info is ref_info:
+        if is_identity(Tout):
             aligned = [p.astype(np.float32, copy=False) for p in pls]
         else:
             aligned = warp_planes(pls, Tout, (out_h, out_w))
@@ -1227,7 +1303,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         for a in aligned:
             sm = a[::8, ::8]
             bgs.append(float(np.median(sm[~np.isnan(sm)])))
-        return aligned, T, k_phot, bgs, noises, inl, rms
+        return aligned, Tout, k_phot, bgs, noises, inl, rms
 
     def normalize(aligned, k_phot, bgs):
         return [((a - bgs[c]) * np.float32(k_phot) + np.float32(ref_bg[c])) for c, a in enumerate(aligned)]
@@ -1294,10 +1370,8 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         for i, (info, T, k_phot, bgs, weight) in enumerate(entries):
             prog(f"{g.label()}: second pass {i + 1}/{len(entries)}", 0.65 + 0.3 * i / len(entries))
             img = calibrated(info)
-            Tout = T if not half else _compose(np.array([[0.5, 0, -0.25], [0, 0.5, -0.25]]),
-                                               _compose(T, np.array([[2.0, 0, 0.5], [0, 2.0, 0.5]])))
             pls = planes(img)
-            aligned = pls if info is ref_info else warp_planes(pls, Tout, (out_h, out_w))
+            aligned = pls if is_identity(T) else warp_planes(pls, T, (out_h, out_w))
             normed = np.stack(normalize(aligned, k_phot, bgs))
             valid = ~np.isnan(normed)
             keep = valid & ((np.abs(normed - mean) <= opts.kappa * sig) | (cnt < 5))
@@ -1339,6 +1413,41 @@ def _welford_add(state, normed):
     return mean, m2, cnt
 
 
+_HINT_KEYS = ("RA", "DEC", "OBJCTRA", "OBJCTDEC", "EQUINOX", "RADESYS", "SITELAT", "SITELONG", "SITEELEV",
+              "XBINNING", "YBINNING")
+_WCS_KEYS = ("CRVAL1", "CRVAL2", "CRPIX1", "CRPIX2", "CD1_1", "CD1_2", "CD2_1", "CD2_2",
+             "CDELT1", "CDELT2", "CROTA1", "CROTA2")
+
+
+def reference_keywords(ref_path, half=False) -> list:
+    """Pointing, pixel size and (if present) the linear WCS of the reference frame,
+    so plate solvers (PixInsight ImageSolver, ASTAP …) start from the right place.
+    The master has the reference frame's pixel grid, so its WCS still applies."""
+    try:
+        look = ImageSource(ref_path).look
+    except Exception:  # noqa: BLE001
+        return []
+    out = [(k, look[k], "from reference frame") for k in _HINT_KEYS if look.get(k) not in (None, "")]
+    f = 2.0 if half else 1.0
+    for k in ("XPIXSZ", "YPIXSZ"):
+        v = _num(look.get(k))
+        if v:
+            out.append((k, v * f, "[um] effective pixel size" + (" (half-resolution colour)" if half else "")))
+    if all(look.get(k) not in (None, "") for k in ("CTYPE1", "CTYPE2", "CRVAL1", "CRVAL2", "CRPIX1", "CRPIX2")):
+        out.append(("CTYPE1", str(look["CTYPE1"]).replace("-SIP", ""), "from reference frame (approximate)"))
+        out.append(("CTYPE2", str(look["CTYPE2"]).replace("-SIP", ""), ""))
+        for k in _WCS_KEYS:
+            v = _num(look.get(k))
+            if v is None:
+                continue
+            if half and k in ("CRPIX1", "CRPIX2"):
+                v = (v - 1 - 0.5) / 2 + 1
+            elif half and (k.startswith("CD") or k.startswith("CDELT")):
+                v = v * 2
+            out.append((k, v, ""))
+    return out
+
+
 def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) -> list:
     g = res.group
     i0 = g.ref
@@ -1371,6 +1480,9 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
               ("SWCREATE", "FITS Blaster for Windows", "")]
     if g.ref.bayer:
         header.append(("COLORSPC", "RGB", "debayered" + (" (superpixel)" if opts.osc_half else " (bilinear)")))
+    header += reference_keywords(res.ref_path or g.ref.path, half=bool(g.ref.bayer) and opts.osc_half)
+    if res.common_ref:
+        header.append(("ALIGNREF", res.common_ref, "all masters of this target share this grid"))
     header += [("HISTORY", line, "") for line in res.log[:40]]
     files = save_master_file(base, res.data, header, opts.formats, "MasterLight")
     log_path = base.with_name(base.name + "_stacklog.txt")
