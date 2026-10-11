@@ -1013,7 +1013,7 @@ class MainWindow(QMainWindow):
         if uid == self.current_uid:
             f = self.frames[uid]
             if full or (uid, True) not in self.cache:
-                self.view.show_image(img, self.full_size(f))
+                self.view.show_image(img, self.full_size(f, img, factor))
             if not full and factor > 1 and not self.view.fit_mode and self.view.transform().m11() >= 0.5:
                 self.request_display(uid, full=True)
 
@@ -1032,8 +1032,16 @@ class MainWindow(QMainWindow):
             self.view.clear(f"Could not display {f.name}:\n{msg}")
 
     @staticmethod
-    def full_size(f: core.Frame):
-        return f.display_size or (f.thumb.width(), f.thumb.height())
+    def full_size(f: core.Frame, img: QImage | None = None, factor: int = 1):
+        """Size of the frame in display pixels. The display image can arrive
+        before the frame's measurement, so fall back to the image itself."""
+        if f.display_size:
+            return f.display_size
+        if img is not None and img.width() > 0:
+            return (img.width() * factor, img.height() * factor)
+        if f.thumb is not None and f.thumb.width() > 0:
+            return (f.thumb.width(), f.thumb.height())
+        return (1, 1)
 
     # -------------------------------------------------------------- list
     def frame_visible(self, f: core.Frame) -> bool:
@@ -1197,10 +1205,12 @@ class MainWindow(QMainWindow):
             self.view.clear(f"Could not read {f.name}:\n{f.error}")
         elif (uid, True) in self.cache:
             self.cache.move_to_end((uid, True))
-            self.view.show_image(self.cache[(uid, True)][0], self.full_size(f))
+            img, fac = self.cache[(uid, True)]
+            self.view.show_image(img, self.full_size(f, img, fac))
         elif (uid, False) in self.cache:
             self.cache.move_to_end((uid, False))
-            self.view.show_image(self.cache[(uid, False)][0], self.full_size(f))
+            img, fac = self.cache[(uid, False)]
+            self.view.show_image(img, self.full_size(f, img, fac))
             if not self.view.fit_mode and self.view.transform().m11() >= 0.5:
                 self.request_detail()
         elif f.thumb is not None:
