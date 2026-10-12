@@ -69,8 +69,14 @@ SubZeroAstro instead of PixInsight - as far as you like:
 - **Pick the one you like.** Each step shows 4-5 small versions of your image - gentle to
   strong, or different colour mixes - instead of sliders. ★ marks the suggested one. Tools whose
   effect depends on pixel size (Shrink Stars) show a full-size piece so you see the real effect.
-- Every step is saved: **Show / Hold for Before / Go Back to Here**, resume after a crash, and
-  **Save Project As… / Open Project…** to keep a project and carry on another day.
+- **Clicking a version only previews it** (big, in the main view) - nothing changes until you press
+  **Apply**. **Cancel** closes the step and leaves the picture exactly as it was.
+- **Fine-tune (optional):** after picking, one to four plain-language sliders (Brightness, Protect bright
+  areas, Warmth, Tint, Contrast, Shadows, Glow strength, ...) start exactly at the version you picked;
+  the big preview follows as you move them, **Reset** returns to the picked version. Curves also has a
+  curve you can drag.
+- Every step is saved: **Undo** (Ctrl+Z), **Back to Start** (the original masters), **Show / Hold for
+  Before / Go Back to Here**, resume after a crash, and **Save Project As… / Open Project…**.
 
 | Step | What it does (PixInsight equivalent) |
 |---|---|
@@ -82,6 +88,13 @@ SubZeroAstro instead of PixInsight - as far as you like:
 | Brighten Stars Separately | Gentle star stretch so stars stay small and colourful |
 | Shrink Stars | Star reduction, 4 strengths |
 | Put Stars Back | Screen blend at the strength you pick |
+| Adjust Brightness & Contrast (Curves) | Presets (More contrast, Lift faint detail, Darker background, ...), sliders, drag-the-curve; colours kept (CurvesTransformation) |
+| Colour Intensity (Saturation) | Richer or calmer colour; the dark sky is protected from colour noise |
+| Bring Out Hidden Structure ◇ | Local contrast for cores and dust lanes (LocalHistogramEqualization) |
+| Add Hydrogen Glow | Ha into red for RGB + Ha sets, with the starlight removed from Ha first (continuum subtraction) |
+| Spot Fix ◇ | Click dust donuts / satellite remnants / hot pixels to patch them (CloneStamp) |
+
+◇ = optional: listed in the workflow but not pushed by "Recommended next".
 
 **Save the Picture…** writes TIFF (16-bit), JPG, PNG, XISF or FITS.
 
