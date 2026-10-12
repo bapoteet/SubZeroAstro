@@ -330,9 +330,9 @@ def smart_scope(look: dict) -> str | None:
                                                     "CAMERA")).lower()
     comments = " ".join(str(c) for c in (look.get("COMMENT") or [])).lower() \
         if isinstance(look.get("COMMENT"), list) else str(look.get("COMMENT") or "").lower()
-    m = re.search(r"seestar\s*(s\d+)", text)
+    m = re.search(r"seestar\s*(s\d+)(\s*pro)?", text)
     if m:
-        return f"Seestar {m.group(1).upper()}"
+        return f"Seestar {m.group(1).upper()}" + (" Pro" if m.group(2) else "")
     if "seestar" in text:
         return "Seestar"
     m = re.search(r"dwarf\s*(mini|ii|iii|2|3)?", text)

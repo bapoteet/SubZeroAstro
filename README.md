@@ -66,6 +66,9 @@ SubZeroAstro reads the files from **ZWO Seestar**, **DWARF** (mini / II / 3), **
   without an IMAGETYP keyword. Culling, Auto-cull and stacking work as usual; star alignment
   handles the field rotation of alt-az mounts and the auto-crop trims the rotated edges.
   Calibration frames are optional — no "missing darks/flats" warnings for these scopes.
+  Short smart-scope subs (10–20 s at high gain, uncalibrated hot pixels) use a **robust star
+  finder** (hot-pixel filter + matched filter), so even faint frames align — tested on raw
+  Seestar S50 Pro subs.
 - **Seestar stacks** (`Stacked_62_IC 1396_….fit`, already debayered colour) can be combined
   across nights in the Stacking window: each stack is aligned, brought to the same brightness
   (the Seestar app scales every stack differently) and weighted by its noise. The master's

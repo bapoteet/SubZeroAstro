@@ -946,9 +946,81 @@ def luminance(cal: np.ndarray, bayer: bool) -> tuple[np.ndarray, int]:
 # Star alignment
 # ==========================================================================
 
-def find_stars(img: np.ndarray, factor: int, max_stars=150):
+def _median3(a: np.ndarray) -> np.ndarray:
+    """3x3 median: removes hot pixels and single-pixel noise spikes, keeps stars."""
+    p = np.pad(a, 1, mode="edge")
+    h, w = a.shape
+    return np.median(np.stack([p[dy:dy + h, dx:dx + w] for dy in range(3) for dx in range(3)]),
+                     axis=0).astype(np.float32)
+
+
+def _gauss1(a: np.ndarray) -> np.ndarray:
+    """Separable Gaussian blur, sigma 1 px (a matched filter for small stars)."""
+    k = np.exp(-np.arange(-3, 4) ** 2 / 2.0).astype(np.float32)
+    k /= k.sum()
+    h, w = a.shape
+    p = np.pad(a, ((0, 0), (3, 3)), mode="edge")
+    b = sum(k[i] * p[:, i:i + w] for i in range(7))
+    p = np.pad(b, ((3, 3), (0, 0)), mode="edge")
+    return sum(k[i] * p[i:i + h, :] for i in range(7)).astype(np.float32)
+
+
+def find_stars_robust(img: np.ndarray, factor: int, max_stars=150, k=5.0):
+    """Star finder for faint, noisy, uncalibrated subs (smart telescopes: 10-20 s at
+    high gain, hot pixels): median filter, Gaussian matched filter, and centroids
+    from the upper half of each star so noise doesn't pull them to pixel centres."""
+    clean = _median3(img)
+    bg, _sky, _s = M._background(clean)
+    sm = _gauss1(clean - bg)
+    s_ = sm[::3, ::3]
+    med = float(np.median(s_))
+    sig = float(np.median(np.abs(s_ - med)) * 1.4826) + 1e-6
+    h, w = sm.shape
+    m = 8
+    if h <= 2 * m + 2 or w <= 2 * m + 2:
+        return np.empty((0, 2)), np.empty(0)
+    c = sm[m:h - m, m:w - m]
+    cand = c > med + k * sig
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dy or dx:
+                cand &= c >= sm[m + dy:h - m + dy, m + dx:w - m + dx]
+    ys, xs = np.nonzero(cand)
+    ys += m
+    xs += m
+    if ys.size == 0:
+        return np.empty((0, 2)), np.empty(0)
+    v = sm[ys, xs]
+    order = np.argsort(-v)
+    r = 3
+    yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+    pts, pk, taken = [], [], set()
+    for i in order:
+        y, x = int(ys[i]), int(xs[i])
+        cell = (y >> 2, x >> 2)
+        if any((cell[0] + a, cell[1] + b) in taken for a in (-1, 0, 1) for b in (-1, 0, 1)):
+            continue                                  # merge maxima closer than ~4 px
+        cut = np.clip(sm[y - r:y + r + 1, x - r:x + r + 1] - 0.5 * sm[y, x], 0, None)
+        sv = cut.sum()
+        if sv <= 0:
+            continue
+        taken.add(cell)
+        cy, cx = (cut * yy).sum() / sv, (cut * xx).sum() / sv
+        pts.append(((x + cx) * factor + (factor - 1) / 2, (y + cy) * factor + (factor - 1) / 2))
+        pk.append(float(v[i]))
+        if len(pts) >= max_stars:
+            break
+    return np.array(pts, dtype=np.float64), np.array(pk, dtype=np.float64)
+
+
+ROBUST_MIN_STARS = 60          # fewer stars than this in the reference -> use the robust finder
+
+
+def find_stars(img: np.ndarray, factor: int, max_stars=150, robust=False):
     """Centroids (x, y) in full-resolution pixel coordinates and peak values,
     brightest first."""
+    if robust:
+        return find_stars_robust(img, factor, max_stars)
     bg, _sky, sigma = M._background(img)
     resid = img - bg
     ys, xs, peaks = M._find_stars(resid, 6)
@@ -1236,10 +1308,15 @@ def common_reference(group_list: list, progress=None) -> dict | None:
     if raw.ndim == 3:
         raw = raw.mean(axis=0) if raw.shape[0] == 3 and not best.info.bayer else raw[0]
     lum, fac = luminance(raw.astype(np.float32), bool(best.info.bayer))
-    pts, _pk = find_stars(lum, fac)
+    robust = bool(best.info.smart)
+    pts, _pk = find_stars(lum, fac, robust=robust)
+    if not robust and len(pts) < ROBUST_MIN_STARS:
+        r_pts, _ = find_stars(lum, fac, robust=True)
+        if len(r_pts) > len(pts):
+            robust, pts = True, r_pts
     if len(pts) < 6:
         return None
-    return {"name": best.info.path.name, "path": best.info.path, "pts": pts}
+    return {"name": best.info.path.name, "path": best.info.path, "pts": pts, "robust": robust}
 
 
 def alignment_sets(groups: list) -> list:
@@ -1327,7 +1404,15 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         log.append("Input: colour images that are already stacked (e.g. by a smart telescope) — "
                    "aligned and combined without calibration or debayering")
     lum, fac = lumin(ref_cal)
-    ref_pts, ref_peaks = find_stars(lum, fac)
+    robust = bool(ref_info.smart)
+    ref_pts, ref_peaks = find_stars(lum, fac, robust=robust)
+    if not robust and len(ref_pts) < ROBUST_MIN_STARS:
+        r_pts, r_peaks = find_stars(lum, fac, robust=True)
+        if len(r_pts) > len(ref_pts):
+            robust, ref_pts, ref_peaks = True, r_pts, r_peaks
+    if robust:
+        log.append("Star finder: robust mode for " + (f"{ref_info.smart} frames" if ref_info.smart else "faint frames")
+                   + " (hot pixels and noise filtered out)")
     if len(ref_pts) < 6:
         raise ValueError(f"Too few stars in the reference frame {ref_info.path.name}")
     half = bayer and opts.osc_half
@@ -1380,7 +1465,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         info = lf.info
         img = calibrated(info)
         lum, fac = lumin(img)
-        pts, peaks = find_stars(lum, fac)
+        pts, peaks = find_stars(lum, fac, robust=robust)
         if info is ref_info:
             T = np.array([[1.0, 0, 0], [0, 1.0, 0]])
             k_phot = 1.0

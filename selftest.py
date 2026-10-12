@@ -138,6 +138,29 @@ def run(app, out_dir: Path) -> int:
           f"Seestar stack recognised as stacked colour ({i_ss.planes} planes, {i_ss.exposure_total:.0f} s)")
     import prepare as _P
     check(len(_P.find_masters([sm])) == 1, "a Seestar stack can go straight into Prepare")
+    # faint, noisy subs with hot pixels (like 10 s Seestar subs) must still align
+    def _faint(dx, dy, seed):
+        r = _np.random.default_rng(seed)
+        h, w = 600, 800
+        yy, xx = _np.mgrid[0:h, 0:w]
+        img = r.normal(2300, 60, (h, w)).astype(_np.float32)
+        sr = _np.random.default_rng(7)
+        for x, y, a in zip(sr.uniform(20, w - 20, 120), sr.uniform(20, h - 20, 120), sr.uniform(150, 900, 120)):
+            img += a * _np.exp(-((xx - x - dx) ** 2 + (yy - y - dy) ** 2) / (2 * 1.6 ** 2))
+        hy, hx = _np.random.default_rng(3).integers(0, h, 400), _np.random.default_rng(4).integers(0, w, 400)
+        img[hy, hx] = 30000                                  # hot pixels: same place in every frame
+        return img
+    f1, f2 = _faint(0, 0, 1), _faint(13.4, -7.2, 2)
+    l1, fac = _st.luminance(f1, True)
+    l2, _f = _st.luminance(f2, True)
+    try:
+        T, inl, rms, _ok, _j = _st.match_frames(_st.find_stars(l1, fac, robust=True)[0],
+                                                _st.find_stars(l2, fac, robust=True)[0])
+        shift_ok = abs(T[0, 2] + 13.4) < 0.6 and abs(T[1, 2] - 7.2) < 0.6
+    except ValueError as e:
+        T, inl, shift_ok = None, 0, False
+    check(shift_ok, f"robust star finder aligns faint subs with hot pixels ({inl} stars, "
+                    f"shift {None if T is None else (round(float(T[0, 2]), 2), round(float(T[1, 2]), 2))})")
 
     w = fb.MainWindow()
     w.resize(1600, 950)
