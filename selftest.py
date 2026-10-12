@@ -656,7 +656,8 @@ def run(app, out_dir: Path) -> int:
         sky = [float(__import__("numpy").median(c[::3, ::3])) for c in st_.rgb]
         check(max(sky) - min(sky) < 0.03 and 0.05 < sum(sky) / 3 < 0.25,
               f"finished sky is neutral and sensibly bright ({[round(x, 3) for x in sky]})")
-        check(len(fw.project.steps) == len(done) + 1, f"every step saved in the project ({len(fw.project.steps)})")
+        check(len(fw.project.steps) == len(done) + 2,          # start + steps + local contrast (Spot Fix undone)
+              f"every step saved in the project ({len(fw.project.steps)})")
         fw.stop_here_pixinsight()
         pf = getattr(fw, "last_pi_files", [])
         check(len(pf) >= 2 and pf[0].suffix == ".txt" and all(p.exists() for p in pf),
