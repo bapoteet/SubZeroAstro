@@ -202,6 +202,7 @@ class FinishWindow(QMainWindow):
         ll = QVBoxLayout(left)
         ll.addWidget(QLabel("<b>Your workflow</b>"))
         self.flow = QListWidget()
+        self.flow.setMinimumWidth(215)
         self.flow.itemClicked.connect(self.flow_clicked)
         self.flow.setToolTip("✓ done   ➜ recommended next   ○ later   ⤼ skipped   – not needed / not "
                              "possible yet\nClick a step to open it")
@@ -592,13 +593,14 @@ class FinishWindow(QMainWindow):
         vs, thumbs = res
         self.variants = vs
         self._clear_choices()
-        cols = 2 if len(vs) <= 4 else 3
+        cols = 2
+        avail = max(240, self.tool_box.width() - 60)
+        side = max(110, min(220, avail // cols - 16))
         for i, (v, th) in enumerate(zip(vs, thumbs)):
             b = QToolButton()
             b.setCheckable(True)
             b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             b.setIcon(QIcon(to_pixmap(th)))
-            side = 200 if cols == 2 else 135
             b.setIconSize(QSize(side, int(side * th.shape[0] / max(1, th.shape[1]))))
             b.setText(v.label + ("  ★" if v.recommended else ""))
             b.setToolTip(v.note or v.label)

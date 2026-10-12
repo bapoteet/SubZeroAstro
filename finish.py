@@ -219,7 +219,7 @@ def state_display(s: State, linked=True) -> np.ndarray:
     """What the user should see for a state: the full picture (stars added back for
     viewing if they are separated)."""
     if s.rgb is None:                          # mono set not combined yet: show a quick colour mix
-        ch = s.channels
+        ch = {k: v + s.channel_stars.get(k, 0) for k, v in s.channels.items()}
         keys = [k for k in ("R", "G", "B") if k in ch] if s.kind in ("mono_rgb", "mono_lrgb") else []
         if len(keys) == 3:
             img = np.stack([ch["R"], ch["G"], ch["B"]])
@@ -257,6 +257,10 @@ class Tool:
 
     def applicable(self, s: State):
         return True, ""
+
+    def possible(self, s: State) -> bool:
+        """Can this step happen at some point (maybe after earlier steps)?"""
+        return True
 
     def variants(self, s: State) -> list:
         return [Variant("Apply", {})]
@@ -392,6 +396,9 @@ def _star_colour_factors(img: np.ndarray):
 
 class BalanceColours(Tool):
     key = "balance"
+
+    def possible(self, s):
+        return (s.is_color or (s.rgb is None and len(s.channels) >= 2)) and s.linear
     title = "Balance Colours"
     tip = ("Removes colour casts: makes the empty sky neutral grey and the average star white - "
            "close to what PixInsight's colour calibration does.")
@@ -438,6 +445,9 @@ class BalanceColours(Tool):
 # --------------------------------------------------------------------------
 class RemoveGreen(Tool):
     key = "scnr"
+
+    def possible(self, s):
+        return s.is_color or (s.rgb is None and len(s.channels) >= 2)
     title = "Remove Green Cast"
     tip = ("Removes the green tint colour cameras and the Hubble palette often leave. Real green "
            "almost never exists in deep-sky objects. (PixInsight: SCNR)")
@@ -470,6 +480,9 @@ class RemoveGreen(Tool):
 # --------------------------------------------------------------------------
 class TakeStarsOut(Tool):
     key = "stars_out"
+
+    def possible(self, s):
+        return not s.stars_out and self.runner is not None
     title = "Take Stars Out"
     tip = ("Splits the stars from the nebula or galaxy (StarXTerminator) so each can be brightened "
            "separately - you get bright detail without bloated stars. They go back in at the end.")
@@ -616,6 +629,9 @@ class Brighten(Tool):
 
 # --------------------------------------------------------------------------
 class BrightenStars(Tool):
+    def possible(self, s):
+        return s.stars_out or bool(s.channel_stars) or TOOLS["stars_out"].possible(s)
+
     key = "star_stretch"
     title = "Brighten Stars Separately"
     tip = ("Brightens the stars-only image gently, so stars stay small and colourful instead of "
@@ -647,6 +663,9 @@ class BrightenStars(Tool):
 
 # --------------------------------------------------------------------------
 class ShrinkStars(Tool):
+    def possible(self, s):
+        return s.stars_out or bool(s.channel_stars) or TOOLS["stars_out"].possible(s)
+
     key = "shrink"
     spatial = True
     title = "Shrink Stars"
@@ -678,6 +697,9 @@ class ShrinkStars(Tool):
 
 # --------------------------------------------------------------------------
 class PutStarsBack(Tool):
+    def possible(self, s):
+        return s.stars_out or bool(s.channel_stars) or TOOLS["stars_out"].possible(s)
+
     key = "stars_back"
     title = "Put Stars Back"
     tip = "Blends the stars back over the processed nebula or galaxy (screen blend), at the strength you pick."
@@ -771,7 +793,7 @@ def workflow(s: State) -> list:
             continue
         ok, _why = t.applicable(s)
         if not ok:
-            out.append((t, "n/a"))
+            out.append((t, "later" if t.possible(s) else "n/a"))
             continue
         out.append((t, "later" if found_next else "next"))
         found_next = True

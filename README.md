@@ -57,6 +57,40 @@ from versions released under the earlier name "FITS Blaster for Windows".
 
 Optional: **`build_exe.bat`** makes a stand-alone `dist\SubZeroAstro\SubZeroAstro.exe`.
 
+## Finish the Image (new in 0.7)
+
+After **Prepare**, click **Finish the Image…** (or *Stack › Finish the Image…*) to carry on in
+SubZeroAstro instead of PixInsight - as far as you like:
+
+- A **Recommended next step** card always says what to do next and why, based on your data
+  (colour camera, mono RGB / LRGB, narrowband, smart telescope) and what is already done.
+  **Do It** opens the step, **Skip** leaves it out. The workflow list on the left shows ✓ done,
+  ➜ next, ○ later, – not needed.
+- **Pick the one you like.** Each step shows 4-5 small versions of your image - gentle to
+  strong, or different colour mixes - instead of sliders. ★ marks the suggested one. Tools whose
+  effect depends on pixel size (Shrink Stars) show a full-size piece so you see the real effect.
+- Every step is saved: **Show / Hold for Before / Go Back to Here**, resume after a crash, and
+  **Save Project As… / Open Project…** to keep a project and carry on another day.
+
+| Step | What it does (PixInsight equivalent) |
+|---|---|
+| Combine Colour Channels | Builds colour from your filters: RGB, LRGB, Hubble SHO, HSO, HOO, HOO vivid, RGB + Ha glow (ChannelCombination / LRGBCombination / PixelMath) |
+| Balance Colours | Neutral grey sky and white average star, warmer / cooler options (BackgroundNeutralization + colour calibration; SPCC stays in PixInsight) |
+| Remove Green Cast | Removes the green tint, or turns the Hubble palette gold and blue (SCNR) |
+| Take Stars Out | Separates stars with StarXTerminator (or uses the stars Prepare already separated) |
+| Brighten the Image | The stretch: Automatic (STF-like), Colour-preserving (arcsinh) or Hyperbolic (GHS); 5 strengths that mean the same in every method; colours linked or not |
+| Brighten Stars Separately | Gentle star stretch so stars stay small and colourful |
+| Shrink Stars | Star reduction, 4 strengths |
+| Put Stars Back | Screen blend at the strength you pick |
+
+**Save the Picture…** writes TIFF (16-bit), JPG, PNG, XISF or FITS.
+
+### Stop Here – Continue in PixInsight
+The **Stop Here – Continue in PixInsight** button (Stacking, Prepare and Finish windows) saves the
+image exactly as it is at that moment as PixInsight-ready XISF (linear or stretched, starless + stars
+if they are separated, or each filter if not combined yet) with a short note listing the PixInsight
+processes that carry on from there - and opens the folder with the files selected.
+
 ## Smart telescopes (new in 0.6)
 
 SubZeroAstro reads the files from **ZWO Seestar**, **DWARF** (mini / II / 3), **Vaonis Vespera**
@@ -319,6 +353,7 @@ and it only sees the frames you kept.
 - `stack_window.py` — the Stacking window
 - `xisf.py` — PixInsight XISF reading and writing
 - `checkpoints.py` — saved progress (crash recovery, step history)
+- `finish.py` / `finish_window.py` — Stage 5: Finish the Image
 - `prepare.py` — Stage 4 pipeline: crop, solve, gradients, XTerminators, quick-look, PixInsight plan
 - `prepare_window.py` — the Prepare for PixInsight window
 - `tools.py` — running ASTAP, GraXpert and the RC-Astro CLI

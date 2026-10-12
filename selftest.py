@@ -593,7 +593,7 @@ def run(app, out_dir: Path) -> int:
         check(st0 is not None and st0.kind == "mono_nb", f"Finish loads the Ha/OIII masters as narrowband "
                                                           f"({None if st0 is None else st0.kind})")
         if state["fake"]:
-            check(st0.stars_out and bool(st0.channel_stars), "stars separated by Prepare are picked up")
+            check(bool(st0.channel_stars), "stars separated by Prepare are picked up (per filter)")
         nxt = F.next_step(fw.state)
         check(nxt is not None and nxt.key == "combine", f"first recommendation is to combine the filters "
                                                         f"({nxt.key if nxt else None})")
