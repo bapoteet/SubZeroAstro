@@ -18,20 +18,88 @@ import traceback
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QSize, QThread, Qt, Signal
-from PySide6.QtGui import QIcon, QImage, QPixmap
+from PySide6.QtCore import QPointF, QSize, QThread, QTimer, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit,
-                               QProgressBar, QPushButton, QScrollArea, QSplitter, QToolButton, QVBoxLayout,
-                               QWidget)
+                               QFileDialog, QFormLayout, QFrame, QGraphicsEllipseItem, QGridLayout, QGroupBox,
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+                               QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSlider,
+                               QSplitter, QToolButton, QVBoxLayout, QWidget)
 
 import checkpoints as cp
 import finish as F
 import tools
 from prepare_window import CropView, save_rgb8
 
-STATUS_MARK = {"done": "✓", "next": "➜", "later": "○", "skipped": "⤼", "n/a": "–"}
+STATUS_MARK = {"done": "✓", "next": "➜", "later": "○", "skipped": "⤼", "n/a": "–", "optional": "◇"}
+PREVIEW_SIDE = 1400                         # live preview size (fast, still sharp on screen)
+
+
+class CurveWidget(QWidget):
+    """Shows the tone curve; the three inner points can be dragged."""
+    changed = Signal(list)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(200, 170)
+        self.points = [[0, 0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1, 1]]
+        self.drag = None
+        self.setToolTip("Drag the points: up = brighter, down = darker. Left = shadows, right = highlights.")
+
+    def set_points(self, pts):
+        self.points = [list(map(float, q)) for q in pts]
+        self.update()
+
+    def _xy(self, q):
+        m = 8
+        w, h = self.width() - 2 * m, self.height() - 2 * m
+        return QPointF(m + q[0] * w, m + (1 - q[1]) * h)
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(self.rect(), QColor(24, 24, 28))
+        p.setPen(QPen(QColor(60, 60, 70), 1))
+        for f in (0.25, 0.5, 0.75):
+            p.drawLine(self._xy([f, 0]), self._xy([f, 1]))
+            p.drawLine(self._xy([0, f]), self._xy([1, f]))
+        p.setPen(QPen(QColor(90, 90, 100), 1, Qt.DashLine))
+        p.drawLine(self._xy([0, 0]), self._xy([1, 1]))
+        xs = np.linspace(0, 1, 120)
+        pts = np.asarray(self.points)
+        ys = np.clip(F.pchip(pts[:, 0], pts[:, 1], xs), 0, 1)
+        path = QPainterPath(self._xy([0, ys[0]]))
+        for x, y in zip(xs[1:], ys[1:]):
+            path.lineTo(self._xy([x, y]))
+        p.setPen(QPen(QColor(120, 170, 255), 2))
+        p.drawPath(path)
+        p.setBrush(QColor(255, 200, 60))
+        for q in self.points[1:-1]:
+            p.drawEllipse(self._xy(q), 5, 5)
+
+    def mousePressEvent(self, e):
+        pos = e.position()
+        best = min(range(1, len(self.points) - 1),
+                   key=lambda i: (self._xy(self.points[i]) - pos).manhattanLength())
+        if (self._xy(self.points[best]) - pos).manhattanLength() < 25:
+            self.drag = best
+
+    def mouseMoveEvent(self, e):
+        if self.drag is None:
+            return
+        m = 8
+        w, h = self.width() - 2 * m, self.height() - 2 * m
+        x = min(max((e.position().x() - m) / w, 0.02), 0.98)
+        y = min(max(1 - (e.position().y() - m) / h, 0), 1)
+        i = self.drag
+        x = min(max(x, self.points[i - 1][0] + 0.03), self.points[i + 1][0] - 0.03)
+        y = min(max(y, self.points[i - 1][1]), self.points[i + 1][1])        # keep tones in order
+        self.points[i] = [x, y]
+        self.update()
+        self.changed.emit([list(q) for q in self.points])
+
+    def mouseReleaseEvent(self, _e):
+        self.drag = None
 
 
 def to_pixmap(rgb8: np.ndarray) -> QPixmap:
@@ -250,6 +318,16 @@ class FinishWindow(QMainWindow):
         self.btn_back.setToolTip("Undo every step after the one shown, and carry on from there")
         self.btn_back.clicked.connect(self.go_back)
         hr.addWidget(self.btn_back)
+        self.btn_undo = QPushButton("Undo")
+        self.btn_undo.setToolTip("Undo the last step (Ctrl+Z)")
+        self.btn_undo.clicked.connect(self.undo_last)
+        hr.addWidget(self.btn_undo)
+        self.btn_start = QPushButton("Back to Start")
+        self.btn_start.setToolTip("Return to the original masters, before anything was changed")
+        self.btn_start.clicked.connect(self.back_to_start)
+        hr.addWidget(self.btn_start)
+        self.undo_shortcut = QShortcut(QKeySequence(QKeySequence.Undo), self)
+        self.undo_shortcut.activated.connect(self.undo_last)
         self.chk_linked = QCheckBox("Natural colours")
         self.chk_linked.setChecked(True)
         self.chk_linked.setToolTip("Preview of unstretched data: ticked = real colours (linked); unticked = each "
@@ -296,12 +374,50 @@ class FinishWindow(QMainWindow):
         self.choice_note.setWordWrap(True)
         self.choice_note.setStyleSheet("color:#9a9aa6;")
         tl.addWidget(self.choice_note)
+        self.fine_box = QGroupBox("Fine-tune (optional)")
+        self.fine_box.setCheckable(True)
+        self.fine_box.setChecked(False)
+        self.fine_box.setToolTip("Small adjustments to the version you picked. The big picture updates as you "
+                                 "move a slider; nothing is changed until you press Apply.")
+        self.fine_box.toggled.connect(self._fine_toggled)
+        fl = QVBoxLayout(self.fine_box)
+        self.fine_inner = QWidget()
+        self.fine_grid = QGridLayout(self.fine_inner)
+        self.fine_grid.setContentsMargins(0, 0, 0, 0)
+        fl.addWidget(self.fine_inner)
+        self.curve = CurveWidget()
+        self.curve.changed.connect(self._curve_dragged)
+        fl.addWidget(self.curve)
+        rr = QHBoxLayout()
+        self.btn_reset = QPushButton("Reset")
+        self.btn_reset.setToolTip("Back to the version you picked")
+        self.btn_reset.clicked.connect(self.reset_fine)
+        rr.addStretch(1)
+        rr.addWidget(self.btn_reset)
+        fl.addLayout(rr)
+        tl.addWidget(self.fine_box)
+        self.preview_hint = QLabel()
+        self.preview_hint.setStyleSheet("color:#eba932;")
+        self.preview_hint.setWordWrap(True)
+        tl.addWidget(self.preview_hint)
+        self.preview_timer = QTimer(self)
+        self.preview_timer.setSingleShot(True)
+        self.preview_timer.setInterval(220)
+        self.preview_timer.timeout.connect(self.run_preview)
+        self.preview_job = None
+        self.preview_pending = False
+        self.sliders = {}
+        self.fine_values = {}
+        self.spots = []
+        self.spot_r = 10.0
+        self.spot_items = []
         br = QHBoxLayout()
         self.btn_apply = QPushButton("Apply")
         self.btn_apply.setStyleSheet("QPushButton { font-weight:bold; padding:6px 18px; }")
         self.btn_apply.clicked.connect(self.apply_choice)
-        self.btn_close_tool = QPushButton("Close")
-        self.btn_close_tool.clicked.connect(self.close_tool)
+        self.btn_close_tool = QPushButton("Cancel")
+        self.btn_close_tool.setToolTip("Close without changing anything - the picture goes back to how it was")
+        self.btn_close_tool.clicked.connect(self.cancel_tool)
         br.addStretch(1)
         br.addWidget(self.btn_close_tool)
         br.addWidget(self.btn_apply)
@@ -474,7 +590,9 @@ class FinishWindow(QMainWindow):
     def show_current(self):
         if self.state is None:
             return
-        small = self.state.small(1600)
+        small = self.state.small(PREVIEW_SIDE)
+        h, w = self.state.shape
+        self.disp_factor = max(h, w) / max(small.shape)
         self.view.show_still(F.state_display(small, linked=self.chk_linked.isChecked()))
 
     def refresh_history(self, select_last=False):
@@ -486,6 +604,9 @@ class FinishWindow(QMainWindow):
             if select_last:
                 self.hist.setCurrentIndex(self.hist.count() - 1)
         self.hist.blockSignals(False)
+        n = len(self.project.steps) if self.project else 0
+        self.btn_undo.setEnabled(n > 1)
+        self.btn_start.setEnabled(n > 1)
         self.show_history()
 
     def show_history(self, *_a, before=False):
@@ -541,21 +662,45 @@ class FinishWindow(QMainWindow):
         self.commit(s, t.key + "_skip", f"Skipped {t.title}")
 
     def open_tool(self, key):
+        self.close_tool()
         self.tool = F.TOOLS[key]
         self.tool_box.setVisible(True)
         self.tool_title.setText(f"<h3 style='margin:0'>{self.tool.title}</h3>{self.tool.tip}")
         self.method_row.setVisible(key == "stretch")
+        self.fine_box.setChecked(False)
+        self.fine_box.setVisible(False)
+        self.preview_hint.setText("")
         if key == "stretch":
             self.method.blockSignals(True)
             self.method.setCurrentIndex(self.method.findData(self.tool.recommended_method(self.state)))
             self.method.blockSignals(False)
             self.chk_tool_linked.setVisible(self.state.is_color)
+        if key == "spotfix":
+            self.spots = []
+            self.show_current()
+            self.view.on_click = self._spot_click
+            self.view.on_wheel = self._spot_wheel
         self.render_choices()
 
     def close_tool(self):
         self.tool = None
         self.variants = []
         self.tool_box.setVisible(False)
+        self.view.on_click = None
+        self.view.on_wheel = None
+        for it in self.spot_items:
+            self.view.scene().removeItem(it)
+        self.spot_items = []
+        self.spots = []
+        self.preview_timer.stop()
+
+    def cancel_tool(self):
+        """Close the tool without changing anything; the picture goes back to how it was."""
+        was = self.tool
+        self.close_tool()
+        self.show_current()
+        if was:
+            self.log(f"{was.title}: cancelled - nothing changed")
 
     def _clear_choices(self):
         for b in self.group.buttons():
@@ -611,23 +756,222 @@ class FinishWindow(QMainWindow):
                 b.setChecked(True)
         if not any(b.isChecked() for b in self.group.buttons()) and self.group.buttons():
             self.group.buttons()[0].setChecked(True)
+        try:
+            self.group.idClicked.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        self.group.idClicked.connect(self.on_choice)
         crop = " (shown at full size on a small area, so you see the real effect)" if self.tool.spatial else ""
-        self.choice_note.setText("Click the version you like (★ = suggested), then Apply." + crop)
+        self.choice_note.setText("Click a version to see it big (★ = suggested). Nothing changes until you press "
+                                 "Apply; Cancel leaves the picture as it was." + crop)
+        self.on_choice(max(0, self.group.checkedId()))
+
+    # ------------------------------------------------------------ preview & fine-tune
+    def selected(self):
+        if not self.variants:
+            return None
+        return self.variants[max(0, self.group.checkedId()) if self.tool and self.tool.pick else 0]
+
+    def on_choice(self, i):
+        """A version was picked: show it big and set the fine-tune controls to it."""
+        self.fine_values = {}
+        v = self.selected()
+        if v is None:
+            return
+        self.build_sliders(v.params)
+        self.schedule_preview()
+
+    def build_sliders(self, params):
+        while self.fine_grid.count():
+            w = self.fine_grid.takeAt(0).widget()
+            if w:
+                w.setParent(None)
+        self.sliders = {}
+        t = self.tool
+        specs = t.sliders(self.state, params) if t else []
+        self.fine_box.setVisible(bool(specs) or (t is not None and t.editor == "curve"))
+        for row, sp in enumerate(specs):
+            lab = QLabel(sp.label)
+            lab.setToolTip(sp.tip)
+            sl = QSlider(Qt.Horizontal)
+            n = max(1, int(round((sp.hi - sp.lo) / sp.step)))
+            sl.setRange(0, n)
+            sl.setValue(int(round((sp.value - sp.lo) / sp.step)))
+            sl.setToolTip(sp.tip)
+            val = QLabel(self._fmt(sp, sp.value))
+            val.setMinimumWidth(42)
+            sl.valueChanged.connect(lambda k, sp=sp, val=val: self._slider_moved(sp, k, val))
+            self.fine_grid.addWidget(lab, row, 0)
+            self.fine_grid.addWidget(sl, row, 1)
+            self.fine_grid.addWidget(val, row, 2)
+            self.sliders[sp.name] = (sl, sp)
+        self.curve.setVisible(t is not None and t.editor == "curve")
+        if t is not None and t.editor == "curve":
+            self.curve.set_points(params.get("points", self.curve.points))
+
+    @staticmethod
+    def _fmt(sp, v):
+        if sp.step >= 1:
+            return f"{v:.0f}"
+        return f"{v:.2f}"
+
+    def _slider_moved(self, sp, k, val):
+        v = sp.lo + k * sp.step
+        val.setText(self._fmt(sp, v))
+        self.fine_values[sp.name] = v
+        self.fine_values.pop("points", None)            # sliders re-shape the curve
+        if self.tool and self.tool.editor == "curve":
+            self.curve.set_points(self.current_params().get("points", self.curve.points))
+        if not self.fine_box.isChecked():
+            self.fine_box.setChecked(True)
+        self.schedule_preview()
+
+    def _curve_dragged(self, pts):
+        self.fine_values["points"] = pts
+        if not self.fine_box.isChecked():
+            self.fine_box.setChecked(True)
+        self.schedule_preview()
+
+    def _fine_toggled(self, on):
+        self.fine_inner.setEnabled(True)
+        self.schedule_preview()
+
+    def reset_fine(self):
+        v = self.selected()
+        self.fine_values = {}
+        if v is not None:
+            self.build_sliders(v.params)
+        self.schedule_preview()
+
+    def current_params(self) -> dict:
+        """The params Apply would use: the picked version, plus fine-tuning if switched on."""
+        t, v = self.tool, self.selected()
+        if t is None or v is None:
+            return {}
+        if t.key == "spotfix":
+            return {"spots": [list(q) for q in self.spots]}
+        if not self.fine_box.isChecked() or not self.fine_values:
+            return v.params
+        vals = {name: sp.lo + sl.value() * sp.step for name, (sl, sp) in self.sliders.items()}
+        if "points" in self.fine_values:
+            vals["points"] = self.fine_values["points"]
+        return t.tuned(self.state, v.params, vals)
+
+    def schedule_preview(self):
+        if self.tool is None:
+            return
+        if self.synchronous:
+            self.run_preview()
+        else:
+            self.preview_timer.start()
+
+    def run_preview(self):
+        t, s = self.tool, self.state
+        if t is None or s is None:
+            return
+        if self.preview_job and self.preview_job.isRunning():
+            self.preview_pending = True
+            return
+        params = self.current_params()
+        tuned = self.fine_box.isChecked() and bool(self.fine_values)
+
+        def work():
+            if t.spatial:
+                ps = s.crop(900, F.busiest_spot(s, 900))
+            else:
+                ps = s.small(PREVIEW_SIDE)
+            if t.key == "spotfix":
+                f = max(s.shape) / max(ps.shape)
+                return F.state_display(t.apply(ps, {"spots": [[x / f, y / f, r / f] for x, y, r in params["spots"]]}))
+            return t.preview(ps, params)
+
+        def done(img):
+            self.view.show_still(img)
+            for it in self.spot_items:                   # keep the spot circles on top
+                if it.scene() is None:
+                    self.view.scene().addItem(it)
+            v = self.selected()
+            name = "your marked spots" if t.key == "spotfix" else f"“{v.label}”" + (" (fine-tuned)" if tuned else "")
+            where = " — full-size view of a small area" if t.spatial else ""
+            self.preview_hint.setText(f"Preview of {name}{where} — not applied yet. Apply to keep it, "
+                                      "Cancel to go back.")
+            if self.preview_pending:
+                self.preview_pending = False
+                self.schedule_preview()
+        if self.synchronous:
+            done(work())
+            return
+        self.preview_job = Job(work)
+        self.preview_job.ok.connect(done)
+        self.preview_job.failed.connect(lambda m: self.log("Preview failed: " + m[:300]))
+        self.preview_job.start()
+
+    # ------------------------------------------------------------ Spot Fix clicks
+    def _spot_click(self, x, y, button):
+        f = getattr(self, "disp_factor", 1.0)
+        if button == Qt.RightButton:
+            if self.spots:
+                self.spots.pop()
+                it = self.spot_items.pop()
+                self.view.scene().removeItem(it)
+        else:
+            self.spots.append([x * f, y * f, self.spot_r])
+            r = self.spot_r / f
+            it = QGraphicsEllipseItem(x - r, y - r, 2 * r, 2 * r)
+            it.setPen(QPen(QColor(255, 200, 60), 0))
+            self.view.scene().addItem(it)
+            self.spot_items.append(it)
+        self.choice_note.setText(f"{len(self.spots)} spot(s) marked. Circle size {self.spot_r:.0f} px (mouse wheel). "
+                                 "Right-click removes the last one.")
+        self.schedule_preview()
+
+    def _spot_wheel(self, steps):
+        self.spot_r = float(min(80, max(3, self.spot_r * (1.15 ** steps))))
+        self.choice_note.setText(f"Circle size {self.spot_r:.0f} px - click a blemish to fix it.")
 
     def apply_choice(self):
         t, s = self.tool, self.state
         if t is None or not self.variants:
             return
-        i = max(0, self.group.checkedId()) if t.pick else 0
-        v = self.variants[i]
+        v = self.selected()
+        params = self.current_params()
+        if t.key == "spotfix" and not params.get("spots"):
+            QMessageBox.information(self, t.title, "Click the blemishes on the image first.")
+            return
+        tuned = (self.fine_box.isChecked() and bool(self.fine_values)) or t.key == "spotfix"
+        label = (f"{len(params['spots'])} spot(s)" if t.key == "spotfix"
+                 else v.label + (" (fine-tuned)" if tuned else ""))
 
         def work():
             t0 = time.time()
-            new = t.apply(s, v.params)
+            new = t.apply(s, params)
             return new, time.time() - t0
-        self.run_job(work, lambda r: (self.log(f"{t.title}: {v.label}  ({r[1]:.1f} s)"),
-                                      self.commit(r[0], t.key, f"{t.title} — {v.label}", v.params)),
+        self.run_job(work, lambda r: (self.log(f"{t.title}: {label}  ({r[1]:.1f} s)"),
+                                      self.commit(r[0], t.key, f"{t.title} — {label}", params)),
                      f"{t.title}…")
+
+    # ------------------------------------------------------------ undo
+    def undo_last(self):
+        if not self.project or len(self.project.steps) <= 1 or (self.job and self.job.isRunning()):
+            return
+        last = self.project.steps[-1]["label"]
+        n = len(self.project.steps) - 1
+        self.project.truncate(n)
+        self.state = self.project.load(n - 1)
+        self.log(f"Undid: {last}")
+        self.after_change()
+
+    def back_to_start(self):
+        if not self.project or len(self.project.steps) <= 1:
+            return
+        if not self.synchronous and QMessageBox.question(
+                self, "Back to Start", "Go back to the original masters? All steps will be undone.") \
+                != QMessageBox.Yes:
+            return
+        self.project.truncate(1)
+        self.state = self.project.load(0)
+        self.log("Back to the start - all steps undone")
+        self.after_change()
 
     def commit(self, new_state, key, label, params=None):
         self.state = new_state

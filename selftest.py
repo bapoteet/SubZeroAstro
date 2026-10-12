@@ -65,7 +65,7 @@ def make_session(folder: Path):
 
 
 def run(app, out_dir: Path) -> int:
-    from PySide6.QtCore import QTimer
+    from PySide6.QtCore import Qt, QTimer
     from PySide6.QtWidgets import QApplication
     import subzeroastro as fb
 
@@ -609,7 +609,7 @@ def run(app, out_dir: Path) -> int:
         import finish as F
         shot("16_finish_palette_choices.png", fw)
         done = []
-        for _ in range(12):
+        for _ in range(16):
             t = F.next_step(fw.state)
             if t is None:
                 break
@@ -617,11 +617,42 @@ def run(app, out_dir: Path) -> int:
             if t.key == "stretch":
                 shot("17_finish_brighten_choices.png", fw)
                 check(len(fw.variants) == 5, "Brighten offers 5 strengths to pick from")
+                n0 = len(fw.project.steps)
+                check("not applied" in fw.preview_hint.text() and fw.state.linear,
+                      "clicking a version previews it big without applying it")
+                sl, sp = fw.sliders["brightness"]
+                sl.setValue(min(sl.maximum(), sl.value() + 12))
+                check(fw.fine_box.isChecked() and "fine-tuned" in fw.preview_hint.text(),
+                      "moving a fine-tune slider updates the preview")
+                shot("19_finish_fine_tune.png", fw)
+                fw.cancel_tool()
+                check(len(fw.project.steps) == n0 and fw.state.linear and fw.tool is None,
+                      "Cancel leaves the picture exactly as it was")
+                fw.open_tool("stretch")
+                sl, sp = fw.sliders["protect"]
+                sl.setValue(sl.maximum() // 2)
+            if t.key == "curves":
+                check(fw.curve.isVisible() or fw.curve.isVisibleTo(fw), "Curves shows a curve you can drag")
+                fw.curve.points[2] = [0.5, 0.58]
+                fw._curve_dragged([list(q) for q in fw.curve.points])
             fw.apply_choice()
             done.append(t.key)
         st_ = fw.state
         check(F.next_step(st_) is None and not st_.linear, f"recommended workflow runs to a finished picture "
                                                            f"({done})")
+        check(any("(fine-tuned)" in x["label"] for x in fw.project.steps), "fine-tuned values are applied")
+        for key in ("local", "spotfix"):                    # the optional tools
+            fw.open_tool(key)
+            if key == "spotfix":
+                fw._spot_click(120.0, 90.0, Qt.LeftButton)
+                fw._spot_click(200.0, 150.0, Qt.LeftButton)
+                fw._spot_click(0, 0, Qt.RightButton)
+                check(len(fw.spots) == 1, "Spot Fix: click marks a spot, right-click removes the last")
+            fw.apply_choice()
+        check("local" in fw.state.done and "spotfix" in fw.state.done, "optional tools (local contrast, Spot Fix) work")
+        n1 = len(fw.project.steps)
+        fw.undo_last()
+        check(len(fw.project.steps) == n1 - 1 and "spotfix" not in fw.state.done, "Undo removes the last step")
         sky = [float(__import__("numpy").median(c[::3, ::3])) for c in st_.rgb]
         check(max(sky) - min(sky) < 0.03 and 0.05 < sum(sky) / 3 < 0.25,
               f"finished sky is neutral and sensibly bright ({[round(x, 3) for x in sky]})")
@@ -645,6 +676,10 @@ def run(app, out_dir: Path) -> int:
         fw2.load_masters(sources)
         check(fw2.project is not None and len(fw2.project.steps) == n_steps,
               f"reopening the same masters resumes the project ({n_steps} steps)")
+        fw2.back_to_start()
+        check(len(fw2.project.steps) == 1 and fw2.state.linear and not [k for k in fw2.state.done
+                                                                        if k != "stars_out"],
+              "Back to Start returns to the original masters")
         fw2.close()
         state["pw"].close()
         state["win"].close()

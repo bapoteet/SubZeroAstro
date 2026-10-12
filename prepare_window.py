@@ -197,6 +197,8 @@ class CropView(QGraphicsView):
         self.scale_f = 1.0
         self._drag = None
         self.locked = False                  # True while showing a saved step (no crop box)
+        self.on_click = None                 # callable(x, y, button) while locked (e.g. Spot Fix)
+        self.on_wheel = None                 # callable(steps)
         self.message = "Select a master on the left"
 
     def show_still(self, rgb8):
@@ -237,7 +239,17 @@ class CropView(QGraphicsView):
         if self.full[0]:
             self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
 
+    def wheelEvent(self, e):
+        if self.on_wheel:
+            self.on_wheel(e.angleDelta().y() / 120.0)
+            return
+        super().wheelEvent(e)
+
     def mousePressEvent(self, e):
+        if self.locked and self.on_click and self.full[0]:
+            p = self.mapToScene(e.position().toPoint())
+            self.on_click(p.x(), p.y(), e.button())
+            return
         if e.button() == Qt.LeftButton and self.full[0] and not self.locked:
             p = self.mapToScene(e.position().toPoint())
             r = self.rect_item.rect()
