@@ -215,6 +215,20 @@ def display_rgb8(img: np.ndarray, linear: bool, linked=True) -> np.ndarray:
     return (img.transpose(1, 2, 0) * 255 + 0.5).astype(np.uint8)
 
 
+def display_fixed(img: np.ndarray, ref: np.ndarray) -> np.ndarray:
+    """Auto-stretch img with the stretch worked out on ref, so several versions of one
+    image are shown with the same settings and can be compared."""
+    out = []
+    for c, r in zip(img, ref):
+        med, mad = _stats(r)
+        lo = med - 2.8 * mad
+        hi = max(float(np.percentile(r[::3, ::3], 99.98)), lo + 1e-6)
+        nm = min(max((med - lo) / (hi - lo), 1e-6), 0.999)
+        m = nm * (1 - 0.22) / (nm - 2 * nm * 0.22 + 0.22)
+        out.append(_mtf(m, np.clip((c - lo) / (hi - lo), 0, 1)))
+    return (np.clip(np.stack(out), 0, 1).transpose(1, 2, 0) * 255 + 0.5).astype(np.uint8)
+
+
 def state_display(s: State, linked=True) -> np.ndarray:
     """What the user should see for a state: the full picture (stars added back for
     viewing if they are separated)."""
@@ -247,18 +261,41 @@ class Variant:
     recommended: bool = False
 
 
+@dataclass
+class Slider:
+    """One plain-language fine-tune control. value = where the picked version is."""
+    name: str
+    label: str
+    lo: float
+    hi: float
+    value: float
+    tip: str = ""
+    step: float = 0.01
+
+
 class Tool:
     key = ""
     title = ""
     tip = ""
     pick = True                    # show thumbnails to choose from
-    fine = None                    # (param name, label, min, max, step) for "fine-tune"
     spatial = False                # effect depends on pixel scale -> thumbnails are 1:1 crops
+    optional = False               # offered, but not pushed by "Recommended next"
+    editor = None                  # "curve" -> the window also shows a curve you can drag
 
-    def applicable(self, s: State):
+    def sliders(self, s: "State", params: dict) -> list:
+        """Fine-tune controls, starting at the picked version's values."""
+        return []
+
+    def tuned(self, s: "State", params: dict, values: dict) -> dict:
+        """Picked version's params with the fine-tune values applied."""
+        p = dict(params)
+        p.update(values)
+        return p
+
+    def applicable(self, s: "State"):
         return True, ""
 
-    def possible(self, s: State) -> bool:
+    def possible(self, s: "State") -> bool:
         """Can this step happen at some point (maybe after earlier steps)?"""
         return True
 
@@ -268,8 +305,12 @@ class Tool:
     def apply(self, s: State, params: dict) -> State:
         raise NotImplementedError
 
-    def why(self, s: State) -> str:
+    def why(self, s: "State") -> str:
         return self.tip
+
+    def preview(self, s: "State", params: dict) -> np.ndarray:
+        """What a version looks like (thumbnails and the live fine-tune preview)."""
+        return state_display(self.apply(s, params))
 
 
 # --------------------------------------------------------------------------
@@ -312,6 +353,17 @@ class CombineChannels(Tool):
             v.params["stats"] = stats
         return out
 
+    def sliders(self, s, params):
+        m = params.get("mix", (1.0, 1.0, 1.0))
+        return [Slider("r", "Red strength", 0.4, 1.6, m[0], "How strong the filter shown as red is"),
+                Slider("g", "Green strength", 0.4, 1.6, m[1], "How strong the filter shown as green is"),
+                Slider("b", "Blue strength", 0.4, 1.6, m[2], "How strong the filter shown as blue is")]
+
+    def tuned(self, s, params, values):
+        p = dict(params)
+        p["mix"] = [values.get("r", 1.0), values.get("g", 1.0), values.get("b", 1.0)]
+        return p
+
     @staticmethod
     def _norm(x, st_):
         """Each filter scaled so its sky sits at 0.01 and its brightest real signal near 0.9
@@ -348,9 +400,10 @@ class CombineChannels(Tool):
                 return np.stack([h, 0.5 * h + 0.5 * o, o])
             return np.stack([h, o, o])                       # HOO
 
-        s.rgb = np.clip(build(s.channels), 0, None).astype(np.float32)
+        mix = np.asarray(params.get("mix", (1.0, 1.0, 1.0)), np.float32)[:, None, None]
+        s.rgb = np.clip(build(s.channels) * mix, 0, None).astype(np.float32)
         if s.channel_stars and set(s.channel_stars) >= set(s.channels):
-            s.stars = np.clip(build(s.channel_stars) - 0.01, 0, None).astype(np.float32)
+            s.stars = np.clip((build(s.channel_stars) - 0.01) * mix, 0, None).astype(np.float32)
             s.stars_out = True
             s.stars_linear = True
             if "stars_out" not in s.done:
@@ -428,9 +481,17 @@ class BalanceColours(Tool):
             out[0].note += " (not enough clean stars to judge star colour)"
         return out
 
+    def sliders(self, s, params):
+        return [Slider("warmth", "Warmth", -1.0, 1.0, params.get("warmth", 0.0), "Cooler (bluer) <-> warmer (redder)"),
+                Slider("tint", "Tint", -1.0, 1.0, params.get("tint", 0.0), "Magenta <-> green")]
+
     def apply(self, s, params):
         s = s.copy()
         bgs = params["bgs"]
+        w, t = float(params.get("warmth", 0.0)), float(params.get("tint", 0.0))
+        if w or t:
+            base = np.asarray(params.get("white") or [1.0, 1.0, 1.0], np.float32)
+            params = dict(params, white=list(base * np.array([1 + 0.08 * w, 1 + 0.06 * t, 1 - 0.08 * w])))
         ref = float(np.mean(bgs))
         img = np.stack([c - b for c, b in zip(s.rgb, bgs)])
         if params.get("white"):
@@ -461,6 +522,9 @@ class RemoveGreen(Tool):
         excess = float(np.mean(g[::3, ::3] > 0))
         best = 1.0 if s.kind == "mono_nb" else (0.75 if excess > 0.5 else 0.5)
         return [Variant(f"{int(a * 100)}%", {"amount": a}, "", a == best) for a in (0.25, 0.5, 0.75, 1.0)]
+
+    def sliders(self, s, params):
+        return [Slider("amount", "Amount", 0.0, 1.0, params["amount"], "How much of the green cast to remove")]
 
     def apply(self, s, params):
         s = s.copy()
@@ -568,16 +632,33 @@ class Brighten(Tool):
         shifts = [med - _stats(c)[0] for c in img] if (linked and img.shape[0] > 1) else None
         out = []
         for i, (name, t) in enumerate(self.LEVELS):
-            prm = {"method": method, "linked": linked, "stats": st_, "target": t, "shifts": shifts}
-            if method == "ghs":
-                prm["lnD"] = self._solve(lambda x: float(ghs(np.array([nm]), np.exp(x) - 1, 6.0, nm / 2)[0]),
-                                         t, 0.0, 14.0)
-                prm["b"] = 6.0
-            elif method == "colour":
-                prm["beta"] = float(np.exp(self._solve(
-                    lambda x: float(np.arcsinh(np.exp(x) * nm) / np.arcsinh(np.exp(x))), t, 0.0, 14.0)))
+            prm = self._with_target({"method": method, "linked": linked, "stats": st_, "shifts": shifts,
+                                     "nm": nm, "protect": 0.0}, t)
             out.append(Variant(name, prm, f"sky at {int(t * 100)}% grey", i == 2))
         return out
+
+    def _with_target(self, prm, t):
+        prm = dict(prm, target=float(t))
+        nm = prm["nm"]
+        if prm["method"] == "ghs":
+            prm["lnD"] = self._solve(lambda x: float(ghs(np.array([nm]), np.exp(x) - 1, 6.0, nm / 2)[0]),
+                                     t, 0.0, 14.0)
+            prm["b"] = 6.0
+        elif prm["method"] == "colour":
+            prm["beta"] = float(np.exp(self._solve(
+                lambda x: float(np.arcsinh(np.exp(x) * nm) / np.arcsinh(np.exp(x))), t, 0.0, 14.0)))
+        return prm
+
+    def sliders(self, s, params):
+        return [Slider("brightness", "Brightness", 0.03, 0.30, params["target"],
+                       "How bright the sky ends up - more shows fainter detail but also more noise", 0.005),
+                Slider("protect", "Protect bright areas", 0.0, 1.0, params.get("protect", 0.0),
+                       "Keeps galaxy cores and bright nebula from turning white")]
+
+    def tuned(self, s, params, values):
+        p = self._with_target(params, values.get("brightness", params["target"]))
+        p["protect"] = float(values.get("protect", params.get("protect", 0.0)))
+        return p
 
     @staticmethod
     def _solve(f, target, a, b):
@@ -621,7 +702,14 @@ class Brighten(Tool):
 
     def apply(self, s, params):
         s = s.copy()
-        s.rgb = self._stretch_planes(s.rgb, params)
+        out = self._stretch_planes(s.rgb, params)
+        pr = float(params.get("protect", 0.0))
+        if pr > 0:                      # blend bright areas towards a gentler stretch
+            mild = self._stretch_planes(s.rgb, self._with_target(params, max(0.02, params["target"] * 0.45)))
+            y = out.mean(0) if out.shape[0] > 1 else out[0]
+            w = (pr * np.clip((y - params["target"]) / max(1e-3, 1 - params["target"]), 0, 1) ** 0.7)[None]
+            out = (out * (1 - w) + mild * w).astype(np.float32)
+        s.rgb = out
         s.linear = False
         s.done.append(self.key)
         return s
@@ -650,6 +738,9 @@ class BrightenStars(Tool):
         hi = float(np.percentile(s.stars[:, ::4, ::4], 99.99)) + 1e-6
         return [Variant(["Subtle", "Light", "Medium", "Strong", "Bold"][i], {"s": v, "bgs": bgs, "hi": hi},
                         "", i == 2) for i, v in enumerate((3.0, 4.0, 5.0, 6.0, 7.0))]
+
+    def sliders(self, s, params):
+        return [Slider("s", "Star brightness", 2.0, 8.0, params["s"], "How bright the stars become", 0.1)]
 
     def apply(self, s, params):
         s = s.copy()
@@ -682,14 +773,20 @@ class ShrinkStars(Tool):
         return [Variant(n, {"a": a, "r": r}, "", i == 1) for i, (n, a, r) in
                 enumerate((("Slight", 0.35, 1), ("Moderate", 0.6, 1), ("Strong", 0.8, 2), ("Very strong", 1.0, 2)))]
 
+    def sliders(self, s, params):
+        return [Slider("a", "Amount", 0.0, 1.0, params["a"], "How much smaller the stars get"),
+                Slider("halo", "Halo reduction", 0.0, 1.0, params.get("halo", 0.6 * params["a"]),
+                       "Dims the faint glow around stars")]
+
     def apply(self, s, params):
         s = s.copy()
         a, r = float(params["a"]), int(params["r"])
+        halo = float(params.get("halo", 0.6 * a))
         out = []
         for c in s.stars:
             er = _min_filter(c, r)
             red = (1 - a) * c + a * er
-            out.append(np.clip(red ** (1 + 0.6 * a), 0, 1))     # also soften faint halos
+            out.append(np.clip(red ** (1 + halo), 0, 1))     # also soften faint halos
         s.stars = np.stack(out).astype(np.float32)
         s.done.append(self.key)
         return s
@@ -714,6 +811,9 @@ class PutStarsBack(Tool):
     def variants(self, s):
         return [Variant(f"Stars {int(k * 100)}%", {"k": k}, "", k == 1.0) for k in (0.6, 0.8, 1.0, 1.2)]
 
+    def sliders(self, s, params):
+        return [Slider("k", "Star strength", 0.3, 1.5, params["k"], "How bright the stars are in the final picture")]
+
     def apply(self, s, params):
         s = s.copy()
         k = float(params["k"])
@@ -727,8 +827,333 @@ class PutStarsBack(Tool):
         return s
 
 
-TOOLS = {t.key: t for t in (CombineChannels(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
-                            BrightenStars(), ShrinkStars(), PutStarsBack())}
+
+# --------------------------------------------------------------------------
+def pchip(xs, ys, x):
+    """Monotone cubic through the points (Fritsch-Carlson) - curves never overshoot."""
+    xs, ys = np.asarray(xs, np.float64), np.asarray(ys, np.float64)
+    h = np.diff(xs)
+    d = np.diff(ys) / h
+    m = np.zeros_like(xs)
+    m[1:-1] = np.where(d[:-1] * d[1:] > 0, 2 / (1 / np.where(d[:-1] == 0, 1e-9, d[:-1]) +
+                                                1 / np.where(d[1:] == 0, 1e-9, d[1:])), 0)
+    m[0], m[-1] = d[0], d[-1]
+    i = np.clip(np.searchsorted(xs, x) - 1, 0, len(h) - 1)
+    t = (x - xs[i]) / h[i]
+    h00, h10, h01, h11 = 2 * t**3 - 3 * t**2 + 1, t**3 - 2 * t**2 + t, -2 * t**3 + 3 * t**2, t**3 - t**2
+    return h00 * ys[i] + h10 * h[i] * m[i] + h01 * ys[i + 1] + h11 * h[i] * m[i + 1]
+
+
+def _apply_lum(img, fn):
+    """Change brightness through the luminance only, so colours (hue) stay the same."""
+    y = _lum(img)
+    y2 = fn(y)
+    ratio = np.where(y > 1e-6, y2 / np.maximum(y, 1e-6), 0).astype(np.float32)
+    out = img * ratio[None]
+    mx = out.max(0)
+    return np.where(mx > 1, out / np.maximum(mx, 1e-6), out).astype(np.float32)
+
+
+class Curves(Tool):
+    key = "curves"
+    title = "Adjust Brightness & Contrast (Curves)"
+    tip = ("Reshapes the tones: lift faint detail, deepen the background, add punch. Pick a preset, then "
+           "fine-tune with the sliders or drag the curve. (PixInsight: CurvesTransformation)")
+    editor = "curve"
+    PRESETS = (("More contrast", dict(contrast=0.6)), ("Lift faint detail", dict(shadows=0.6, midtones=0.2)),
+               ("Darker background", dict(shadows=-0.6)), ("Brighter highlights", dict(highlights=0.5)),
+               ("Punchy (S-curve + lift)", dict(contrast=0.5, midtones=0.25)))
+
+    def applicable(self, s):
+        if s.rgb is None:
+            return False, "Combine the colour channels first"
+        if s.linear:
+            return False, "Brighten the image first - curves work on the stretched picture"
+        return True, ""
+
+    def possible(self, s):
+        return True
+
+    @staticmethod
+    def points(contrast=0.0, shadows=0.0, midtones=0.0, highlights=0.0, **_):
+        """Five control points from the four plain-language controls."""
+        pts = [[0.0, 0.0],
+               [0.15, 0.15 + 0.07 * shadows - 0.04 * contrast],
+               [0.35, 0.35 + 0.06 * shadows + 0.08 * midtones - 0.05 * contrast],
+               [0.65, 0.65 + 0.08 * midtones + 0.05 * contrast + 0.05 * highlights],
+               [1.0, 1.0]]
+        ys = np.clip([q[1] for q in pts], 0, 1)
+        ys = np.maximum.accumulate(ys)                      # never reverse tones
+        return [[q[0], float(y)] for q, y in zip(pts, ys)]
+
+    def variants(self, s):
+        return [Variant(name, {**{"contrast": 0.0, "shadows": 0.0, "midtones": 0.0, "highlights": 0.0}, **v,
+                               "points": self.points(**v)}, "", i == 0) for i, (name, v) in enumerate(self.PRESETS)]
+
+    def sliders(self, s, params):
+        return [Slider("contrast", "Contrast", -1, 1, params.get("contrast", 0), "Flatter <-> punchier"),
+                Slider("shadows", "Shadows", -1, 1, params.get("shadows", 0), "Darker background <-> lift faint detail"),
+                Slider("midtones", "Midtones", -1, 1, params.get("midtones", 0), "Darker <-> brighter main object"),
+                Slider("highlights", "Highlights", -1, 1, params.get("highlights", 0), "Softer <-> brighter bright areas")]
+
+    def tuned(self, s, params, values):
+        p = dict(params)
+        p.update(values)
+        if "points" not in values:
+            p["points"] = self.points(**{k: p.get(k, 0.0) for k in ("contrast", "shadows", "midtones", "highlights")})
+        return p
+
+    def apply(self, s, params):
+        s = s.copy()
+        pts = np.asarray(params["points"])
+        s.rgb = _apply_lum(s.rgb, lambda y: np.clip(pchip(pts[:, 0], pts[:, 1], np.clip(y, 0, 1)), 0, 1))
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
+class Saturation(Tool):
+    key = "saturation"
+    title = "Colour Intensity (Saturation)"
+    tip = ("Makes colours richer (or calmer). The empty sky is protected so its noise doesn't turn into "
+           "coloured speckles.")
+
+    def applicable(self, s):
+        if not s.is_color:
+            return False, "Needs a colour image"
+        if s.linear:
+            return False, "Brighten the image first"
+        return True, ""
+
+    def possible(self, s):
+        return s.is_color or (s.rgb is None and len(s.channels) >= 2)
+
+    def variants(self, s):
+        sky = float(np.median(_lum(s.rgb)[::3, ::3]))
+        return [Variant(n, {"amount": a, "protect": 0.8, "sky": sky}, "", i == 2) for i, (n, a) in
+                enumerate((("Calmer", 0.85), ("Slight", 1.15), ("Rich", 1.35), ("Vivid", 1.6), ("Bold", 1.9)))]
+
+    def sliders(self, s, params):
+        return [Slider("amount", "Colour intensity", 0.5, 2.5, params["amount"], "Grey <-> vivid", 0.05),
+                Slider("protect", "Protect the sky", 0.0, 1.0, params["protect"],
+                       "Keeps the dark background from getting colourful noise")]
+
+    def apply(self, s, params):
+        s = s.copy()
+        f, pr, sky = float(params["amount"]), float(params["protect"]), float(params["sky"])
+        y = _lum(s.rgb)
+        w = np.clip((y - sky * 1.15) / 0.25, 0, 1)
+        eff = 1 + (f - 1) * ((1 - pr) + pr * w)
+        s.rgb = np.clip(y[None] + (s.rgb - y[None]) * eff[None], 0, 1).astype(np.float32)
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
+def clahe(y: np.ndarray, grid=8, clip=2.5, bins=256) -> np.ndarray:
+    """Contrast-limited adaptive histogram equalisation of a 0..1 plane
+    (PixInsight: LocalHistogramEqualization)."""
+    h, w = y.shape
+    gy, gx = max(2, int(round(grid * h / max(h, w)))), max(2, int(round(grid * w / max(h, w))))
+    ys = np.linspace(0, h, gy + 1).astype(int)
+    xs = np.linspace(0, w, gx + 1).astype(int)
+    q = np.clip((y * (bins - 1)).astype(np.int32), 0, bins - 1)
+    lut = np.empty((gy, gx, bins), np.float32)
+    for i in range(gy):
+        for j in range(gx):
+            tile = q[ys[i]:ys[i + 1]:2, xs[j]:xs[j + 1]:2]
+            hist = np.bincount(tile.ravel(), minlength=bins).astype(np.float64)
+            lim = clip * hist.sum() / bins
+            excess = np.clip(hist - lim, 0, None).sum()
+            hist = np.minimum(hist, lim) + excess / bins
+            cdf = np.cumsum(hist)
+            lut[i, j] = (cdf - cdf[0]) / max(cdf[-1] - cdf[0], 1e-9)
+    cy = (ys[:-1] + ys[1:]) / 2
+    cx = (xs[:-1] + xs[1:]) / 2
+    fy = np.clip(np.interp(np.arange(h), cy, np.arange(gy)), 0, gy - 1)
+    fx = np.clip(np.interp(np.arange(w), cx, np.arange(gx)), 0, gx - 1)
+    y0 = np.floor(fy).astype(int)
+    x0 = np.floor(fx).astype(int)
+    y1, x1 = np.minimum(y0 + 1, gy - 1), np.minimum(x0 + 1, gx - 1)
+    wy = (fy - y0).astype(np.float32)[:, None]
+    wx = (fx - x0).astype(np.float32)[None, :]
+    out = np.empty((h, w), np.float32)
+    for r0 in range(0, h, 512):                       # in strips, to keep memory modest
+        r1 = min(h, r0 + 512)
+        qq = q[r0:r1]
+        a = lut[y0[r0:r1, None], x0[None, :], qq]
+        b = lut[y0[r0:r1, None], x1[None, :], qq]
+        c = lut[y1[r0:r1, None], x0[None, :], qq]
+        d = lut[y1[r0:r1, None], x1[None, :], qq]
+        wyy = wy[r0:r1]
+        out[r0:r1] = (a * (1 - wx) + b * wx) * (1 - wyy) + (c * (1 - wx) + d * wx) * wyy
+    return out
+
+
+class LocalContrast(Tool):
+    key = "local"
+    title = "Bring Out Hidden Structure"
+    tip = ("Boosts contrast locally, so detail inside bright cores and faint dust lanes shows up. "
+           "(PixInsight: LocalHistogramEqualization)")
+    optional = True
+
+    def applicable(self, s):
+        if s.rgb is None:
+            return False, "Combine the colour channels first"
+        if s.linear:
+            return False, "Brighten the image first"
+        return True, ""
+
+    def variants(self, s):
+        return [Variant(n, {"amount": a, "grid": 8, "clip": 2.5}, "", i == 1) for i, (n, a) in
+                enumerate((("Subtle", 0.15), ("Moderate", 0.3), ("Strong", 0.45), ("Very strong", 0.65)))]
+
+    def sliders(self, s, params):
+        return [Slider("amount", "Strength", 0.0, 1.0, params["amount"], "How much local contrast to add"),
+                Slider("grid", "Detail size", 4, 16, params["grid"], "Large structures (4) <-> fine detail (16)", 1)]
+
+    def apply(self, s, params):
+        s = s.copy()
+        a = float(params["amount"])
+        eq = None
+
+        def fn(y):
+            nonlocal eq
+            eq = clahe(np.clip(y, 0, 1), int(round(params["grid"])), float(params["clip"]))
+            return (1 - a) * y + a * eq
+        s.rgb = _apply_lum(s.rgb, fn)
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
+def _flux(img, pts, r_in=3.5, r_out=(6, 8)):
+    h, w = img.shape
+    yy, xx = np.mgrid[-8:9, -8:9]
+    rr = np.hypot(yy, xx)
+    inner, ring = rr <= r_in, (rr >= r_out[0]) & (rr <= r_out[1])
+    out = np.full(len(pts), np.nan)
+    for k, (x, y) in enumerate(pts):
+        xi, yi = int(round(x)), int(round(y))
+        if 8 <= xi < w - 8 and 8 <= yi < h - 8:
+            box = img[yi - 8:yi + 9, xi - 8:xi + 9]
+            out[k] = float((box[inner] - np.median(box[ring])).sum())
+    return out
+
+
+class HaGlow(Tool):
+    key = "ha_glow"
+    title = "Add Hydrogen Glow"
+    tip = ("Blends your Ha image into the red channel so nebulae glow in a natural-colour picture. The "
+           "starlight is removed from the Ha first (continuum subtraction), so stars don't turn pink.")
+
+    def applicable(self, s):
+        if s.rgb is not None or not {"Ha", "R", "G", "B"} <= set(s.channels):
+            return False, "Needs separate R, G, B and Ha images, before combining"
+        return True, ""
+
+    def possible(self, s):
+        return s.rgb is None and {"Ha", "R", "G", "B"} <= set(s.channels)
+
+    def variants(self, s):
+        import stacking as st
+        ha, r = s.channels["Ha"], s.channels["R"]
+        bg_h, bg_r = _stats(ha)[0], _stats(r)[0]
+        c = None
+        try:
+            pts, _ = st.find_stars((r * 65535.0).astype(np.float32), 1, max_stars=200)
+            fh, fr = _flux(ha, pts), _flux(r, pts)
+            ok = np.isfinite(fh) & np.isfinite(fr) & (fr > 0)
+            if ok.sum() >= 8:
+                c = float(np.median(fh[ok] / fr[ok]))
+        except Exception:  # noqa: BLE001
+            c = None
+        if not c or c <= 0:
+            c = float(np.percentile(ha[::3, ::3], 99) - bg_h) / max(float(np.percentile(r[::3, ::3], 99) - bg_r), 1e-6)
+        base = {"c": c, "bg_h": bg_h, "bg_r": bg_r}
+        return [Variant(n, {**base, "k": k}, f"starlight factor {c:.2f} removed from Ha", i == 1) for i, (n, k) in
+                enumerate((("Subtle", 0.5), ("Natural", 1.0), ("Strong", 1.6), ("Very strong", 2.5)))]
+
+    def sliders(self, s, params):
+        return [Slider("k", "Glow strength", 0.0, 4.0, params["k"], "How much hydrogen glow to add to red", 0.05)]
+
+    def preview(self, s, params):
+        ch = s.channels
+        base = np.stack([ch["R"], ch["G"], ch["B"]])
+        r = self.apply(s, params).channels
+        return display_fixed(np.stack([r["R"], r["G"], r["B"]]), base)
+
+    def apply(self, s, params):
+        s = s.copy()
+        ch = dict(s.channels)
+        c, k = float(params["c"]), float(params["k"])
+        line = np.clip((ch["Ha"] - params["bg_h"]) - c * (ch["R"] - params["bg_r"]), 0, None)  # Ha without starlight
+        ch["R"] = (ch["R"] + k * line / max(c, 1e-6)).astype(np.float32)
+        ch.pop("Ha")
+        s.channels = ch
+        if "Ha" in s.channel_stars:
+            cs = dict(s.channel_stars)
+            cs.pop("Ha")
+            s.channel_stars = cs
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
+class SpotFix(Tool):
+    key = "spotfix"
+    title = "Spot Fix"
+    tip = ("Click on a dust donut, a satellite remnant or a hot pixel and it is patched from its "
+           "surroundings. (PixInsight: CloneStamp)")
+    pick = False
+    optional = True
+
+    def applicable(self, s):
+        return (True, "") if s.rgb is not None else (False, "Combine the colour channels first")
+
+    def variants(self, s):
+        return [Variant("Fix the marked spots", {"spots": []}, "Click spots on the image (right-click removes "
+                        "the last one); the mouse wheel changes the circle size", True)]
+
+    @staticmethod
+    def heal(img: np.ndarray, x, y, r, seed=0) -> np.ndarray:
+        c, h, w = img.shape
+        R = int(r * 1.6) + 3
+        x0, x1, y0, y1 = max(0, int(x) - R), min(w, int(x) + R + 1), max(0, int(y) - R), min(h, int(y) + R + 1)
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        d = np.hypot(yy - y, xx - x)
+        mask = d <= r
+        ring = (d > r) & (d <= r * 1.6 + 2)
+        if not mask.any() or not ring.any():
+            return img
+        out = img.copy()
+        rng = np.random.default_rng(seed)
+        for k in range(c):
+            patch = out[k, y0:y1, x0:x1].astype(np.float64)
+            fill = patch.copy()
+            fill[mask] = np.median(patch[ring])
+            for _ in range(80):                 # smooth (harmonic) fill from the edge inwards
+                avg = (np.roll(fill, 1, 0) + np.roll(fill, -1, 0) + np.roll(fill, 1, 1) + np.roll(fill, -1, 1)) / 4
+                fill[mask] = avg[mask]
+            sd = float(np.std(patch[ring] - np.median(patch[ring])))
+            fill[mask] += rng.normal(0, sd * 0.8, int(mask.sum()))
+            out[k, y0:y1, x0:x1] = fill.astype(out.dtype)
+        return out
+
+    def apply(self, s, params):
+        s = s.copy()
+        img = s.rgb
+        for i, (x, y, r) in enumerate(params.get("spots", [])):
+            img = self.heal(img, x, y, r, seed=i)
+        s.rgb = img.astype(np.float32)
+        if "spotfix" not in s.done:
+            s.done.append(self.key)
+        return s
+
+
+TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
+                            Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(), PutStarsBack(),
+                            SpotFix())}
 
 
 def thumb_state(tool: Tool, s: State, size=420) -> State:
@@ -759,13 +1184,15 @@ def busiest_spot(s: State, size=420):
 # What's next
 # ==========================================================================
 
+_POLISH = ["curves", "saturation", "local"]
+_STARS = ["star_stretch", "shrink", "stars_back"]
 WORKFLOWS = {
-    "osc": ["balance", "scnr", "stars_out", "stretch", "star_stretch", "shrink", "stars_back"],
-    "smart": ["balance", "scnr", "stars_out", "stretch", "star_stretch", "shrink", "stars_back"],
-    "mono_rgb": ["combine", "balance", "scnr", "stars_out", "stretch", "star_stretch", "shrink", "stars_back"],
-    "mono_lrgb": ["combine", "balance", "scnr", "stars_out", "stretch", "star_stretch", "shrink", "stars_back"],
-    "mono_nb": ["combine", "stars_out", "stretch", "scnr", "star_stretch", "shrink", "stars_back"],
-    "mono": ["stars_out", "stretch", "star_stretch", "shrink", "stars_back"],
+    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
+    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
+    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
+    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
+    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix"],
+    "mono": ["stars_out", "stretch", "curves", "local"] + _STARS + ["spotfix"],
 }
 
 WHY = {
@@ -776,6 +1203,9 @@ WHY = {
     "star_stretch": "The stars-only image needs its own gentle brighten so stars stay small and colourful.",
     "shrink": "Optional: smaller stars make the main object stand out.",
     "stars_back": "Last step: put the stars back over the processed image.",
+    "curves": "Now shape the tones: a little contrast or lifting the faint parts makes a big difference.",
+    "saturation": "Bring the colours out - the sky is protected from colour noise.",
+    "ha_glow": "You have an Ha image with your RGB - add its glow to the red channel before combining.",
 }
 
 
@@ -794,6 +1224,9 @@ def workflow(s: State) -> list:
         ok, _why = t.applicable(s)
         if not ok:
             out.append((t, "later" if t.possible(s) else "n/a"))
+            continue
+        if t.optional:
+            out.append((t, "optional"))
             continue
         out.append((t, "later" if found_next else "next"))
         found_next = True
@@ -964,6 +1397,11 @@ PI_EQUIVALENT = {
     "stretch": "GeneralizedHyperbolicStretch (GHS) or HistogramTransformation (use STF as a starting point)",
     "star_stretch": "Star Stretch (Bill Blanshan's PixelMath / script) or a gentle HistogramTransformation",
     "shrink": "Star Reduction (Bill Blanshan's script) or MorphologicalTransformation (Erosion)",
+    "curves": "CurvesTransformation",
+    "saturation": "CurvesTransformation (saturation curve) or ColorSaturation",
+    "local": "LocalHistogramEqualization",
+    "ha_glow": "Continuum subtraction (PixelMath: Ha - k*R) then NBRGBCombination or PixelMath into R",
+    "spotfix": "CloneStamp",
     "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
 }
 
