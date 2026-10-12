@@ -230,6 +230,8 @@ class FinishWindow(QMainWindow):
         self.job = None
         self.synchronous = False           # self-test: run jobs inline
         F.TOOLS["stars_out"].runner = make_star_runner(settings)
+        import ui_header
+        ui_header.install_header(self, ui_header.PAGE_FINISH, with_menu=False)
         self._build_ui()
         self.resize(1500, 950)
         self.refresh()

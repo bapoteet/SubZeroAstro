@@ -188,6 +188,10 @@ def run(app, out_dir: Path) -> int:
 
     w = fb.MainWindow()
     w.resize(1600, 950)
+    import ui_header as _uh
+    check(getattr(w, "app_header", None) is not None and w.app_header.page.text() == _uh.PAGE_CULL
+          and w.app_header.name.text() == "SubZeroAstro" and len(w.menuBar().actions()) >= 5,
+          "banner 'SubZeroAstro / Astro Image Quality and Cull' above working menus")
     w.show()
     for k, a in w.mode_actions.items():
         a.setChecked(k == "fast")
@@ -598,6 +602,10 @@ def run(app, out_dir: Path) -> int:
         check(nxt is not None and nxt.key == "combine", f"first recommendation is to combine the filters "
                                                         f"({nxt.key if nxt else None})")
         state["fw"] = fw
+        import ui_header as _uh
+        check(fw.app_header.page.text() == _uh.PAGE_FINISH and pw.app_header.page.text() == _uh.PAGE_PREPARE
+              and state["pw"].parent().app_header.page.text() == _uh.PAGE_STACK,
+              "every window shows the banner with its page title")
         shot("15_finish_start.png", fw)
         fw.open_tool("combine")
         check(len(fw.variants) >= 2 and len(fw.group.buttons()) == len(fw.variants),

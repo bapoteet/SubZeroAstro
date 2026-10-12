@@ -442,6 +442,8 @@ class PrepareWindow(QMainWindow):
         self.worker = None
         self.cps = None                      # checkpoints of the selected target
         self.last_results = []
+        import ui_header
+        ui_header.install_header(self, ui_header.PAGE_PREPARE, with_menu=False)
         self._build_ui()
         self.resize(1450, 900)
         self.detect_tools()

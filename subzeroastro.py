@@ -41,7 +41,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.1 beta"
+APP_VERSION = "0.8.2 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -566,7 +566,7 @@ class LoadDataDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} — {APP_TAGLINE}")
+        self.setWindowTitle(f"{APP_NAME} — Astro Image Quality and Cull")
         self.setAcceptDrops(True)
         # Settings keep their original storage name so nothing is lost after the rename
         self.settings = QSettings("FITSBlasterWin", "FITSBlasterWin")
@@ -610,6 +610,8 @@ class MainWindow(QMainWindow):
         self.session_timer.timeout.connect(self.save_session)
 
         cp.set_root(self.settings.value("checkpoints/dir", "") or None)
+        import ui_header
+        ui_header.install_header(self, ui_header.PAGE_CULL, with_menu=True)
         self._build_ui()
         self._build_actions()
         self._restore_settings()
@@ -1987,7 +1989,7 @@ class MainWindow(QMainWindow):
         self.ready_bar.hide()
         self.update_chart()
         self.update_preset_tooltips()
-        self.setWindowTitle(f"{APP_NAME} — {APP_TAGLINE}")
+        self.setWindowTitle(f"{APP_NAME} — Astro Image Quality and Cull")
         self.update_status()
 
     def auto_flag(self):

@@ -212,13 +212,15 @@ class StackWindow(QMainWindow):
 
     def __init__(self, parent, frames, settings):
         super().__init__(parent)
-        self.setWindowTitle("SubZeroAstro — Stacking")
+        self.setWindowTitle("SubZeroAstro — Calibrate and Stack")
         self.settings = settings
         self.worker = None
         self.rigs = st.Rigs(self._load_json("stack/rigs", []))
         self.added_infos: list = []          # calibration frames the user added
         self.items: list = []                # all calibration items (library + added)
         self.lights, skipped = lights_from_session(frames)
+        import ui_header
+        ui_header.install_header(self, ui_header.PAGE_STACK, with_menu=False)
         self._build_ui()
         self.resize(1300, 860)
         self.refresh_all()
