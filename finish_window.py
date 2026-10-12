@@ -667,7 +667,9 @@ class FinishWindow(QMainWindow):
         self.tool_box.setVisible(True)
         self.tool_title.setText(f"<h3 style='margin:0'>{self.tool.title}</h3>{self.tool.tip}")
         self.method_row.setVisible(key == "stretch")
+        self.fine_box.blockSignals(True)
         self.fine_box.setChecked(False)
+        self.fine_box.blockSignals(False)
         self.fine_box.setVisible(False)
         self.preview_hint.setText("")
         if key == "stretch":
@@ -867,8 +869,8 @@ class FinishWindow(QMainWindow):
 
     def run_preview(self):
         t, s = self.tool, self.state
-        if t is None or s is None:
-            return
+        if t is None or s is None or (not self.variants and t.key != "spotfix"):
+            return                      # choices not ready yet
         if self.preview_job and self.preview_job.isRunning():
             self.preview_pending = True
             return
