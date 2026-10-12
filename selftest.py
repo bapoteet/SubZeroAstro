@@ -670,9 +670,9 @@ def run(app, out_dir: Path) -> int:
         check(len(pf) >= 2 and pf[0].suffix == ".txt" and all(p.exists() for p in pf),
               f"Stop Here - Continue in PixInsight saves XISF + a note ({[p.name for p in pf]})")
         # go back two steps, then reopen: the project resumes
-        fw.hist.setCurrentIndex(fw.hist.count() - 3)
+        fw.hist.setCurrentIndex(2)                           # just after the first two steps
         fw.go_back()
-        check(len(fw.project.steps) == fw.hist.count() and F.next_step(fw.state) is not None,
+        check(len(fw.project.steps) == 3 == fw.hist.count() and F.next_step(fw.state) is not None,
               "Go Back to Here undoes the later steps")
         shot("18_finish_done.png", fw)
         sources = list(fw.state.sources)
