@@ -447,3 +447,21 @@ class ASTAP:
         keep = ("CTYPE", "CRVAL", "CRPIX", "CD1_", "CD2_", "CDELT", "CROTA", "CUNIT", "EQUINOX", "RADESYS",
                 "PLTSOLVD", "A_", "B_", "AP_", "BP_", "LONPOLE", "LATPOLE")
         return [c for c in cards if c[0] and c[1] is not None and c[0].startswith(keep)]
+
+
+def reveal(paths):
+    """Open Explorer at the files (selected). Works for one file or a folder."""
+    import subprocess
+    import sys as _sys
+    paths = [Path(x) for x in (paths if isinstance(paths, (list, tuple)) else [paths]) if x]
+    if not paths or not _sys.platform.startswith("win"):
+        return False
+    p = paths[0]
+    try:
+        if p.is_dir():
+            os.startfile(str(p))  # noqa: S606
+        else:
+            subprocess.Popen(["explorer", "/select,", str(p)])  # noqa: S603,S607
+        return True
+    except OSError:
+        return False
