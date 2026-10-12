@@ -641,22 +641,29 @@ def run(app, out_dir: Path) -> int:
         check(F.next_step(st_) is None and not st_.linear, f"recommended workflow runs to a finished picture "
                                                            f"({done})")
         check(any("(fine-tuned)" in x["label"] for x in fw.project.steps), "fine-tuned values are applied")
-        for key in ("local", "spotfix"):                    # the optional tools
+        n_before = len(fw.project.steps)
+        for key in ("core", "local", "spotfix"):            # the optional tools
             fw.open_tool(key)
+            if key == "core":
+                fw.chk_mask.setChecked(True)
+                check(fw.chk_mask.isVisibleTo(fw) and "not applied" in fw.preview_hint.text(),
+                      "Tame Bright Core previews with 'Show what will change'")
+                shot("20_finish_tame_core_mask.png", fw)
             if key == "spotfix":
                 fw._spot_click(120.0, 90.0, Qt.LeftButton)
                 fw._spot_click(200.0, 150.0, Qt.LeftButton)
                 fw._spot_click(0, 0, Qt.RightButton)
                 check(len(fw.spots) == 1, "Spot Fix: click marks a spot, right-click removes the last")
             fw.apply_choice()
-        check("local" in fw.state.done and "spotfix" in fw.state.done, "optional tools (local contrast, Spot Fix) work")
+        check("core" in fw.state.done and "local" in fw.state.done and "spotfix" in fw.state.done,
+              "optional tools (Tame Bright Core, local contrast, Spot Fix) work")
         n1 = len(fw.project.steps)
         fw.undo_last()
         check(len(fw.project.steps) == n1 - 1 and "spotfix" not in fw.state.done, "Undo removes the last step")
         sky = [float(__import__("numpy").median(c[::3, ::3])) for c in st_.rgb]
         check(max(sky) - min(sky) < 0.03 and 0.05 < sum(sky) / 3 < 0.25,
               f"finished sky is neutral and sensibly bright ({[round(x, 3) for x in sky]})")
-        check(len(fw.project.steps) == len(done) + 2,          # start + steps + local contrast (Spot Fix undone)
+        check(len(fw.project.steps) == n_before + 2,           # core + local contrast (Spot Fix undone)
               f"every step saved in the project ({len(fw.project.steps)})")
         fw.stop_here_pixinsight()
         pf = getattr(fw, "last_pi_files", [])

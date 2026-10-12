@@ -46,6 +46,8 @@ class State:
     target: str = ""
     sources: list = field(default_factory=list)     # master file paths
     palette: str | None = None
+    lin_lum: np.ndarray | None = None      # (h, w) unstretched luminance, kept when the image is brightened
+    sat_core: bool = False                 # the brightest area was clipped in the masters themselves
 
     def copy(self) -> "State":
         return replace(self, channels=dict(self.channels), channel_stars=dict(self.channel_stars),
@@ -67,6 +69,8 @@ class State:
             s.rgb = fn(s.rgb)
         if s.stars is not None:
             s.stars = fn(s.stars)
+        if s.lin_lum is not None:
+            s.lin_lum = fn(s.lin_lum[None])[0]
         s.channels = {k: fn(v[None])[0] for k, v in s.channels.items()}
         s.channel_stars = {k: fn(v[None])[0] for k, v in s.channel_stars.items()}
         return s
@@ -307,6 +311,9 @@ class Tool:
 
     def why(self, s: "State") -> str:
         return self.tip
+
+    def is_optional(self, s: "State") -> bool:
+        return self.optional
 
     def preview(self, s: "State", params: dict) -> np.ndarray:
         """What a version looks like (thumbnails and the live fine-tune preview)."""
@@ -709,6 +716,9 @@ class Brighten(Tool):
             y = out.mean(0) if out.shape[0] > 1 else out[0]
             w = (pr * np.clip((y - params["target"]) / max(1e-3, 1 - params["target"]), 0, 1) ** 0.7)[None]
             out = (out * (1 - w) + mild * w).astype(np.float32)
+        lin = _lum(s.rgb)
+        s.lin_lum = lin.astype(np.float32)
+        s.sat_core = _core_saturated(s.rgb)
         s.rgb = out
         s.linear = False
         s.done.append(self.key)
@@ -1151,8 +1161,165 @@ class SpotFix(Tool):
         return s
 
 
+
+# --------------------------------------------------------------------------
+def _box_blur(a: np.ndarray, r: int) -> np.ndarray:
+    """Box blur with radius r (cumulative sums - fast at any size)."""
+    if r < 1:
+        return a
+    p = np.pad(a, ((r + 1, r), (r + 1, r)), mode="edge").astype(np.float64)
+    c = p.cumsum(0).cumsum(1)
+    k = 2 * r + 1
+    out = c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k]
+    return (out / (k * k)).astype(np.float32)
+
+
+def _blur(a: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian-like blur (three box passes)."""
+    r = max(1, int(round(sigma * 0.95)))
+    for _ in range(3):
+        a = _box_blur(a, r)
+    return a
+
+
+def _resize(a: np.ndarray, h: int, w: int) -> np.ndarray:
+    """Bilinear resize of a plane."""
+    ih, iw = a.shape
+    ys = np.clip((np.arange(h) + 0.5) * ih / h - 0.5, 0, ih - 1)
+    xs = np.clip((np.arange(w) + 0.5) * iw / w - 0.5, 0, iw - 1)
+    y0, x0 = np.floor(ys).astype(int), np.floor(xs).astype(int)
+    y1, x1 = np.minimum(y0 + 1, ih - 1), np.minimum(x0 + 1, iw - 1)
+    wy, wx = (ys - y0)[:, None].astype(np.float32), (xs - x0)[None, :].astype(np.float32)
+    top = a[y0][:, x0] * (1 - wx) + a[y0][:, x1] * wx
+    bot = a[y1][:, x0] * (1 - wx) + a[y1][:, x1] * wx
+    return (top * (1 - wy) + bot * wy).astype(np.float32)
+
+
+def _small_plane(a: np.ndarray, side=900):
+    f = max(1, int(np.ceil(max(a.shape) / side)))
+    h, w = a.shape[0] // f * f, a.shape[1] // f * f
+    return a[:h, :w].reshape(h // f, f, w // f, f).mean(axis=(1, 3)), f
+
+
+def _bright_blob(y: np.ndarray, level: float) -> np.ndarray:
+    """Areas brighter than level that are bigger than a star (opening removes stars)."""
+    sm, _f = _small_plane(y, 600)
+    m = (sm > level).astype(np.float32)
+    opened = -_min_filter(-_min_filter(m, 2), 2)          # erode then dilate
+    return opened
+
+
+def _core_saturated(lin_rgb: np.ndarray) -> bool:
+    """Was the brightest extended area clipped in the masters (the camera maxed out)?"""
+    mx = lin_rgb.max(axis=0)
+    blob = _bright_blob(mx, 0.97)
+    return bool(blob.sum() >= 12)
+
+
+def hot_core(s: "State") -> bool:
+    """A white, featureless area bigger than a star after brightening."""
+    if s.rgb is None or s.linear:
+        return False
+    y = _lum(s.rgb)
+    return bool(_bright_blob(y, 0.90).sum() >= 12)
+
+
+class TameCore(Tool):
+    key = "core"
+    title = "Tame Bright Core"
+    tip = ("Brings back detail in a burnt-out galaxy core or bright nebula centre. SubZeroAstro finds the "
+           "bright area itself and makes a soft-edged mask, so the rest of the image is not touched. "
+           "(PixInsight: a luminance mask + HDRMultiscaleTransform)")
+    optional = True
+
+    def applicable(self, s):
+        if s.rgb is None:
+            return False, "Combine the colour channels first"
+        if s.linear:
+            return False, "Brighten the image first"
+        return True, ""
+
+    def is_optional(self, s):
+        return not hot_core(s)            # recommended only when a burnt core is detected
+
+    def why(self, s):
+        if s.sat_core:
+            return ("The core looks burnt out - and it was already saturated in the masters, so its detail "
+                    "can't be recovered; this makes it look smooth and natural instead of a flat white disc.")
+        return "The core looks burnt out (pure white) - bring its detail back without touching the rest."
+
+    def variants(self, s):
+        note = "core saturated in the masters: smooths rather than recovers" if s.sat_core else ""
+        return [Variant(n, {"amount": a, "size": 0.78, "detail": 30.0}, note, i == 1) for i, (n, a) in
+                enumerate((("Gentle", 0.45), ("Medium", 0.7), ("Strong", 0.9), ("Maximum", 1.0)))]
+
+    def sliders(self, s, params):
+        return [Slider("amount", "Strength", 0.0, 1.0, params["amount"], "How much the core is toned down"),
+                Slider("size", "Core size", 0.5, 0.95, params["size"],
+                       "Bigger area (left) <-> only the very brightest part (right)"),
+                Slider("detail", "Detail", 3.0, 150.0, params["detail"],
+                       "More = more structure brought out inside the core", 1.0)]
+
+    def mask(self, s, params) -> np.ndarray:
+        """Soft 0..1 mask of the bright core (full size)."""
+        y = _lum(s.rgb)
+        small, f = _small_plane(y, 700)
+        h, w = small.shape
+        sig = max(2.0, max(h, w) / 140)
+        b = _blur(small, sig)
+        top = float(b.max())                                      # the core's (blurred) brightness
+        sky = float(np.median(b))
+        t1 = sky + (top - sky) * float(params["size"])           # size is relative to this image
+        t0 = sky + (t1 - sky) * 0.72
+        m = np.clip((b - t0) / max(t1 - t0, 1e-3), 0, 1)
+        m = m * m * (3 - 2 * m)                                  # smoothstep
+        m = _blur(m, sig)                                        # feather the edge
+        return np.clip(_resize(m, *y.shape), 0, 1)
+
+    def _target(self, s, params, m):
+        """Core luminance re-made from the linear data (or by compressing the stretched one)."""
+        y = _lum(s.rgb)
+        c = float(params["detail"])
+        inside = m > 0.5
+        edge = (m > 0.25) & (m < 0.75)
+        if not inside.any():
+            return y
+        if s.lin_lum is not None and s.lin_lum.shape == y.shape:
+            n = s.lin_lum
+            n_e = float(np.median(n[edge])) if edge.any() else float(np.percentile(n[inside], 5))
+            n_max = float(np.percentile(n[inside], 99.9))
+            e = float(np.median(y[edge])) if edge.any() else float(np.percentile(y[inside], 5))
+            top = 0.93
+            u = np.clip((n - n_e) / max(n_max - n_e, 1e-9), 0, None)
+            rec = e + (top - e) * np.log1p(c * u) / np.log1p(c)
+            return np.where(n > n_e, np.minimum(rec, 1.0), y).astype(np.float32)
+        # no linear data kept: compress the large-scale brightness, keep the fine detail
+        base = _blur(y, 6)
+        a = 0.6
+        return np.clip(base * (1 - a * base ** 2) + (y - base) * 1.6, 0, 1).astype(np.float32)
+
+    def apply(self, s, params):
+        s = s.copy()
+        m = self.mask(s, params)
+        a = float(params["amount"])
+        target = self._target(s, params, m)
+        w = (a * m).astype(np.float32)
+        s.rgb = _apply_lum(s.rgb, lambda y: y * (1 - w) + target * w)
+        if self.key not in s.done:
+            s.done.append(self.key)
+        return s
+
+    def preview(self, s, params):
+        img = state_display(self.apply(s, params))
+        if params.get("show_mask"):
+            m = self.mask(s, params)[..., None]
+            tint = np.array([255, 70, 40], np.float32)
+            img = (img * (1 - 0.45 * m) + tint * 0.45 * m).astype(np.uint8)
+        return img
+
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
-                            Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(), PutStarsBack(),
+                            TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
+                            PutStarsBack(),
                             SpotFix())}
 
 
@@ -1184,7 +1351,7 @@ def busiest_spot(s: State, size=420):
 # What's next
 # ==========================================================================
 
-_POLISH = ["curves", "saturation", "local"]
+_POLISH = ["core", "curves", "saturation", "local"]
 _STARS = ["star_stretch", "shrink", "stars_back"]
 WORKFLOWS = {
     "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
@@ -1192,7 +1359,7 @@ WORKFLOWS = {
     "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
     "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
     "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix"],
-    "mono": ["stars_out", "stretch", "curves", "local"] + _STARS + ["spotfix"],
+    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["spotfix"],
 }
 
 WHY = {
@@ -1225,7 +1392,7 @@ def workflow(s: State) -> list:
         if not ok:
             out.append((t, "later" if t.possible(s) else "n/a"))
             continue
-        if t.optional:
+        if t.is_optional(s):
             out.append((t, "optional"))
             continue
         out.append((t, "later" if found_next else "next"))
@@ -1283,6 +1450,8 @@ class Project:
             arrays["rgb"] = s.rgb.astype(dt)
         if s.stars is not None:
             arrays["stars"] = s.stars.astype(np.float32 if s.stars_linear else np.float16)
+        if s.lin_lum is not None:
+            arrays["lin_lum"] = s.lin_lum.astype(np.float32)
         for k, v in s.channels.items():
             arrays["ch_" + k] = v
         for k, v in s.channel_stars.items():
@@ -1290,7 +1459,7 @@ class Project:
         np.savez(d / "state.npz", **arrays)
         meta = {"linear": s.linear, "stars_linear": s.stars_linear, "stars_out": s.stars_out, "done": s.done,
                 "skipped": s.skipped, "kind": s.kind, "target": s.target, "sources": s.sources,
-                "palette": s.palette}
+                "palette": s.palette, "sat_core": s.sat_core}
         cp.write_json(d / "meta.json", meta)
         thumb = state_display(s.small(700))
         np.save(d / "preview.npy", thumb, allow_pickle=False)
@@ -1314,7 +1483,9 @@ class Project:
                   linear=meta.get("linear", True), stars_linear=meta.get("stars_linear", True),
                   stars_out=meta.get("stars_out", False), done=meta.get("done", []),
                   skipped=meta.get("skipped", []), kind=meta.get("kind", "osc"), target=meta.get("target", ""),
-                  sources=meta.get("sources", []), palette=meta.get("palette"))
+                  sources=meta.get("sources", []), palette=meta.get("palette"),
+                  lin_lum=z["lin_lum"].astype(np.float32) if "lin_lum" in z else None,
+                  sat_core=bool(meta.get("sat_core", False)))
         return s
 
     def preview(self, n):
@@ -1402,6 +1573,7 @@ PI_EQUIVALENT = {
     "local": "LocalHistogramEqualization",
     "ha_glow": "Continuum subtraction (PixelMath: Ha - k*R) then NBRGBCombination or PixelMath into R",
     "spotfix": "CloneStamp",
+    "core": "HDRMultiscaleTransform through a luminance (range) mask on the core",
     "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
 }
 

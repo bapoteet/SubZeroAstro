@@ -362,6 +362,11 @@ class FinishWindow(QMainWindow):
         self.chk_tool_linked.toggled.connect(lambda _on: self.render_choices())
         mr.addWidget(self.chk_tool_linked)
         tl.addWidget(self.method_row)
+        self.chk_mask = QCheckBox("Show what will change")
+        self.chk_mask.setToolTip("Tints the area this tool works on (the mask SubZeroAstro made for you) in red")
+        self.chk_mask.toggled.connect(lambda _on: self.schedule_preview())
+        self.chk_mask.setVisible(False)
+        tl.addWidget(self.chk_mask)
         self.choices = QWidget()
         self.grid = QGridLayout(self.choices)
         self.group = QButtonGroup(self)
@@ -667,6 +672,10 @@ class FinishWindow(QMainWindow):
         self.tool_box.setVisible(True)
         self.tool_title.setText(f"<h3 style='margin:0'>{self.tool.title}</h3>{self.tool.tip}")
         self.method_row.setVisible(key == "stretch")
+        self.chk_mask.blockSignals(True)
+        self.chk_mask.setChecked(False)
+        self.chk_mask.blockSignals(False)
+        self.chk_mask.setVisible(key == "core")
         self.fine_box.blockSignals(True)
         self.fine_box.setChecked(False)
         self.fine_box.blockSignals(False)
@@ -876,6 +885,8 @@ class FinishWindow(QMainWindow):
             return
         params = self.current_params()
         tuned = self.fine_box.isChecked() and bool(self.fine_values)
+        if t.key == "core" and self.chk_mask.isChecked():
+            params = dict(params, show_mask=True)
 
         def work():
             if t.spatial:

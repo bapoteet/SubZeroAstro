@@ -88,6 +88,7 @@ SubZeroAstro instead of PixInsight - as far as you like:
 | Brighten Stars Separately | Gentle star stretch so stars stay small and colourful |
 | Shrink Stars | Star reduction, 4 strengths |
 | Put Stars Back | Screen blend at the strength you pick |
+| Tame Bright Core | Brings back detail in a burnt-out galaxy core or bright nebula centre: an automatic soft-edged mask (tick *Show what will change* to see it) and the core re-made from the unstretched data. Suggested automatically when a white core is detected; tells you if the core was already saturated in the masters (HDRMultiscaleTransform through a mask) |
 | Adjust Brightness & Contrast (Curves) | Presets (More contrast, Lift faint detail, Darker background, ...), sliders, drag-the-curve; colours kept (CurvesTransformation) |
 | Colour Intensity (Saturation) | Richer or calmer colour; the dark sky is protected from colour noise |
 | Bring Out Hidden Structure ◇ | Local contrast for cores and dust lanes (LocalHistogramEqualization) |
