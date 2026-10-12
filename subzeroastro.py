@@ -947,6 +947,10 @@ class MainWindow(QMainWindow):
         a = QAction("Prepare Masters for PixInsight…", self)
         a.triggered.connect(self.open_prepare)
         m.addAction(a)
+        a = QAction("Finish the Image…", self)
+        a.setToolTip("Colour, brighten, stars, palettes - pick from previews, step by step")
+        a.triggered.connect(self.open_finish)
+        m.addAction(a)
         m = mb.addMenu("&View")
         m.addAction(self.act_fit)
         m.addAction(self.act_100)
@@ -1921,6 +1925,13 @@ class MainWindow(QMainWindow):
         self.prep_win.setAttribute(Qt.WA_DeleteOnClose, True)
         self.prep_win.show()
         self.prep_win.raise_()
+
+    def open_finish(self):
+        import finish_window
+        self.finish_win = finish_window.FinishWindow(self, self.settings)
+        self.finish_win.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.finish_win.show()
+        self.finish_win.raise_()
 
     def start_over(self):
         """Clear the session and open a new folder."""

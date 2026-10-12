@@ -572,6 +572,80 @@ def run(app, out_dir: Path) -> int:
               f"re-run resumed from saved progress ({res[0].get('resumed') if res else None} step kept)")
         expect = 5 if state["fake"] else 2
         check(pw.hist_combo.count() - 1 == expect, "history complete again after the redo")
+        QTimer.singleShot(300, finish_stage)
+
+    def finish_stage():
+        # --- Stage 5: Finish the Image ------------------------------------------
+        import prepare_window as pwm
+        import finish_window as fwm
+        import finish as F
+        import tools as _tools
+        _tools.reveal = lambda *a, **k: True                # don't open Explorer on the test machine
+        pw = state["pw"]
+        files = pwm.prepared_masters(pw.last_results)
+        check(len(files) == 2, f"prepared masters found for Finish ({[f.name for f in files]})")
+        fw = fwm.FinishWindow(pw, pw.settings)
+        fw.synchronous = True
+        fw.resize(1500, 950)
+        fw.show()
+        fw.load_masters(files)
+        st0 = fw.state
+        check(st0 is not None and st0.kind == "mono_nb", f"Finish loads the Ha/OIII masters as narrowband "
+                                                          f"({None if st0 is None else st0.kind})")
+        if state["fake"]:
+            check(st0.stars_out and bool(st0.channel_stars), "stars separated by Prepare are picked up")
+        nxt = F.next_step(fw.state)
+        check(nxt is not None and nxt.key == "combine", f"first recommendation is to combine the filters "
+                                                        f"({nxt.key if nxt else None})")
+        state["fw"] = fw
+        shot("15_finish_start.png", fw)
+        fw.open_tool("combine")
+        check(len(fw.variants) >= 2 and len(fw.group.buttons()) == len(fw.variants),
+              f"palette choices shown as pictures ({[v.label for v in fw.variants]})")
+        QTimer.singleShot(500, finish_steps)
+
+    def finish_steps():
+        fw = state["fw"]
+        import finish as F
+        shot("16_finish_palette_choices.png", fw)
+        done = []
+        for _ in range(12):
+            t = F.next_step(fw.state)
+            if t is None:
+                break
+            fw.open_tool(t.key)
+            if t.key == "stretch":
+                shot("17_finish_brighten_choices.png", fw)
+                check(len(fw.variants) == 5, "Brighten offers 5 strengths to pick from")
+            fw.apply_choice()
+            done.append(t.key)
+        st_ = fw.state
+        check(F.next_step(st_) is None and not st_.linear, f"recommended workflow runs to a finished picture "
+                                                           f"({done})")
+        sky = [float(__import__("numpy").median(c[::3, ::3])) for c in st_.rgb]
+        check(max(sky) - min(sky) < 0.03 and 0.05 < sum(sky) / 3 < 0.25,
+              f"finished sky is neutral and sensibly bright ({[round(x, 3) for x in sky]})")
+        check(len(fw.project.steps) == len(done) + 1, f"every step saved in the project ({len(fw.project.steps)})")
+        fw.stop_here_pixinsight()
+        pf = getattr(fw, "last_pi_files", [])
+        check(len(pf) >= 2 and pf[0].suffix == ".txt" and all(p.exists() for p in pf),
+              f"Stop Here - Continue in PixInsight saves XISF + a note ({[p.name for p in pf]})")
+        # go back two steps, then reopen: the project resumes
+        fw.hist.setCurrentIndex(fw.hist.count() - 3)
+        fw.go_back()
+        check(len(fw.project.steps) == fw.hist.count() and F.next_step(fw.state) is not None,
+              "Go Back to Here undoes the later steps")
+        shot("18_finish_done.png", fw)
+        sources = list(fw.state.sources)
+        n_steps = len(fw.project.steps)
+        fw.close()
+        import finish_window as fwm
+        fw2 = fwm.FinishWindow(state["pw"], state["pw"].settings)
+        fw2.synchronous = True
+        fw2.load_masters(sources)
+        check(fw2.project is not None and len(fw2.project.steps) == n_steps,
+              f"reopening the same masters resumes the project ({n_steps} steps)")
+        fw2.close()
         state["pw"].close()
         state["win"].close()
         finish(0 if not failures else 1)

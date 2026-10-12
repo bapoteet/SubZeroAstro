@@ -355,17 +355,57 @@ class ReadyDialog(QDialog):
         lay.addWidget(view, 1)
         row = QHBoxLayout()
         self.results = results
-        b_folder = QPushButton("Open Output Folder")
-        b_folder.clicked.connect(lambda: _open(results[0]["out_dir"]))
+        b_folder = QPushButton("Stop Here – Continue in PixInsight")
+        b_folder.setToolTip("Open the folder with the prepared masters selected, ready to load into PixInsight")
+        b_folder.clicked.connect(lambda: reveal_prepared(results))
+        b_fin = QPushButton("Finish the Image Here…")
+        b_fin.setToolTip("Carry on in SubZeroAstro: colour, brighten, stars - pick from previews")
+        b_fin.setStyleSheet("QPushButton { background:#4a86e8; color:white; font-weight:bold; padding:5px 12px; "
+                            "border-radius:4px; }")
+        b_fin.clicked.connect(lambda: (self.accept(), open_finish(parent, results)))
         b_report = QPushButton("Open Plan in Browser")
         b_report.clicked.connect(lambda: _open(results[0]["report"]))
         b_close = QPushButton("Close")
         b_close.clicked.connect(self.accept)
         row.addWidget(b_folder)
+        row.addWidget(b_fin)
         row.addWidget(b_report)
         row.addStretch(1)
         row.addWidget(b_close)
         lay.addLayout(row)
+
+
+def prepared_masters(results) -> list:
+    """The prepared master files (one per filter, XISF preferred, stars images left out)."""
+    by = {}
+    for r in results or []:
+        for f in r.get("files", []):
+            f = Path(f)
+            if f.suffix.lower() in (".xisf", ".fits") and f.stem.endswith("_prepared"):
+                if f.stem not in by or f.suffix.lower() == ".xisf":
+                    by[f.stem] = f
+    return list(by.values())
+
+
+def reveal_prepared(results):
+    files = prepared_masters(results)
+    tools.reveal(files or [r["out_dir"] for r in results or []])
+
+
+def open_finish(parent, results):
+    files = prepared_masters(results)
+    if not files:
+        return None
+    import finish_window
+    first_target = results[0].get("target")
+    files = [f for f in files if not first_target or f.name.startswith(first_target)] or files
+    win = finish_window.FinishWindow(parent, parent.settings if hasattr(parent, "settings") else None, files)
+    win.setAttribute(Qt.WA_DeleteOnClose, True)
+    win.show()
+    win.raise_()
+    if parent is not None:
+        parent.finish_win = win
+    return win
 
 
 def _open(path):
@@ -389,6 +429,7 @@ class PrepareWindow(QMainWindow):
         self.rc_products = None
         self.worker = None
         self.cps = None                      # checkpoints of the selected target
+        self.last_results = []
         self._build_ui()
         self.resize(1450, 900)
         self.detect_tools()
@@ -525,6 +566,13 @@ class PrepareWindow(QMainWindow):
         self.solve_radius.setValue(float(s.value("prep/solve_radius", 30.0)))
         self.solve_radius.setSuffix(" °")
         sv.addWidget(self.solve_radius)
+        self.chk_blind = QCheckBox("Search the whole sky")
+        self.chk_blind.setToolTip("Blind solve: ignore the pointing in the header and search the whole sky. "
+                                  "Slower - use it when the normal solve fails (wrong or missing coordinates).")
+        self.chk_blind.setChecked(s.value("prep/blind", False, type=bool))
+        self.chk_blind.toggled.connect(lambda on: self.solve_radius.setEnabled(not on))
+        self.solve_radius.setEnabled(not self.chk_blind.isChecked())
+        sv.addWidget(self.chk_blind)
         sv.addStretch(1)
         sl.addLayout(sv)
         self.chk_grad = QCheckBox("Remove gradients")
@@ -650,6 +698,17 @@ class PrepareWindow(QMainWindow):
         self.btn_start = QPushButton("  Prepare for PixInsight  ")
         self.btn_start.setStyleSheet("QPushButton { font-weight: bold; padding: 6px 18px; }")
         self.btn_start.clicked.connect(self.start)
+        self.btn_pi = QPushButton("Stop Here – Continue in PixInsight")
+        self.btn_pi.setToolTip("Open the folder with the prepared masters (selected) to load them into PixInsight")
+        self.btn_pi.setEnabled(False)
+        self.btn_pi.clicked.connect(lambda: reveal_prepared(self.last_results))
+        self.btn_finish = QPushButton("Finish the Image…")
+        self.btn_finish.setToolTip("Carry on here: colour balance, brighten, stars, palettes - pick from "
+                                   "previews, step by step")
+        self.btn_finish.setEnabled(False)
+        self.btn_finish.clicked.connect(lambda: open_finish(self, self.last_results))
+        brow.addWidget(self.btn_pi)
+        brow.addWidget(self.btn_finish)
         brow.addWidget(self.btn_cancel)
         brow.addWidget(self.btn_start)
         root.addLayout(brow)
@@ -900,6 +959,7 @@ class PrepareWindow(QMainWindow):
             s.setValue(k, w.isChecked())
         s.setValue("prep/out_dir", self.out_edit.text().strip())
         s.setValue("prep/solve_radius", self.solve_radius.value())
+        s.setValue("prep/blind", self.chk_blind.isChecked())
         s.setValue("prep/grad_tool", self.grad_tool.currentIndex())
         s.setValue("prep/gx_smoothing", self.gx_smooth.value())
         s.setValue("prep/gx_correction", self.gx_corr.currentText())
@@ -923,7 +983,8 @@ class PrepareWindow(QMainWindow):
                 xt[key] = {"enabled": True, "values": panel.values(), "mode": panel.mode(), "spec": self.specs[key]}
         return P.PrepareOptions(
             crop=self.chk_crop.isChecked(), crop_rect=self.crops.get(index), solve=self.chk_solve.isChecked(),
-            astap=self.astap_path, solve_radius=self.solve_radius.value(), gradient=self.chk_grad.isChecked(),
+            astap=self.astap_path, solve_radius=180.0 if self.chk_blind.isChecked() else self.solve_radius.value(),
+            gradient=self.chk_grad.isChecked(),
             gradient_tool="graxpert" if self.grad_tool.currentIndex() == 0 and self.gx_path else "builtin",
             graxpert=self.gx_path, gx_smoothing=self.gx_smooth.value(), gx_correction=self.gx_corr.currentText(),
             rcastro=self.rc_path, xt=xt, device=self.device.currentData() or "auto", formats=fmts,
@@ -975,6 +1036,11 @@ class PrepareWindow(QMainWindow):
         self.btn_cancel.setEnabled(False)
         res = self.worker.results if self.worker else []
         self.last_results = res
+        self.btn_pi.setEnabled(bool(res))
+        self.btn_finish.setEnabled(bool(res))
+        if res:
+            self.btn_finish.setStyleSheet("QPushButton { background:#4a86e8; color:white; font-weight:bold; "
+                                          "padding:6px 14px; border-radius:4px; }")
         self.refresh_history(keep_view=True)
         if self.hist_combo.count() > 1:
             self.hist_combo.setCurrentIndex(self.hist_combo.count() - 1)

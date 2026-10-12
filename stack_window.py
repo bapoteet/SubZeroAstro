@@ -395,6 +395,12 @@ class StackWindow(QMainWindow):
         self.btn_prepare.setEnabled(False)
         self.btn_prepare.clicked.connect(self.open_prepare)
         brow.addWidget(self.btn_prepare)
+        self.btn_pi = QPushButton("Stop Here – Continue in PixInsight")
+        self.btn_pi.setToolTip("Open the folder with the new master lights selected, plus a note of the "
+                               "recommended PixInsight steps")
+        self.btn_pi.setEnabled(False)
+        self.btn_pi.clicked.connect(self.stop_here_pixinsight)
+        brow.addWidget(self.btn_pi)
         self.btn_open = QPushButton("Open Master Lights Folder")
         self.btn_open.clicked.connect(lambda: self.open_folder(self.masters_root.text()))
         brow.addWidget(self.btn_open)
@@ -729,6 +735,7 @@ class StackWindow(QMainWindow):
                                 + (f", {len(bad)} failed" if bad else "")
                                 + ("  ·  next: Prepare for PixInsight" if ok else ""))
         self.btn_prepare.setEnabled(bool(ok))
+        self.btn_pi.setEnabled(bool(ok))
         if ok:
             self.btn_prepare.setStyleSheet("QPushButton { background: #4a86e8; color: white; font-weight: bold; "
                                            "padding: 6px 14px; border-radius: 4px; }")
@@ -755,6 +762,23 @@ class StackWindow(QMainWindow):
             if not r.error:
                 files += [f for f in r.files if Path(f).suffix.lower() in (".fits", ".xisf")]
         return files
+
+    def stop_here_pixinsight(self):
+        files = self.master_files()
+        if not files:
+            return
+        import prepare as P
+        try:
+            masters = [P.load_master(f) for f in files]
+            for group in P.target_sets(masters):
+                steps = P.pixinsight_plan(group)
+                note = group[0].path.parent / f"{group[0].target}_continue_in_PixInsight.txt"
+                note.write_text(P.plan_text(group[0].target, steps), encoding="utf-8")
+                self.log(f"Saved PixInsight steps: {note}")
+        except Exception as e:  # noqa: BLE001
+            self.log(f"Could not write the PixInsight note: {e}")
+        import tools
+        tools.reveal(files)
 
     def open_prepare(self):
         import prepare_window
