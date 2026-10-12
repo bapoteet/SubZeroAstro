@@ -159,6 +159,30 @@ def run(app, out_dir: Path) -> int:
         shift_ok = abs(T[0, 2] + 13.4) < 0.6 and abs(T[1, 2] - 7.2) < 0.6
     except ValueError as e:
         T, inl, shift_ok = None, 0, False
+    # alt-az field rotation: frames turning through 60 degrees (a long alt-az session)
+    rot_dir = sm / "altaz"
+    rot_dir.mkdir()
+    rr = _np.random.default_rng(11)
+    sx, sy, sa = rr.uniform(-170, 170, 140), rr.uniform(-170, 170, 140), rr.uniform(300, 3000, 140)
+    yy, xx = _np.mgrid[0:400, 0:400]
+    for k, ang in enumerate(_np.radians([0, 12, 24, 36, 48, 60])):
+        img = _np.random.default_rng(20 + k).normal(1000, 15, (400, 400)).astype(_np.float32)
+        ca, sa_ = _np.cos(ang), _np.sin(ang)
+        for x, y, a in zip(sx, sy, sa):
+            px, py = 200 + ca * x - sa_ * y, 200 + sa_ * x + ca * y
+            img += a * _np.exp(-((xx - px) ** 2 + (yy - py) ** 2) / (2 * 1.5 ** 2))
+        core.write_fits(rot_dir / f"rot_{k}.fits", _np.clip(img, 0, 65535).astype(_np.uint16),
+                        [("IMAGETYP", "Light", ""), ("OBJECT", "AltAz test", ""), ("EXPTIME", 10.0, ""),
+                         ("INSTRUME", "Test Cam", ""), ("DATE-OBS", f"2026-01-01T02:{k:02d}:00", "")], bitpix=16)
+    rg = _st.group_lights([_st.LightFrame(_st.read_info(f)) for f in sorted(rot_dir.glob("*.fits"))], _st.Rigs())[0]
+    rg.plan = _st.CalPlan()
+    try:
+        rres = _st.stack_group(rg, _st.StackOptions(masters_root=str(sm / "m"), formats=("fits",)))
+        rot_ok = rres.used == 6 and not rres.skipped and rres.autocrop is not None
+        detail = f"{rres.used}/6 frames, auto-crop {rres.autocrop}"
+    except Exception as e:  # noqa: BLE001
+        rot_ok, detail = False, str(e)
+    check(rot_ok, f"alt-az field rotation through 60 degrees stacks and auto-crops ({detail})")
     check(shift_ok, f"robust star finder aligns faint subs with hot pixels ({inl} stars, "
                     f"shift {None if T is None else (round(float(T[0, 2]), 2), round(float(T[1, 2]), 2))})")
 

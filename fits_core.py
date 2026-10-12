@@ -247,7 +247,8 @@ def write_fits(path, data: np.ndarray, header=None, bitpix: int = -32):
     """
     data = np.asarray(data)
     if bitpix == 16:
-        arr = np.clip(np.round(data - 32768), -32768, 32767).astype(">i2")
+        # work in float: uint16 input would wrap around in "data - 32768"
+        arr = np.clip(np.round(np.asarray(data, np.float64) - 32768), -32768, 32767).astype(">i2")
         extra = [("BZERO", 32768, "offset for unsigned 16-bit data"), ("BSCALE", 1, "")]
     elif bitpix == -32:
         arr = data.astype(">f4")
