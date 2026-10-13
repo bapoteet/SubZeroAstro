@@ -558,8 +558,9 @@ def run(app, out_dir: Path) -> int:
                   "quick-look JPG and 16-bit TIFF saved")
             check(any(n.endswith("PixInsight_next_steps.html") for n in names), "PixInsight plan saved")
             check(not any(n.endswith(".png") for n in names), "unticked PNG format not saved")
-            check(all(Path(f).parent == state["prep_out"] for f in res[0]["files"]),
-                  f"final images saved to the chosen folder ({state['prep_out'].name})")
+            check(all(Path(f).parent == state["prep_out"] / "M33" for f in res[0]["files"]),
+                  f"final images saved to the chosen folder, in a per-target subfolder "
+                  f"({state['prep_out'].name}\\M33)")
             prepared = next(Path(f) for f in res[0]["files"] if str(f).endswith("_prepared.fits"))
             _d, _c, lk = core.read_fits(prepared)
             if state["fake"]:
