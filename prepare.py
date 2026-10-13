@@ -327,6 +327,10 @@ def palettes_for(masters: list) -> list:
     out = []
     if color:
         out.append("RGB (colour camera)")
+        import finish
+        if any(finish.dual_band_filter(m.filter, m.look) for m in color):
+            line = core.band_lines(color[0].filter)[0]
+            out = [f"{'SOO' if line == 'SII' else 'HOO'} (dual-band)", "Gold & blue (dual-band)"] + out
     if {"R", "G", "B"} <= f:
         out += ["LRGB"] if "L" in f else []
         out += ["RGB"]
@@ -345,7 +349,13 @@ def quick_look(masters: list, palette: str) -> np.ndarray:
     def ch(f):
         return stretch(by[f].data[0])
 
-    if palette.startswith("RGB (colour"):
+    if palette.endswith("(dual-band)"):
+        import finish
+        m = next(m for m in masters if m.is_color)
+        ha, o3 = finish.split_dual_band(m.data)
+        h, o = stretch(ha), stretch(o3)
+        rgb = np.stack([h, 0.85 * h + 0.15 * o, o] if palette.startswith("Gold") else [h, o, o], -1)
+    elif palette.startswith("RGB (colour"):
         m = next(m for m in masters if m.is_color)
         rgb = np.stack([stretch(m.data[i]) for i in range(3)], -1)
     elif palette == "RGB":

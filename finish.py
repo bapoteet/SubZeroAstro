@@ -46,6 +46,7 @@ class State:
     target: str = ""
     sources: list = field(default_factory=list)     # master file paths
     palette: str | None = None
+    filter: str | None = None              # filter of the masters (as set by the user if overridden)
     lin_lum: np.ndarray | None = None      # (h, w) unstretched luminance, kept when the image is brightened
     sat_core: bool = False                 # the brightest area was clipped in the masters themselves
 
@@ -97,7 +98,8 @@ class State:
         return self._map(lambda a: np.ascontiguousarray(a[:, y0:y0 + size, x0:x0 + size]))
 
 
-KIND_LABEL = {"osc": "colour camera", "smart": "smart telescope", "mono_rgb": "mono RGB",
+KIND_LABEL = {"osc": "colour camera", "smart": "smart telescope", "osc_dual": "colour camera + dual-band filter",
+              "osc_sho": "colour camera, two dual-band filters (Ha+OIII and SII+OIII)", "mono_rgb": "mono RGB",
               "mono_lrgb": "mono LRGB", "mono_nb": "mono narrowband", "mono": "mono (one filter)"}
 
 
@@ -111,6 +113,16 @@ def _stars_sibling(path: Path):
         if p.exists():
             return p
     return None
+
+
+def dual_band_filter(filter_name, look=None) -> bool:
+    """A filter that passes only Ha and OIII (and maybe Hb) on a colour camera:
+    L-Ultimate, L-eXtreme, L-eNhance, ALP-T, NBZ ... and the Seestar's "LP" filter."""
+    import fits_core as core
+    if core.is_dual_band(filter_name):
+        return True
+    smart = core.smart_scope(look or {}) or ""
+    return smart.startswith("Seestar") and str(filter_name or "").strip().upper() == "LP"
 
 
 def load_state(paths) -> State:
@@ -130,10 +142,36 @@ def load_state(paths) -> State:
         except Exception:  # noqa: BLE001
             return None
 
+    duals = [m for m in color if dual_band_filter(m.filter, m.look)]
+    if len(duals) >= 2 and len({__import__("fits_core").band_lines(m.filter)[0] for m in duals}) >= 2:
+        # e.g. L-Ultimate (Ha+OIII) + L-Synergy (SII+OIII): a full SHO set from a colour camera
+        import fits_core as core
+        o3s, o3_stars = [], []
+        for m in duals:
+            rgb = np.clip(m.data / 65535.0, 0, None).astype(np.float32)
+            line, o3 = split_dual_band(rgb)
+            name = core.band_lines(m.filter)[0]
+            s.channels[name] = line
+            o3s.append(o3)
+            st_img = stars_of(m)
+            if st_img is not None and st_img.shape == rgb.shape:
+                s.channel_stars[name] = st_img[0]
+                o3_stars.append((st_img[1] + st_img[2]) / 2)
+        s.channels["OIII"] = np.mean(o3s, axis=0).astype(np.float32)        # OIII from both filters
+        if len(o3_stars) == len(duals):
+            s.channel_stars["OIII"] = np.mean(o3_stars, axis=0).astype(np.float32)
+        else:
+            s.channel_stars = {}
+        s.kind = "osc_sho"
+        s.filter = " + ".join(m.filter for m in duals)
+        return s
     if color:
         m = color[0]
         s.rgb = np.clip(m.data / 65535.0, 0, None).astype(np.float32)
         s.kind = "smart" if smart else "osc"
+        s.filter = m.filter
+        if dual_band_filter(m.filter, m.look):
+            s.kind = "osc_dual"
         st_img = stars_of(m)
         if st_img is not None and st_img.shape == s.rgb.shape:
             s.stars, s.stars_out = st_img, True
@@ -321,6 +359,61 @@ class Tool:
 
 
 # --------------------------------------------------------------------------
+def nebula_top(x: np.ndarray) -> float:
+    """Brightness of the brightest nebula / galaxy (not stars): stars are eroded away first."""
+    sm = x[::2, ::2]
+    er = _min_filter(sm, 2)
+    return float(np.percentile(er[::2, ::2], 99.8))
+
+
+def channel_stats(x: np.ndarray):
+    med, mad = _stats(x)
+    return med, mad, max(nebula_top(x), med + 8 * mad)
+
+
+PALETTE_INFO = {
+    "HOO": ("HOO", "Ha red, OIII teal - the natural bicolour look"),
+    "HOO+": ("HOO (vivid)", "Bicolour with a synthetic green for warmer tones"),
+    "HHO": ("Gold & blue", "Hubble-like gold and blue from two filters (green is turned gold by Remove Green Cast)"),
+    "FORAXX": ("Foraxx (dynamic)", "Colours shift with brightness: gold where Ha dominates, blue where OIII does - "
+                                   "a popular modern palette"),
+    "SHO": ("Hubble (SHO)", "SII red, Ha green, OIII blue - the classic Hubble look (green is tamed later)"),
+    "HSO": ("HSO", "Ha red, SII green, OIII blue"),
+    "HOO+S": ("HOO + SII", "Natural-looking reds and teals"),
+}
+
+
+def build_palette(pal: str, n: dict) -> np.ndarray:
+    """Colour image (3, h, w) from normalised narrowband channels {'Ha', 'OIII', 'SII'?}."""
+    h, o = n["Ha"], n["OIII"]
+    sii = n.get("SII", h)
+    if pal == "SHO":
+        return np.stack([sii, h, o])
+    if pal == "HSO":
+        return np.stack([h, sii, o])
+    if pal == "HOO+S":
+        return np.stack([0.7 * h + 0.3 * sii, o, o])
+    if pal == "HOO+":
+        return np.stack([h, 0.5 * h + 0.5 * o, o])
+    if pal == "HHO":
+        return np.stack([h, 0.85 * h + 0.15 * o, o])
+    if pal == "FORAXX":                                   # Foraxx dynamic palette (S = Ha when there's no SII)
+        oc, oh = np.clip(o, 0, 1), np.clip(o * h, 0, 1)
+        t = oc ** (1 - oc)
+        u = oh ** (1 - oh)
+        return np.stack([t * sii + (1 - t) * h, u * h + (1 - u) * o, o])
+    return np.stack([h, o, o])                           # HOO
+
+
+def split_dual_band(rgb: np.ndarray):
+    """Ha and OIII from a colour camera behind a dual-band filter: Ha is recorded by the
+    red pixels, OIII by the green and blue ones. Backgrounds removed."""
+    r, g, b = rgb
+    ha = r - _stats(r)[0]
+    o3 = (g - _stats(g)[0] + b - _stats(b)[0]) / 2
+    return ha.astype(np.float32), o3.astype(np.float32)
+
+
 class CombineChannels(Tool):
     key = "combine"
     title = "Combine Colour Channels"
@@ -342,20 +435,16 @@ class CombineChannels(Tool):
                 out.append(Variant("LRGB", {"palette": "LRGB"}, "Colour from RGB, detail from L", True))
             out.append(Variant("RGB", {"palette": "RGB"}, "True colour", "L" not in f))
         if {"Ha", "OIII", "SII"} <= f:
-            out += [Variant("Hubble (SHO)", {"palette": "SHO"}, "SII red, Ha green, OIII blue - the classic "
-                            "Hubble look (green is tamed later)", True),
-                    Variant("HSO", {"palette": "HSO"}, "Ha red, SII green, OIII blue"),
-                    Variant("HOO + SII", {"palette": "HOO+S"}, "Natural-looking reds and teals")]
-        if {"Ha", "OIII"} <= f:
-            out += [Variant("HOO", {"palette": "HOO"}, "Ha red, OIII teal - natural bicolour",
-                            not ({"SII"} <= f)),
-                    Variant("HOO (vivid)", {"palette": "HOO+"}, "Bicolour with a synthetic green for "
-                            "warmer tones")]
+            out += [Variant(*PALETTE_INFO[k][:1], {"palette": k}, PALETTE_INFO[k][1], k == "SHO")
+                    for k in ("SHO", "FORAXX", "HSO", "HOO+S")]
+        elif {"Ha", "OIII"} <= f:
+            out += [Variant(PALETTE_INFO[k][0], {"palette": k}, PALETTE_INFO[k][1], k == "HOO")
+                    for k in ("HOO", "HOO+", "HHO", "FORAXX")]
         if {"Ha"} <= f and {"R", "G", "B"} <= f:
             out.append(Variant("RGB + Ha glow", {"palette": "RGB+Ha"}, "True colour with the hydrogen glow "
                                "added to red"))
         # pre-measure each channel so thumbnails match the full result
-        stats = {k: _stats(v) + (float(np.percentile(v[::3, ::3], 99.99)),) for k, v in s.channels.items()}
+        stats = {k: channel_stats(v) for k, v in s.channels.items()}
         for v in out:
             v.params["stats"] = stats
         return out
@@ -376,16 +465,17 @@ class CombineChannels(Tool):
         """Each filter scaled so its sky sits at 0.01 and its brightest real signal near 0.9
         (a 'balanced' mix: weak filters like SII are lifted to match)."""
         med, mad, hi = st_
-        return np.clip((x - med) / max(hi - med, 1e-6) * 0.89 + 0.01, 0, 1)
+        k = 0.5 / max(hi - med, 1e-6)                    # nebula at ~0.5, stars above
+        ped = 0.01 + 5.0 * mad * k                       # sky sits clear of zero, so its noise isn't clipped
+        return np.clip((x - med) * k + ped, 0, None)
 
     def apply(self, s, params):
         s = s.copy()
         pal = params["palette"]
-        stats = params.get("stats") or {k: _stats(v) + (float(np.percentile(v[::3, ::3], 99.99)),)
-                                         for k, v in s.channels.items()}
+        stats = params.get("stats") or {k: channel_stats(v) for k, v in s.channels.items()}
 
-        def build(ch):
-            n = {k: self._norm(v, stats[k]) for k, v in ch.items()}
+        def build(ch, raw=False):
+            n = ch if raw else {k: self._norm(v, stats[k]) for k, v in ch.items()}
             if pal in ("RGB", "LRGB", "RGB+Ha"):
                 r, g, b = n["R"], n["G"], n["B"]
                 if pal == "RGB+Ha" and "Ha" in n:
@@ -395,28 +485,90 @@ class CombineChannels(Tool):
                     y = img.mean(0) + 1e-6
                     img = img * (np.clip(n["L"], 0, None) / np.clip(y, 1e-6, None))[None]
                 return img
-            h, o = n["Ha"], n["OIII"]
-            sii = n.get("SII", h)
-            if pal == "SHO":
-                return np.stack([sii, h, o])
-            if pal == "HSO":
-                return np.stack([h, sii, o])
-            if pal == "HOO+S":
-                return np.stack([0.7 * h + 0.3 * sii, o, o])
-            if pal == "HOO+":
-                return np.stack([h, 0.5 * h + 0.5 * o, o])
-            return np.stack([h, o, o])                       # HOO
+            return build_palette(pal, n)
 
         mix = np.asarray(params.get("mix", (1.0, 1.0, 1.0)), np.float32)[:, None, None]
         s.rgb = np.clip(build(s.channels) * mix, 0, None).astype(np.float32)
         if s.channel_stars and set(s.channel_stars) >= set(s.channels):
-            s.stars = np.clip((build(s.channel_stars) - 0.01) * mix, 0, None).astype(np.float32)
+            s.stars = np.clip(build({k: v * 0.5 / max(stats[k][2] - stats[k][0], 1e-6)
+                                     for k, v in s.channel_stars.items()}, raw=True) * mix, 0, None).astype(np.float32)
             s.stars_out = True
             s.stars_linear = True
             if "stars_out" not in s.done:
                 s.done.append("stars_out")
         s.channels, s.channel_stars = {}, {}
         s.palette = pal
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
+class DualBandPalette(Tool):
+    key = "palette"
+    title = "Choose a Colour Palette"
+    tip = ("Your dual-band filter records hydrogen (Ha) in the red pixels and oxygen (OIII) in the green and "
+           "blue ones. SubZeroAstro separates the two and lets you colour them - pick the look you like.")
+
+    def applicable(self, s):
+        if s.kind != "osc_dual":
+            return False, "For colour cameras with a dual-band filter (L-Ultimate, L-eXtreme, ALP-T, ...)"
+        if not s.linear or s.rgb is None or s.rgb.shape[0] != 3:
+            return False, "Choose the palette before brightening"
+        return True, ""
+
+    def possible(self, s):
+        return s.kind == "osc_dual"
+
+    def why(self, s):
+        import fits_core as core
+        line = core.band_lines(s.filter)[0]
+        what = "sulphur (SII, red)" if line == "SII" else "hydrogen (Ha, red)"
+        return (f"Your {s.filter or 'dual-band'} filter passes {what} and oxygen (OIII, teal) light. Separate "
+                "them and pick how to colour them - from natural to Hubble-like gold and blue.")
+
+    def variants(self, s):
+        ha, o3 = split_dual_band(s.rgb)
+        stats = {"Ha": channel_stats(ha), "OIII": channel_stats(o3)}
+        out = [Variant("As captured", {"palette": "NATURAL"}, "The colours the camera recorded, sky neutralised")]
+        out += [Variant(PALETTE_INFO[k][0], {"palette": k, "stats": stats}, PALETTE_INFO[k][1], k == "HOO")
+                for k in ("HOO", "HOO+", "HHO", "FORAXX")]
+        import fits_core as core
+        if core.band_lines(s.filter)[0] == "SII":           # L-Synergy: SII in the red pixels
+            for v in out[1:]:
+                v.label = v.label.replace("HOO", "SOO")
+                v.note = v.note.replace("Ha red", "SII red").replace("where Ha", "where SII")
+        return out
+
+    def sliders(self, s, params):
+        return CombineChannels.sliders(self, s, params)
+
+    def tuned(self, s, params, values):
+        return CombineChannels.tuned(self, s, params, values)
+
+    def _build(self, img, params, stats=None):
+        mix = np.asarray(params.get("mix", (1.0, 1.0, 1.0)), np.float32)[:, None, None]
+        if params["palette"] == "NATURAL":
+            bgs = [_stats(c)[0] for c in img]
+            ref = float(np.mean(bgs))
+            return np.clip(np.stack([c - b + ref for c, b in zip(img, bgs)]) * mix, 0, None).astype(np.float32)
+        ha, o3 = split_dual_band(img)
+        st_ = stats or params["stats"]
+        n = {"Ha": CombineChannels._norm(ha, st_["Ha"]), "OIII": CombineChannels._norm(o3, st_["OIII"])}
+        return np.clip(build_palette(params["palette"], n) * mix, 0, None).astype(np.float32)
+
+    def apply(self, s, params):
+        s = s.copy()
+        stats = params.get("stats")
+        s.rgb = self._build(s.rgb, params)
+        if s.stars is not None and s.stars.shape[0] == 3 and s.stars_linear:
+            if params["palette"] == "NATURAL":
+                s.stars = s.stars
+            else:
+                ha, o3 = s.stars[0], (s.stars[1] + s.stars[2]) / 2
+                n = {"Ha": np.clip(ha * 0.5 / max(stats["Ha"][2] - stats["Ha"][0], 1e-6), 0, None),
+                     "OIII": np.clip(o3 * 0.5 / max(stats["OIII"][2] - stats["OIII"][0], 1e-6), 0, None)}
+                s.stars = np.clip(build_palette(params["palette"], n), 0, None).astype(np.float32)
+        s.palette = params["palette"]
         s.done.append(self.key)
         return s
 
@@ -527,7 +679,8 @@ class RemoveGreen(Tool):
     def variants(self, s):
         g = s.rgb[1] - np.maximum(s.rgb[0], s.rgb[2])
         excess = float(np.mean(g[::3, ::3] > 0))
-        best = 1.0 if s.kind == "mono_nb" else (0.75 if excess > 0.5 else 0.5)
+        best = 1.0 if s.kind in ("mono_nb", "osc_dual", "osc_sho") and s.palette not in ("NATURAL", None) \
+            else (0.75 if excess > 0.5 else 0.5)
         return [Variant(f"{int(a * 100)}%", {"amount": a}, "", a == best) for a in (0.25, 0.5, 0.75, 1.0)]
 
     def sliders(self, s, params):
@@ -543,8 +696,8 @@ class RemoveGreen(Tool):
         return s
 
     def why(self, s):
-        if s.kind == "mono_nb":
-            return "The Hubble palette is very green straight out of combination - this gives the classic gold and blue."
+        if s.kind in ("mono_nb", "osc_dual", "osc_sho") and s.palette not in ("NATURAL", None):
+            return "Narrowband palettes are very green straight out of combination - this gives the classic gold and blue."
         return "Colour cameras usually leave a slight green tint after colour balancing."
 
 
@@ -1317,7 +1470,7 @@ class TameCore(Tool):
             img = (img * (1 - 0.45 * m) + tint * 0.45 * m).astype(np.uint8)
         return img
 
-TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
+TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
                             TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
                             PutStarsBack(),
                             SpotFix())}
@@ -1355,6 +1508,8 @@ _POLISH = ["core", "curves", "saturation", "local"]
 _STARS = ["star_stretch", "shrink", "stars_back"]
 WORKFLOWS = {
     "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
+    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix"],
+    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix"],
     "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
     "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
     "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
@@ -1459,7 +1614,7 @@ class Project:
         np.savez(d / "state.npz", **arrays)
         meta = {"linear": s.linear, "stars_linear": s.stars_linear, "stars_out": s.stars_out, "done": s.done,
                 "skipped": s.skipped, "kind": s.kind, "target": s.target, "sources": s.sources,
-                "palette": s.palette, "sat_core": s.sat_core}
+                "palette": s.palette, "sat_core": s.sat_core, "filter": s.filter}
         cp.write_json(d / "meta.json", meta)
         thumb = state_display(s.small(700))
         np.save(d / "preview.npy", thumb, allow_pickle=False)
@@ -1485,7 +1640,7 @@ class Project:
                   skipped=meta.get("skipped", []), kind=meta.get("kind", "osc"), target=meta.get("target", ""),
                   sources=meta.get("sources", []), palette=meta.get("palette"),
                   lin_lum=z["lin_lum"].astype(np.float32) if "lin_lum" in z else None,
-                  sat_core=bool(meta.get("sat_core", False)))
+                  sat_core=bool(meta.get("sat_core", False)), filter=meta.get("filter"))
         return s
 
     def preview(self, n):
@@ -1561,6 +1716,7 @@ def export(s: State, base: Path, formats=("tif", "jpg"), save_rgb8=None) -> list
 
 PI_EQUIVALENT = {
     "combine": "ChannelCombination (RGB / SHO / HOO) or LRGBCombination - or PixelMath for custom palettes",
+    "palette": "Split channels (Ha = R, OIII = (G+B)/2), then PixelMath / ChannelCombination for HOO, Foraxx ...",
     "balance": "SpectrophotometricColorCalibration (SPCC) - plate solve first (ImageSolver); "
                "BackgroundNeutralization if no SPCC",
     "scnr": "SCNR (Average Neutral, green)",

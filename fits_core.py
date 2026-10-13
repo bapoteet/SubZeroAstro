@@ -435,16 +435,23 @@ _FILTER_MAP = {
     "LEXTREME": "L-eXtreme", "LEXT": "L-eXtreme", "OPTOLONGLEXTREME": "L-eXtreme",
     "LENHANCE": "L-eNhance", "LENH": "L-eNhance", "OPTOLONGLENHANCE": "L-eNhance",
     "LPRO": "L-Pro", "OPTOLONGLPRO": "L-Pro",
+    "LSYNERGY": "L-Synergy", "LSYN": "L-Synergy", "OPTOLONGLSYNERGY": "L-Synergy",
     "ALPT": "ALP-T", "ANTLIAALPT": "ALP-T",
     "NBZ": "NBZ", "IDASNBZ": "NBZ", "NBX": "NBX",
     "DUALBAND": "Dual-band", "DUOBAND": "Duo-band",
 }
 
-DUAL_BAND = {"L-Ultimate", "L-eXtreme", "L-eNhance", "ALP-T", "NBZ", "NBX", "Dual-band", "Duo-band"}
+DUAL_BAND = {"L-Ultimate", "L-eXtreme", "L-eNhance", "ALP-T", "NBZ", "NBX", "Dual-band", "Duo-band", "L-Synergy"}
+SII_OIII_BAND = {"L-Synergy"}            # passes SII + OIII (the others pass Ha + OIII)
 
 
 def is_dual_band(filter_name) -> bool:
     return normalize_filter(filter_name) in DUAL_BAND
+
+
+def band_lines(filter_name):
+    """The two emission lines a dual-band filter passes: (red-pixel line, 'OIII')."""
+    return ("SII", "OIII") if normalize_filter(filter_name) in SII_OIII_BAND else ("Ha", "OIII")
 
 
 def normalize_filter(raw) -> str:

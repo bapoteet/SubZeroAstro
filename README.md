@@ -80,6 +80,7 @@ SubZeroAstro instead of PixInsight - as far as you like:
 
 | Step | What it does (PixInsight equivalent) |
 |---|---|
+| Choose a Colour Palette | For colour cameras behind a **dual-band filter** (L-Ultimate, L-eXtreme, L-eNhance, ALP-T, NBZ, Seestar LP: Ha + OIII; **L-Synergy**: SII + OIII) - the two lines are separated and offered as As captured, HOO / SOO, HOO vivid, Gold & blue and Foraxx. An **L-Ultimate + L-Synergy** pair of the same target becomes a full SHO set (Hubble, Foraxx, HSO, HOO + SII) |
 | Combine Colour Channels | Builds colour from your filters: RGB, LRGB, Hubble SHO, HSO, HOO, HOO vivid, RGB + Ha glow (ChannelCombination / LRGBCombination / PixelMath) |
 | Balance Colours | Neutral grey sky and white average star, warmer / cooler options (BackgroundNeutralization + colour calibration; SPCC stays in PixInsight) |
 | Remove Green Cast | Removes the green tint, or turns the Hubble palette gold and blue (SCNR) |
