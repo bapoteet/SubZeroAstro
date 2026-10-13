@@ -158,10 +158,18 @@ def make_star_runner(settings):
                         bitpix=-32)
         written = rc.run("sxt", src, work / "out.fits", args, device=device)
         like = img * 65535.0
-        main = next((w for w in written if "_stars" not in Path(w).stem), str(work / "out.fits"))
+        main = next((w for w in written if "star" not in Path(w).stem.lower()), str(work / "out.fits"))
         starless = P._read_result(main, like) / 65535.0
-        st_f = [w for w in written if "_stars" in Path(w).stem]
-        stars = (P._read_result(st_f[0], like) / 65535.0) if st_f else np.clip(img - starless, 0, None)
+        st_f = [w for w in written if "star" in Path(w).stem.lower()]
+        stars = (P._read_result(st_f[0], like) / 65535.0) if st_f else None
+        # rc-astro may hand the picture back upside down: compare with what was sent and turn it back
+        how = P.orientation_of(starless if stars is None else starless + stars, img)
+        if how != "same":
+            starless, stars = P.turn_back(how, starless, stars)
+        if stars is None:
+            stars = np.clip(img - starless, 0, None)
+        import shutil
+        shutil.rmtree(work, ignore_errors=True)
         return np.clip(starless, 0, None), np.clip(stars, 0, None)
     return run
 
@@ -626,6 +634,9 @@ class FinishWindow(QMainWindow):
         self.project.save(s, "load", "Masters loaded")
         self.log(f"Loaded {s.target} — {F.KIND_LABEL.get(s.kind, s.kind)}"
                  + (", stars already separated by Prepare" if s.stars_out else ""))
+        if getattr(s, "stars_missing", False):
+            self.log("This master is already starless, but its stars-only file (…_stars.xisf) was not found "
+                     "next to it — the picture will be finished without stars. Re-run Prepare to get both.")
         self.after_change()
 
     def open_project_dialog(self):

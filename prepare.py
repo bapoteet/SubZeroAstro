@@ -199,6 +199,47 @@ def _write_temp(m: Master, path: Path, data=None, mono=False):
     core.write_fits(path, arr, hdr, bitpix=-32)
 
 
+# Outside tools do not all agree on which way up a FITS file is (the ROWORDER keyword):
+# rc-astro was seen to hand images back upside down. Every result is compared with what was
+# sent and turned back if needed, so the picture never flips between steps.
+_TURNS = {"same": lambda a: a,
+          "upside down": lambda a: a[..., ::-1, :],
+          "mirrored left-right": lambda a: a[..., :, ::-1],
+          "rotated 180°": lambda a: a[..., ::-1, ::-1]}
+
+
+def _signature(a, side=160):
+    a = np.asarray(a, np.float32)
+    lum = a.mean(axis=0) if a.ndim == 3 else a
+    h, w = lum.shape
+    f = max(1, max(h, w) // side)
+    hh, ww = h // f * f, w // f * f
+    small = lum[:hh, :ww].reshape(hh // f, f, ww // f, f).mean(axis=(1, 3))
+    small = np.arcsinh((small - np.median(small)) / (np.std(small) + 1e-12))
+    small -= small.mean()
+    sd = float(small.std())
+    return small / sd if sd > 0 else small
+
+
+def orientation_of(result, ref) -> str:
+    """How a tool turned the picture around compared with what it was given ('same' if not)."""
+    result, ref = np.asarray(result), np.asarray(ref)
+    if result.shape[-2:] != ref.shape[-2:]:
+        return "same"
+    r = _signature(ref)
+    score = {name: float((_signature(fn(result)) * r).mean()) for name, fn in _TURNS.items()}
+    best = max(score, key=score.get)
+    if best != "same" and score[best] > 0.3 and score[best] > score["same"] + 0.1:
+        return best
+    return "same"
+
+
+def turn_back(how, *arrays):
+    """Undo orientation_of's result (every turn in _TURNS is its own inverse)."""
+    fn = _TURNS.get(how, _TURNS["same"])
+    return [None if a is None else np.ascontiguousarray(fn(a)) for a in arrays]
+
+
 def _read_result(path, like: np.ndarray) -> np.ndarray:
     d = st.ImageSource(path)
     arr = d.read() if d.scale != 1.0 else d.read()
@@ -805,7 +846,12 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                         res = tools.GraXpert(opts.graxpert).background_extraction(
                             tmp, work / f"bge_{i}_out", smoothing=opts.gx_smoothing, correction=opts.gx_correction,
                             cancel=can)
-                        m.data = _read_result(res, m.data)
+                        out = _read_result(res, m.data)
+                        how = orientation_of(out, m.data)
+                        if how != "same":
+                            out, = turn_back(how, out)
+                            lg(f"    GraXpert returned the picture {how} — turned it back")
+                        m.data = out
                         m.steps.append(("gradient", f"Gradients removed with GraXpert "
                                                     f"({opts.gx_correction.lower()}, smoothing {opts.gx_smoothing:g})"))
                     except tools.ToolCancelled:
@@ -833,11 +879,23 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                                      log=lg, cancel=can)
                 except tools.ToolCancelled:
                     raise Cancelled()
-                main = next((w for w in written if "_stars" not in Path(w).stem), str(tmp_out))
-                m.data = _read_result(main, m.data)
-                extra_out = [w for w in written if "_stars" in Path(w).stem]
-                if extra_out:
-                    stars_images[i] = _read_result(extra_out[0], m.data)
+                main = next((w for w in written if "star" not in Path(w).stem.lower()), str(tmp_out))
+                out = _read_result(main, m.data)
+                extra_out = [w for w in written if "star" in Path(w).stem.lower()]
+                stars_out = _read_result(extra_out[0], m.data) if extra_out else None
+                if key == "sxt" and stars_out is None:
+                    lg(f"    {spec.name} did not hand back a stars-only image — making it from the "
+                       "difference")
+                # starless + stars should add up to what was sent: the best check of which way up it is
+                how = orientation_of(out if stars_out is None else out + stars_out, m.data)
+                if how != "same":
+                    out, stars_out = turn_back(how, out, stars_out)
+                    lg(f"    {spec.name} returned the picture {how} — turned it back")
+                if key == "sxt" and stars_out is None:
+                    stars_out = np.clip(m.data - out, 0, None).astype(np.float32)
+                m.data = out
+                if stars_out is not None:
+                    stars_images[i] = stars_out
                 desc = " ".join(args) or "default settings"
                 m.steps.append((key, f"{spec.name} ({desc})"))
                 lg(f"{spec.name} done: {m.name}  [{desc}]")
@@ -857,6 +915,8 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
         hdr = [(k, v, c) for k, v, c in m.cards if k not in ("HISTORY",)]
         hdr += [("HISTORY", f"SubZeroAstro prepare: {t}", "") for _k, t in m.steps]
         hdr.append(("PREPARED", True, "prepared for PixInsight by SubZeroAstro"))
+        if i in stars_images:
+            hdr.append(("STARLESS", True, "stars removed (StarXTerminator); stars in *_stars file"))
         base = out_dir / f"{m.name}_prepared"
         data = m.data[0] if m.data.shape[0] == 1 else m.data
         if not opts.formats:

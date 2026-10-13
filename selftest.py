@@ -12,6 +12,7 @@ Exit code 0 = all checks passed. Used by the automatic GitHub build.
 
 from __future__ import annotations
 
+import re
 import sys
 import tempfile
 import time
@@ -572,6 +573,24 @@ def run(app, out_dir: Path) -> int:
             if state["fake"]:
                 check(lk.get("PLTSOLVD") is True, "prepared master is plate solved (ASTAP)")
                 check(any(n.endswith("_prepared_stars.xisf") for n in names), "StarXTerminator stars image saved")
+                logtxt = pw.log_view.toPlainText()
+                check("returned the picture upside down — turned it back" in logtxt and lk.get("STARLESS") is True,
+                      "a tool that hands the picture back upside down is turned back; unannounced stars "
+                      "image picked up")
+                import prepare as _P
+                stars_p = prepared.with_name(prepared.stem + "_stars.fits")
+                sd_, _c2, _lk2 = core.read_fits(stars_p)
+                filt = lk.get("FILTER")
+                orig = next(p for p in sorted((session.parent / "Master Lights" / "M33").iterdir())
+                            if p.suffix in (".fits", ".xisf") and "_prepared" not in p.name
+                            and _P.st.ImageSource(p).look.get("FILTER") == filt)
+                od = _P.st.ImageSource(orig).read()
+                pd = _d + sd_
+                hh, ww = pd.shape[-2:]
+                m_ = re.search(r"x (\d+)-\d+, y (\d+)-\d+", " ".join(f"{v} {c}" for _k, v, c in _c))
+                x0, y0 = (int(m_.group(1)), int(m_.group(2))) if m_ else (0, 0)
+                check(_P.orientation_of(pd, od[..., y0:y0 + hh, x0:x0 + ww]) == "same",
+                      f"prepared master faces the same way as the stacked master (crop at {x0},{y0})")
                 done = [s["title"] for s in res[0]["plan"] if s["done"]]
                 check("Sharpen with BlurXTerminator" in done and "Remove gradients" in done,
                       f"plan ticks the steps done here ({done})")

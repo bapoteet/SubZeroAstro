@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shutil
+import time
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -321,7 +322,21 @@ class RCAstro:
                 log(f"    warning: {ev.get('message', '')}")
             elif kind == "error":
                 errors.append(ev.get("message", "error"))
+        t0 = time.time()
         code, err_lines = _stream(cmd, on_line, cancel)
+        if code == 0:
+            # rc-astro may not announce every file it writes (e.g. the stars-only image):
+            # pick up any new image next to the output
+            outp, seen = Path(out), {str(Path(w)) for w in written}
+            try:
+                for p in sorted(outp.parent.iterdir()):
+                    if (p.is_file() and p.suffix.lower() in (".fits", ".fit", ".fts", ".xisf", ".tif", ".tiff")
+                            and str(p) not in seen and p.resolve() != Path(inp).resolve()
+                            and (p.stem.startswith(outp.stem) or "star" in p.stem.lower())
+                            and p.stat().st_mtime >= t0 - 0.5):
+                        written.append(str(p))
+            except OSError:
+                pass
         if code == EX_NOPERM:
             raise NotLicensed(f"{key} is not licensed on this computer — activate it in your RC-Astro account "
                               f"or run: rc-astro {key} --license")

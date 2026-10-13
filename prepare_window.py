@@ -422,7 +422,10 @@ def open_finish(parent, results):
 
 def _open(path):
     if path and sys.platform.startswith("win"):
-        os.startfile(str(path))  # noqa: S606
+        try:
+            os.startfile(str(Path(path)))  # noqa: S606 - Path() fixes '//nas/share' style network paths
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------

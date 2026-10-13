@@ -406,7 +406,7 @@ class StackWindow(QMainWindow):
         self.btn_pi.clicked.connect(self.stop_here_pixinsight)
         brow.addWidget(self.btn_pi)
         self.btn_open = QPushButton("Open Master Lights Folder")
-        self.btn_open.clicked.connect(lambda: self.open_folder(self.masters_root.text()))
+        self.btn_open.clicked.connect(self.open_masters_folder)
         brow.addWidget(self.btn_open)
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setEnabled(False)
@@ -434,9 +434,26 @@ class StackWindow(QMainWindow):
 
     @staticmethod
     def open_folder(path):
+        """Open a folder in Explorer. str(Path(...)) turns '//nas/share' into '\\\\nas\\share',
+        which Windows needs for network folders."""
+        import tools
         if path and Path(path).is_dir():
-            if sys.platform.startswith("win"):
-                os.startfile(path)  # noqa: S606
+            if not tools.reveal(Path(path)):
+                QMessageBox.information(None, "SubZeroAstro", f"Could not open {Path(path)}")
+
+    def open_masters_folder(self):
+        """Open the folder of the masters just stacked (selected), or the master lights folder."""
+        import tools
+        res = getattr(getattr(self, "worker", None), "results", None) or []
+        files = [Path(f) for r in res for f in (getattr(r, "files", None) or []) if Path(f).exists()]
+        if files:
+            tools.reveal(files)
+            return
+        root = self.masters_root.text().strip()
+        if root and Path(root).is_dir():
+            self.open_folder(root)
+        else:
+            QMessageBox.information(self, "SubZeroAstro", f"The master lights folder was not found:\n{root}")
 
     def rig_choices(self):
         root = Path(self.cal_root.text().strip()) if self.cal_root.text().strip() else None

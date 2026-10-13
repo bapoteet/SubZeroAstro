@@ -13,6 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 VERSION = "1.0.3-fake"
 UNLICENSED = set(filter(None, os.environ.get("FAKE_RC_UNLICENSED", "").split(",")))
+# like the real rc-astro 1.0.1 on ROWORDER=TOP-DOWN files: images come back upside down,
+# and the stars-only image is written without being announced
+FLIP = os.environ.get("FAKE_RC_FLIP", "1") == "1"
 
 
 def lic(key):
@@ -102,10 +105,14 @@ def main(argv):
             outputs.append((str(sp.with_name(sp.stem + "_stars" + sp.suffix)), stars))
     else:
         outputs.append((outp, data))
-    for path, arr in outputs:
-        out({"event": "status", "phase": "saving", "message": "Saving", "output": path})
-        core.write_fits(path, arr.astype(np.float32), {"SWCREATE": "fake rc-astro"}, bitpix=-32)
-        out({"event": "status", "phase": "complete", "message": "Done", "output": path})
+    for j, (path, arr) in enumerate(outputs):
+        if FLIP:
+            arr = arr[..., ::-1, :]
+        core.write_fits(path, np.ascontiguousarray(arr).astype(np.float32), {"SWCREATE": "fake rc-astro"},
+                        bitpix=-32)
+        if j == 0 or not FLIP:
+            out({"event": "status", "phase": "saving", "message": "Saving", "output": path})
+            out({"event": "status", "phase": "complete", "message": "Done", "output": path})
     return 0
 
 

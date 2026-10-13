@@ -49,6 +49,7 @@ class State:
     filter: str | None = None              # filter of the masters (as set by the user if overridden)
     lin_lum: np.ndarray | None = None      # (h, w) unstretched luminance, kept when the image is brightened
     sat_core: bool = False                 # the brightest area was clipped in the masters themselves
+    stars_missing: bool = False            # starless master whose stars-only file was not found
 
     def copy(self) -> "State":
         return replace(self, channels=dict(self.channels), channel_stars=dict(self.channel_stars),
@@ -176,6 +177,10 @@ def load_state(paths) -> State:
         if st_img is not None and st_img.shape == s.rgb.shape:
             s.stars, s.stars_out = st_img, True
             s.done.append("stars_out")
+        elif m.look.get("STARLESS"):
+            # already starless but the stars file is missing: never run star removal twice
+            s.done.append("stars_out")
+            s.stars_missing = True
         return s
     for m in masters:
         s.channels[m.filter] = np.clip(m.data[0] / 65535.0, 0, None).astype(np.float32)
