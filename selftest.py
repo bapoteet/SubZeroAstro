@@ -333,6 +333,8 @@ def run(app, out_dir: Path) -> int:
         second = session.parent / "M33_night2"
         second.mkdir()
         make_session(second)
+        for fpath in list(second.glob("*.fits")):             # a different night: different file names
+            fpath.rename(fpath.with_name("N2_" + fpath.name))
         state["second"] = second
         dlg = fb.LoadDataDialog(w, w.settings, False)
         dlg.add_source(("folder", session, False))
