@@ -18,8 +18,8 @@ AUTHOR = "Brian A. Poteet"
 
 PAGE_CULL = "Astro Image Quality and Cull"
 PAGE_STACK = "Calibrate and Stack"
-PAGE_PREPARE = "Prepare for PixInsight"
-PAGE_FINISH = "Finish the Image"
+PAGE_PREPARE = "Astro Image Processing"
+PAGE_FINISH = "Finishing Touches"
 
 
 NEXT_STYLE = ("QPushButton { background:#2f6fd6; color:white; font-weight:700; font-size:10.5pt; "

@@ -393,12 +393,12 @@ class StackWindow(QMainWindow):
         self.progress.setTextVisible(True)
         self.progress.setFormat("")
         brow.addWidget(self.progress, 1)
-        self.btn_prepare = QPushButton("Prepare for PixInsight…")
+        self.btn_prepare = QPushButton("Continue to Image Processing…")
         self.btn_prepare.setToolTip("Crop, plate solve, remove gradients and run the XTerminators on the masters "
                                     "just made, then get a step-by-step PixInsight plan")
         self.btn_prepare.setEnabled(False)
         self.btn_prepare.clicked.connect(self.open_prepare)
-        self.app_header.add_next(self.btn_prepare, "Prepare for PixInsight")   # top right, page-turn style
+        self.app_header.add_next(self.btn_prepare, "Continue to Image Processing")   # top right, page-turn style
         self.btn_pi = QPushButton("Stop Here – Continue in PixInsight")
         self.btn_pi.setToolTip("Open the folder with the new master lights selected, plus a note of the "
                                "recommended PixInsight steps")
@@ -778,11 +778,11 @@ class StackWindow(QMainWindow):
         bad = [r for r in w.results if r.error]
         self.progress.setFormat(f"Done — {len(ok)} master{'s' if len(ok) != 1 else ''} saved"
                                 + (f", {len(bad)} failed" if bad else "")
-                                + ("  ·  next: Prepare for PixInsight" if ok else ""))
+                                + ("  ·  next: Continue to Image Processing" if ok else ""))
         self.btn_prepare.setEnabled(bool(ok))
         self.btn_pi.setEnabled(bool(ok))
         if ok:
-            self.log("\nMasters are ready. Next: click “Prepare for PixInsight ➜” (top right) to crop, plate solve, remove "
+            self.log("\nMasters are ready. Next: click “Continue to Image Processing ➜” (top right) to crop, plate solve, remove "
                      "gradients and run the XTerminators.")
         self.last_results = w.results
         self.last_saved_cal = w.saved_cal

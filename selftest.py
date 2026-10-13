@@ -504,7 +504,7 @@ def run(app, out_dir: Path) -> int:
         shot("10_stacking_done.png", state["win"])
         # --- Stage 4: prepare for PixInsight ---------------------------------------
         win = state["win"]
-        check(win.btn_prepare.isEnabled(), "Prepare for PixInsight button enabled after stacking")
+        check(win.btn_prepare.isEnabled(), "Continue to Image Processing button enabled after stacking")
         import checkpoints as cpm
         left = [p.name for p in cpm.root().glob("stack*_*.json")]
         check(win.worker.completed and not left, f"a finished stacking run leaves no resume notes ({left})")
@@ -576,6 +576,10 @@ def run(app, out_dir: Path) -> int:
               and _tod("C:/out", "IC1805").name == "IC1805"
               and _tod("C:/out/IC1805", "IC1805").parent.name == "out",
               "custom output folder gets a per-target subfolder")
+        import prepare_window as _pwm
+        check(_pwm.xt_start_values("nxt", {"dn": 0.0})["dn"] == 0.6 and _pwm.xt_start_values("nxt", {})["dn"] == 0.6
+              and _pwm.xt_start_values("nxt", {"dn": 0.8})["dn"] == 0.8,
+              "NoiseXTerminator never starts at 0 (typical 0.6), a chosen value is kept")
         if res:
             names = sorted(Path(f).name for f in res[0]["files"])
             log("prepared: " + ", ".join(names))

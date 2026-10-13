@@ -58,7 +58,7 @@ from versions released under the earlier name "FITS Blaster for Windows".
 
 Optional: **`build_exe.bat`** makes a stand-alone `dist\SubZeroAstro\SubZeroAstro.exe`.
 
-## Finish the Image (new in 0.7)
+## Finishing Touches (formerly "Finish the Image", new in 0.7)
 
 After **Prepare**, click **Finish the Image…** (or *Stack › Finish the Image…*) to carry on in
 SubZeroAstro instead of PixInsight - as far as you like:
@@ -164,7 +164,7 @@ power cut doesn't cost you the evening — and you can step back when you don't 
 and sets how long unused progress is kept (30 days by default; Prepare copies are roughly
 100–400 MB per filter per step). Saved progress never touches your subframes or masters.
 
-## Prepare for PixInsight (new in 0.5.0)
+## Astro Image Processing (formerly "Prepare for PixInsight", new in 0.5.0)
 
 After stacking, click **Prepare for PixInsight…** in the Stacking window (or
 **Stack › Prepare Masters for PixInsight…**). The masters you just made are loaded,

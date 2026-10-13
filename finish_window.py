@@ -179,13 +179,15 @@ def make_star_runner(settings):
 # --------------------------------------------------------------------------
 
 class ExportDialog(QDialog):
-    def __init__(self, parent, settings, default_dir):
+    def __init__(self, parent, settings, default_dir, target=""):
         super().__init__(parent)
         self.setWindowTitle("Save the Picture")
+        self.key = f"finish/export_dir/{cp.safe_name(target)}" if target else "finish/export_dir"
         lay = QVBoxLayout(self)
         form = QFormLayout()
         row = QHBoxLayout()
-        self.dir = QLineEdit(settings.value("finish/export_dir", "") or str(default_dir))
+        # each target remembers its own folder; a new target starts next to its own masters
+        self.dir = QLineEdit(settings.value(self.key, "") or str(default_dir))
         b = QPushButton("Browse…")
         b.clicked.connect(lambda: self._browse())
         row.addWidget(self.dir, 1)
@@ -216,7 +218,7 @@ class ExportDialog(QDialog):
         return [k for k, cb in self.boxes.items() if cb.isChecked()]
 
     def accept(self):
-        self.settings.setValue("finish/export_dir", self.dir.text().strip())
+        self.settings.setValue(self.key, self.dir.text().strip())
         for k, cb in self.boxes.items():
             self.settings.setValue(f"finish/fmt_{k}", cb.isChecked())
         super().accept()
@@ -335,7 +337,7 @@ class AstroBinDialog(QDialog):
 class FinishWindow(QMainWindow):
     def __init__(self, parent, settings, master_files=None):
         super().__init__(parent)
-        self.setWindowTitle("SubZeroAstro — Finish the Image")
+        self.setWindowTitle("SubZeroAstro — Finishing Touches")
         self.settings = settings
         self.state: F.State | None = None
         self.project: F.Project | None = None
@@ -357,7 +359,7 @@ class FinishWindow(QMainWindow):
         central = QWidget()
         root = QVBoxLayout(central)
         top = QHBoxLayout()
-        self.title = QLabel("<b>Finish the Image</b> — add your prepared masters to start")
+        self.title = QLabel("<b>Finishing Touches</b> — add your processed masters to start")
         top.addWidget(self.title, 1)
         for text, slot, tip in (
                 ("Add Masters…", self.add_masters_dialog, "Open the master lights of one target (prepared ones "
@@ -1190,7 +1192,7 @@ class FinishWindow(QMainWindow):
         if not self.state or self.state.rgb is None:
             QMessageBox.information(self, "Finish", "Combine the colour channels first.")
             return
-        dlg = ExportDialog(self, self.settings, self.default_out_dir())
+        dlg = ExportDialog(self, self.settings, self.default_out_dir(), self.state.target)
         if not dlg.exec():
             return
         folder, fmts = Path(dlg.dir.text().strip()), dlg.formats()

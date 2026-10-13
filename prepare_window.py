@@ -35,6 +35,39 @@ XT_KEYS = ("bxt", "nxt", "sxt")
 XT_START = {"bxt": {"enabled": True, "values": {"ss": 0.25, "sn": 0.50}},
             "nxt": {"enabled": False, "values": {"dn": 0.60}},
             "sxt": {"enabled": False, "values": {"stars": True}}}
+# NoiseXTerminator strength for this early (linear) pass: a moderate, typical value. A strength
+# of 0 does nothing at all, so it is never used as a starting value.
+NXT_TYPICAL = 0.60
+NXT_STRENGTHS = ("dn", "di", "dc", "dhf", "dlf", "dihf", "dilf", "dchf", "dclf")
+
+# Plain-language help shown above RC-Astro's own description (hover a setting)
+XT_HELP = {
+    ("sxt", "unscreen"): (
+        "Unscreen Stars - how the stars image is made, so it can be added back later:\n"
+        "• Off (recommended here): stars = original minus starless. You put them back by simply ADDING "
+        "the two images - right for linear (unstretched) data like this step works on, and what "
+        "SubZeroAstro's 'Put Stars Back' expects.\n"
+        "• On: the stars image is made for a SCREEN blend - ~((~starless)*(~stars)) in PixelMath - the "
+        "usual way to recombine after both images were stretched. Use it only if you will stretch "
+        "starless and stars separately in PixInsight and screen them back together."),
+    ("sxt", "stars"): ("Also save a stars-only image next to the starless one, so the stars can be "
+                       "processed on their own and put back at the end. Keep this on."),
+    ("nxt", "dn"): ("Denoise strength. 0 = no change, 1 = maximum. For this early, unstretched pass a "
+                    "light-to-moderate 0.5-0.7 is typical; a final pass after stretching can go higher."),
+    ("bxt", "ss"): "How much to sharpen and tighten stars (0.2-0.3 is typical).",
+    ("bxt", "sh"): "Shrinks the soft glow (halos) around stars; 0 leaves halos as they are.",
+    ("bxt", "sn"): "How much to sharpen the nebula or galaxy detail (0.4-0.9 is typical).",
+}
+
+
+def xt_start_values(key, values):
+    """Saved values, with NoiseXTerminator strengths that were never set (or 0) at a typical value."""
+    vals = dict(values or {})
+    if key == "nxt":
+        for k in NXT_STRENGTHS:
+            if not vals.get(k):
+                vals[k] = NXT_TYPICAL
+    return vals
 
 
 def save_rgb8(path, rgb8: np.ndarray) -> bool:
@@ -73,6 +106,9 @@ class ParamPanel(QWidget):
                     continue
                 w = self._make(p, start.get(name, p.get("default")))
                 tip = p.get("detailedDescriptionHtml") or p.get("description") or p.get("label")
+                extra = XT_HELP.get((spec.key, name))
+                if extra:
+                    tip = "<p>" + extra.replace("\n", "<br>") + "</p><p><i>RC-Astro:</i> " + str(tip) + "</p>"
                 w.setToolTip(tip)
                 lab = QLabel(p.get("label", name))
                 lab.setToolTip(tip)
@@ -370,7 +406,7 @@ class ReadyDialog(QDialog):
         b_folder = QPushButton("Stop Here – Continue in PixInsight")
         b_folder.setToolTip("Open the folder with the prepared masters selected, ready to load into PixInsight")
         b_folder.clicked.connect(lambda: reveal_prepared(results))
-        b_fin = QPushButton("Finish the Image Here…")
+        b_fin = QPushButton("Continue to Finishing Touches…")
         b_fin.setToolTip("Carry on in SubZeroAstro: colour, brighten, stars - pick from previews")
         b_fin.setStyleSheet("QPushButton { background:#4a86e8; color:white; font-weight:bold; padding:5px 12px; "
                             "border-radius:4px; }")
@@ -434,7 +470,7 @@ def _open(path):
 class PrepareWindow(QMainWindow):
     def __init__(self, parent, settings, master_files=None):
         super().__init__(parent)
-        self.setWindowTitle("SubZeroAstro — Prepare for PixInsight")
+        self.setWindowTitle("SubZeroAstro — Astro Image Processing")
         self.settings = settings
         self.sets = []                       # list of lists of Master (preview copies)
         self.crops = {}                      # set index -> rect
@@ -649,13 +685,14 @@ class PrepareWindow(QMainWindow):
                                  "each set of master lights. If you pick a folder, each target gets its own "
                                  "subfolder named after it (e.g. …\\IC1805), so targets never mix. "
                                  "Your original masters are never changed.")
+        self.out_edit.textEdited.connect(lambda _t: setattr(self, "_out_confirmed", True))
         orow.addWidget(self.out_edit, 1)
         b_out = QPushButton("Browse…")
         b_out.clicked.connect(self.browse_out_dir)
         orow.addWidget(b_out)
         b_clear = QPushButton("Default")
         b_clear.setToolTip("Go back to a 'Prepared' folder next to the masters")
-        b_clear.clicked.connect(lambda: self.out_edit.clear())
+        b_clear.clicked.connect(lambda: (self.out_edit.clear(), setattr(self, "_out_confirmed", True)))
         orow.addWidget(b_clear)
         ov.addLayout(orow)
 
@@ -722,13 +759,13 @@ class PrepareWindow(QMainWindow):
         self.btn_pi.setToolTip("Open the folder with the prepared masters (selected) to load them into PixInsight")
         self.btn_pi.setEnabled(False)
         self.btn_pi.clicked.connect(lambda: reveal_prepared(self.last_results))
-        self.btn_finish = QPushButton("Finish the Image…")
+        self.btn_finish = QPushButton("Finishing Touches…")
         self.btn_finish.setToolTip("Carry on here: colour balance, brighten, stars, palettes - pick from "
                                    "previews, step by step")
         self.btn_finish.setEnabled(False)
         self.btn_finish.clicked.connect(lambda: open_finish(self, self.last_results))
         brow.addWidget(self.btn_pi)
-        self.app_header.add_next(self.btn_finish, "Finish the Image")          # top right, page-turn style
+        self.app_header.add_next(self.btn_finish, "Continue to Finishing Touches")          # top right, page-turn style
         brow.addWidget(self.btn_cancel)
         brow.addWidget(self.btn_start)
         root.addLayout(brow)
@@ -800,7 +837,7 @@ class PrepareWindow(QMainWindow):
         if key in self.panels:
             self.panels[key].setParent(None)
         cfg = self._xt_cfg(key)
-        panel = ParamPanel(spec, cfg.get("values"), cfg.get("mode"))
+        panel = ParamPanel(spec, xt_start_values(key, cfg.get("values")), cfg.get("mode"))
         holder.setVisible(not licensed)
         holder.setText("Not licensed on this computer — activate it in your RC-Astro account")
         v.addWidget(panel)
@@ -1017,6 +1054,7 @@ class PrepareWindow(QMainWindow):
         if d:
             self.out_edit.setText(d)
             self.settings.setValue("prep/out_dir", d)
+            self._out_confirmed = True
 
     def start(self, show_dialog=True):
         if not self.sets:
@@ -1024,6 +1062,8 @@ class PrepareWindow(QMainWindow):
             return
         if not any(cb.isChecked() for cb in (self.fmt_xisf, self.fmt_fits, self.fmt_tif, self.fmt_jpg, self.fmt_png)):
             QMessageBox.information(self, "Prepare", "Tick at least one format under 'Save final images'.")
+            return
+        if show_dialog and not self.ask_output_folder():
             return
         out = self.out_edit.text().strip()
         if out:
@@ -1045,6 +1085,43 @@ class PrepareWindow(QMainWindow):
                                               QMessageBox.critical(self, "Prepare", m[:800])))
         self.worker.finished.connect(self.on_finished)
         self.worker.start()
+
+    def ask_output_folder(self) -> bool:
+        """Before the first run in this window: confirm where the processed images go, so a folder
+        remembered from an earlier session is never used by surprise."""
+        if getattr(self, "_out_confirmed", False):
+            return True
+        target = self.sets[0][0].target if self.sets and self.sets[0] else "this target"
+        masters_dir = self.sets[0][0].path.parent / "Prepared" if self.sets and self.sets[0] else None
+        cur = self.out_edit.text().strip()
+        box = QMessageBox(self)
+        box.setWindowTitle("Where should the processed images go?")
+        box.setIcon(QMessageBox.Question)
+        txt = (f"<b>{target}</b> — choose where the processed images are saved.<br><br>"
+               f"• <b>Next to the masters</b>: {masters_dir}<br>")
+        if cur:
+            txt += f"• <b>Folder used last time</b>: {cur} (in a subfolder named {target})<br>"
+        box.setText(txt)
+        b_next = box.addButton("Next to the Masters", QMessageBox.AcceptRole)
+        b_last = box.addButton("Folder Used Last Time", QMessageBox.AcceptRole) if cur else None
+        b_pick = box.addButton("Choose a Folder…", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(b_next)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is b_next:
+            self.out_edit.clear()
+        elif b_last is not None and clicked is b_last:
+            pass
+        elif clicked is b_pick:
+            d = QFileDialog.getExistingDirectory(self, "Save the processed images to", cur or str(masters_dir or ""))
+            if not d:
+                return False
+            self.out_edit.setText(d)
+        else:
+            return False
+        self._out_confirmed = True
+        return True
 
     def cancel(self):
         if self.worker:

@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.14 beta"
+APP_VERSION = "0.8.15 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -1185,10 +1185,10 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_advance)
         m = mb.addMenu("&Stack")
         m.addAction(self.act_stack)
-        a = QAction("Prepare Masters for PixInsight…", self)
+        a = QAction("Astro Image Processing…", self)
         a.triggered.connect(self.open_prepare)
         m.addAction(a)
-        a = QAction("Finish the Image…", self)
+        a = QAction("Finishing Touches…", self)
         a.setToolTip("Colour, brighten, stars, palettes - pick from previews, step by step")
         a.triggered.connect(self.open_finish)
         m.addAction(a)
