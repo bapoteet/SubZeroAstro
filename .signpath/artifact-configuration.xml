@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SignPath artifact configuration for SubZeroAstro.
+     The GitHub build uploads the "dist" folder; inside it is SubZeroAstro\ with the app.
+     Only SubZeroAstro.exe (our own program) is signed - the bundled Python / Qt / numpy
+     files belong to their own projects and are left as they are. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <directory path="SubZeroAstro">
+      <pe-file path="SubZeroAstro.exe" product-name="SubZeroAstro">
+        <authenticode-sign />
+      </pe-file>
+    </directory>
+  </zip-file>
+</artifact-configuration>

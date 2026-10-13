@@ -24,3 +24,4 @@ selftest_exe/
 # profiling output
 *.prof
 /p
+version_info.txt

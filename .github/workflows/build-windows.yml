@@ -4,7 +4,16 @@ name: Build Windows app
 # 1. installs the libraries on a real Windows machine
 # 2. runs the self-test with the real app window (screenshots are kept)
 # 3. builds "SubZeroAstro.exe" with PyInstaller and self-tests the .exe too
-# 4. uploads the zipped app; for version tags it also creates a GitHub Release
+# 4. releases only: signs SubZeroAstro.exe through SignPath (once SIGNPATH_* settings exist)
+# 5. uploads the zipped app; for version tags it also creates a GitHub Release
+#
+# Code signing (free for open source, SignPath Foundation) - see README "Code signing policy".
+# Needs, under Settings > Secrets and variables > Actions:
+#   secret   SIGNPATH_API_TOKEN          (SignPath > your user > API token, for a CI user)
+#   variable SIGNPATH_ORGANIZATION_ID    (SignPath > Organization settings)
+#   variable SIGNPATH_PROJECT_SLUG       (optional, default "SubZeroAstro")
+#   variable SIGNPATH_POLICY_SLUG        (optional, default "release-signing")
+# Without SIGNPATH_ORGANIZATION_ID the build runs exactly as before, unsigned.
 
 on:
   push:
@@ -23,7 +32,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 90           # a signing request waits for the manual approval in SignPath
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +56,9 @@ jobs:
           exit ${PIPESTATUS[0]}
 
       - name: Build SubZeroAstro.exe
-        run: pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" subzeroastro.py
+        run: |
+          python build_version.py
+          pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" --version-file version_info.txt subzeroastro.py
 
       - name: Self-test (the built .exe)
         shell: pwsh
@@ -55,6 +66,38 @@ jobs:
           $p = Start-Process -FilePath "dist\SubZeroAstro\SubZeroAstro.exe" -ArgumentList "--selftest", "$PWD\selftest_exe" -Wait -PassThru
           Get-Content selftest_exe\selftest_result.txt
           if ($p.ExitCode -ne 0) { throw "exe self-test failed with exit code $($p.ExitCode)" }
+
+      - name: Upload the unsigned app for signing (releases only)
+        id: upload-unsigned
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != '')
+        uses: actions/upload-artifact@v4
+        with:
+          name: SubZeroAstro-unsigned
+          path: dist
+
+      - name: Sign SubZeroAstro.exe (SignPath Foundation)
+        id: sign
+        if: steps.upload-unsigned.outcome == 'success'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'SubZeroAstro' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Use the signed app
+        if: steps.sign.outcome == 'success'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path signed -Recurse -Filter SubZeroAstro.exe | Select-Object -First 1
+          if (-not $exe) { throw "signed SubZeroAstro.exe not found" }
+          $sig = Get-AuthenticodeSignature $exe.FullName
+          Write-Host "Signature: $($sig.Status) - $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { throw "signature is not valid: $($sig.Status)" }
+          Copy-Item $exe.FullName "dist\SubZeroAstro\SubZeroAstro.exe" -Force
 
       - name: Package
         shell: pwsh
@@ -106,4 +149,4 @@ jobs:
           if ($env:TAG -match 'beta|rc|alpha') { $pre = @('--prerelease') }
           gh release create "$env:TAG" SubZeroAstro-Windows.zip --target "${{ github.sha }}" @pre `
             --title "SubZeroAstro $env:TAG" `
-            --notes "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder. From subs to masters - zero hassle. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway."
+            --notes "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder. From subs to masters - zero hassle. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway. Free code signing provided by SignPath.io, certificate by SignPath Foundation (when signed)."

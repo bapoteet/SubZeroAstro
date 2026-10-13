@@ -33,7 +33,8 @@ independently for Windows.
 Go to the repository's **Releases** page (right-hand side on GitHub), download
 **SubZeroAstro-Windows.zip** from the latest release, unzip it anywhere and run
 **`SubZeroAstro.exe`** inside the folder. If Windows SmartScreen warns about an
-unrecognized app, click **More info → Run anyway**.
+unrecognized app, click **More info → Run anyway**. Releases are being set up for
+free code signing by SignPath — see the [Code signing policy](#code-signing-policy).
 
 Every change pushed to GitHub is built and tested automatically on Windows
 (see the **Actions** tab), including a self-test that opens the real window.
@@ -388,6 +389,33 @@ and it only sees the frames you kept.
 - `tests/fake_tools/` — stand-ins for those tools used by the automatic tests
 - `selftest.py` — the automatic real-window self-test
 - `run.bat`, `build_exe.bat`, `requirements.txt` — setup and launch
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org).
+
+- Only `SubZeroAstro.exe` is signed: it is built automatically from the source code in
+  this repository by GitHub Actions (see `.github/workflows/build-windows.yml`). The bundled
+  Python, Qt and numpy files belong to their own projects and are not signed by us.
+- Every signing request is approved by hand before a release is published.
+
+Team roles:
+
+- Committers and reviewers: [Brian A. Poteet (@bapoteet)](https://github.com/bapoteet)
+- Approvers: [Brian A. Poteet (@bapoteet)](https://github.com/bapoteet)
+
+## Privacy policy
+
+This program will not transfer any information to other networked systems unless
+specifically requested by the user or the person installing or operating it.
+
+- SubZeroAstro reads and writes image files only where you point it, and keeps its
+  settings and saved progress on your own computer.
+- **Share to AstroBin…** only opens AstroBin's upload page in your web browser when you
+  click it; nothing is uploaded by SubZeroAstro itself.
+- Outside tools you choose to use (ASTAP, GraXpert, the RC-Astro CLI) are separate programs
+  with their own privacy terms — for example, the RC-Astro CLI may check for its own updates.
 
 ## Credits
 

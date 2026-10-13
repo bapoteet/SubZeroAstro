@@ -1114,6 +1114,117 @@ class StarColours(Tool):
 
 
 # --------------------------------------------------------------------------
+SIGN_FONTS = [("Elegant script", "Segoe Script", False), ("Handwritten", "Ink Free", False),
+              ("Classic", "Georgia", True)]
+SIGN_COLOURS = {"Soft white": (0.95, 0.95, 0.93), "Warm white": (1.0, 0.93, 0.82), "Light grey": (0.78, 0.80, 0.84),
+                "Ice blue": (0.74, 0.86, 1.0)}
+SIGN_CORNERS = ("bottom right", "bottom left", "top right", "top left")
+
+
+def signature_alpha(text, family, italic, px):
+    """The signature as a coverage mask (h, w) 0..1, drawn with Qt's font engine."""
+    from PySide6.QtCore import QPointF as _P
+    from PySide6.QtGui import QFont as _F, QFontMetricsF as _FM, QImage as _I, QPainter as _Pa, QColor as _C
+    f = _F(family)
+    f.setPixelSize(max(6, int(px)))
+    f.setItalic(bool(italic))
+    fm = _FM(f)
+    pad = int(px * 0.6) + 2
+    w = int(fm.horizontalAdvance(text) + fm.averageCharWidth() + 2 * pad)
+    h = int(fm.height() + 2 * pad)
+    img = _I(max(w, 1), max(h, 1), _I.Format_ARGB32_Premultiplied)
+    img.fill(0)
+    p = _Pa(img)
+    p.setRenderHint(_Pa.Antialiasing, True)
+    p.setRenderHint(_Pa.TextAntialiasing, True)
+    p.setFont(f)
+    p.setPen(_C(255, 255, 255))
+    p.drawText(_P(pad, pad + fm.ascent()), text)
+    p.end()
+    ptr = img.constBits()
+    arr = np.frombuffer(ptr, np.uint8, count=img.bytesPerLine() * h).reshape(h, img.bytesPerLine())[:, :w * 4]
+    a = arr.reshape(h, w, 4)[:, :, 3].astype(np.float32) / 255.0
+    ys, xs = np.nonzero(a > 0.01)
+    if len(ys) == 0:
+        return np.zeros((1, 1), np.float32)
+    return np.ascontiguousarray(a[ys.min():ys.max() + 1, xs.min():xs.max() + 1])
+
+
+class SignPicture(Tool):
+    key = "signature"
+    title = "Sign Your Picture"
+    tip = ("Adds your signature in a corner of the picture - small, tasteful and in the font you pick. "
+           "It becomes part of the saved picture.")
+    optional = True
+    editor = "signature"             # the window shows: your signature text, corner and colour
+
+    def applicable(self, s):
+        if s.rgb is None:
+            return False, "Combine the colour channels first"
+        if s.linear:
+            return False, "Brighten the image first"
+        if s.stars_out and not s.stars_hidden:
+            return False, "Put the stars back first"
+        return True, ""
+
+    def variants(self, s):
+        return [Variant(name, {"font": fam, "italic": it}, f"{fam}", i == 0)
+                for i, (name, fam, it) in enumerate(SIGN_FONTS)]
+
+    def sliders(self, s, params):
+        return [Slider("size", "Size", 1.0, 8.0, params.get("size", 2.8),
+                       "Height of the signature, in % of the picture's shorter side", 0.1),
+                Slider("opacity", "Opacity", 0.3, 1.0, params.get("opacity", 0.85), "How solid the signature is"),
+                Slider("margin", "Distance from edge", 0.5, 8.0, params.get("margin", 2.5),
+                       "Gap to the picture's edges, in % of the shorter side", 0.1)]
+
+    @staticmethod
+    def corner_focus(shape, corner):
+        """Centre of the area around the signature (for zoomed thumbnails)."""
+        h, w = shape
+        cy = int(h * (0.86 if corner.startswith("bottom") else 0.14))
+        cx = int(w * (0.80 if corner.endswith("right") else 0.20))
+        return cy, cx
+
+    def apply(self, s, params):
+        s = s.copy()
+        text = str(params.get("text") or "").strip()
+        if not text:
+            s.done.append(self.key)
+            return s
+        h, w = s.shape
+        short = min(h, w)
+        px = short * float(params.get("size", 2.8)) / 100.0
+        a = signature_alpha(text, params.get("font", "Segoe Script"), params.get("italic", False), px)
+        ah, aw = a.shape
+        if ah >= h or aw >= w:                                  # never bigger than the picture
+            k = min((h - 2) / ah, (w - 2) / aw)
+            a = _resize(a, max(1, int(ah * k)), max(1, int(aw * k)))
+            ah, aw = a.shape
+        m = int(short * float(params.get("margin", 2.5)) / 100.0)
+        corner = params.get("corner", "bottom right")
+        y0 = h - m - ah if corner.startswith("bottom") else m
+        x0 = w - m - aw if corner.endswith("right") else m
+        y0, x0 = max(0, min(h - ah, y0)), max(0, min(w - aw, x0))
+        op = float(params.get("opacity", 0.85))
+        col = np.asarray(SIGN_COLOURS.get(params.get("colour"), SIGN_COLOURS["Soft white"]), np.float32)
+        rgb = s.rgb.copy()
+        region = rgb[:, y0:y0 + ah, x0:x0 + aw]
+        # a soft shadow keeps the signature readable over bright nebulosity
+        sh = _blur(a, max(1.0, px * 0.05))
+        dy = dx = max(1, int(px * 0.04))
+        shadow = np.zeros_like(a)
+        shadow[dy:, dx:] = sh[:ah - dy, :aw - dx]
+        region *= (1 - 0.45 * op * shadow)[None]
+        c = col[:, None, None] if rgb.shape[0] == 3 else np.asarray([col.mean()], np.float32)[:, None, None]
+        region[:] = region * (1 - op * a)[None] + c * (op * a)[None]
+        rgb[:, y0:y0 + ah, x0:x0 + aw] = region
+        s.rgb = np.clip(rgb, 0, 1).astype(np.float32)
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
 class PutStarsBack(Tool):
     def possible(self, s):
         return s.stars_out or bool(s.channel_stars) or TOOLS["stars_out"].possible(s)
@@ -1631,11 +1742,15 @@ class TameCore(Tool):
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
                             TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
                             StarColours(), PutStarsBack(),
-                            SpotFix())}
+                            SpotFix(), SignPicture())}
 
 
 def thumb_state(tool: Tool, s: State, size=420) -> State:
     """The small image a tool's choices are rendered on."""
+    if tool.key == "signature":                 # zoom into the corner where the signature goes
+        sm = s.small(size * 2)
+        corner = getattr(tool, "thumb_corner", "bottom right")
+        return sm.crop(int(size * 1.1), SignPicture.corner_focus(sm.shape, corner))
     if tool.spatial:
         return s.crop(size, busiest_spot(s, size))
     return s.small(size)
@@ -1665,14 +1780,14 @@ def busiest_spot(s: State, size=420):
 _POLISH = ["core", "curves", "saturation", "local"]
 _STARS = ["star_stretch", "shrink", "star_color", "stars_back"]
 WORKFLOWS = {
-    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
-    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix"],
-    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix"],
-    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
-    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
-    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
-    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix"],
-    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["spotfix"],
+    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix", "signature"],
+    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix", "signature"],
+    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix", "signature"],
+    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix", "signature"],
+    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix", "signature"],
+    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix", "signature"],
+    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix", "signature"],
+    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["spotfix", "signature"],
 }
 
 WHY = {
@@ -1892,6 +2007,7 @@ PI_EQUIVALENT = {
     "core": "HDRMultiscaleTransform through a luminance (range) mask on the core",
     "star_color": "PixelMath on the stars image (colour from the R/(G+B) ratio), or Narrowband Normalization's star options",
         "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
+    "signature": "Annotation, or a PixelMath-blended signature image",
 }
 
 

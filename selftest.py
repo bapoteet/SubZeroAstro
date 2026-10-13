@@ -782,6 +782,22 @@ def run(app, out_dir: Path) -> int:
               f"finished sky is neutral and sensibly bright ({[round(x, 3) for x in sky]})")
         check(len(fw.project.steps) == n_before + 2,           # core + local contrast (Spot Fix undone)
               f"every step saved in the project ({len(fw.project.steps)})")
+        # Sign Your Picture
+        before_sig = fw.state.rgb.copy()
+        fw.open_tool("signature")
+        fw.sign_text.setText("B. Poteet")
+        fw._sign_changed()
+        QApplication.processEvents()
+        check(fw.sign_row.isVisibleTo(fw) and len(fw.variants) == 3,
+              f"Sign Your Picture offers 3 fonts ({[v.label for v in fw.variants]})")
+        shot("21_finish_signature.png", fw)
+        fw.apply_choice()
+        QApplication.processEvents()
+        h_, w_ = fw.state.rgb.shape[1:]
+        corner_ = (fw.state.rgb[:, int(h_ * 0.75):, int(w_ * 0.5):] - before_sig[:, int(h_ * 0.75):, int(w_ * 0.5):])
+        top_ = (fw.state.rgb[:, :int(h_ * 0.5), :] - before_sig[:, :int(h_ * 0.5), :])
+        check("signature" in fw.state.done and float(abs(corner_).max()) > 0.2 and float(abs(top_).max()) == 0.0,
+              "the signature is drawn in the bottom-right corner only")
         fw.stop_here_pixinsight()
         pf = getattr(fw, "last_pi_files", [])
         check(len(pf) >= 2 and pf[0].suffix == ".txt" and all(p.exists() for p in pf),

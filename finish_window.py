@@ -491,6 +491,31 @@ class FinishWindow(QMainWindow):
         self.grid = QGridLayout(self.choices)
         self.group = QButtonGroup(self)
         self.group.setExclusive(True)
+        # Sign Your Picture: the words, corner and colour (fonts are the picture choices)
+        self.sign_row = QWidget()
+        sg = QFormLayout(self.sign_row)
+        sg.setContentsMargins(0, 0, 0, 0)
+        self.sign_text = QLineEdit(self.settings.value("finish/signature", "") or "")
+        self.sign_text.setPlaceholderText("Your name, e.g. B. Poteet")
+        self.sign_text.setToolTip("What to write - remembered for next time")
+        sg.addRow("Signature:", self.sign_text)
+        self.sign_corner = QComboBox()
+        self.sign_corner.addItems([c.capitalize() for c in F.SIGN_CORNERS])
+        self.sign_corner.setCurrentText(str(self.settings.value("finish/sign_corner", "Bottom right")))
+        sg.addRow("Corner:", self.sign_corner)
+        self.sign_colour = QComboBox()
+        self.sign_colour.addItems(list(F.SIGN_COLOURS))
+        self.sign_colour.setCurrentText(str(self.settings.value("finish/sign_colour", "Soft white")))
+        sg.addRow("Colour:", self.sign_colour)
+        self.sign_row.setVisible(False)
+        tl.addWidget(self.sign_row)
+        self.sign_timer = QTimer(self)
+        self.sign_timer.setSingleShot(True)
+        self.sign_timer.setInterval(450)
+        self.sign_timer.timeout.connect(self._sign_changed)
+        self.sign_text.textChanged.connect(lambda _t: self.sign_timer.start())
+        self.sign_corner.currentTextChanged.connect(lambda _t: self.sign_timer.start())
+        self.sign_colour.currentTextChanged.connect(lambda _t: self.sign_timer.start())
         sc = QScrollArea()
         sc.setWidgetResizable(True)
         sc.setWidget(self.choices)
@@ -712,7 +737,8 @@ class FinishWindow(QMainWindow):
         else:
             self.card_text.setText("<b>Your picture is finished.</b><br>Save it with <i>Save the Picture…</i>, "
                                    "or continue polishing in PixInsight (curves, local contrast, a final noise "
-                                   "pass) with <i>Stop Here – Continue in PixInsight</i>.")
+                                   "pass) with <i>Stop Here – Continue in PixInsight</i>. Want to sign it? Pick <i>Sign Your "
+                                   "Picture</i> in the list on the left.")
         self.kind_label.setText(f"Workflow for {F.KIND_LABEL.get(s.kind, s.kind)} data. Steps adapt to what "
                                 "your data needs; you can open any available step yourself.")
         self.chk_linked.setVisible(s.linear and s.is_color)
@@ -801,6 +827,9 @@ class FinishWindow(QMainWindow):
         self.chk_mask.setChecked(False)
         self.chk_mask.blockSignals(False)
         self.chk_mask.setVisible(key == "core")
+        self.sign_row.setVisible(key == "signature")
+        if key == "signature":
+            F.TOOLS["signature"].thumb_corner = self.sign_corner.currentText().lower()
         self.fine_box.blockSignals(True)
         self.fine_box.setChecked(False)
         self.fine_box.blockSignals(False)
@@ -866,8 +895,9 @@ class FinishWindow(QMainWindow):
         def work():
             vs = t.variants(s, method, linked) if t.key == "stretch" else t.variants(s)
             small = F.thumb_state(t, s, 300)
-            thumbs = [F.state_display(t.apply(small, v.params), with_stars=True if t.shows_stars else None)
-                      for v in vs]
+            extra = self.extra_params()
+            thumbs = [F.state_display(t.apply(small, {**v.params, **extra}),
+                                      with_stars=True if t.shows_stars else None) for v in vs]
             return vs, thumbs
         self.run_job(work, self._choices_ready, "Making the choices…")
 
@@ -891,6 +921,10 @@ class FinishWindow(QMainWindow):
             self.grid.addWidget(b, i // cols, i % cols)
             if v.recommended:
                 b.setChecked(True)
+        keep = getattr(self, "_keep_choice", None)
+        if keep is not None and 0 <= keep < len(self.group.buttons()):
+            self.group.buttons()[keep].setChecked(True)
+        self._keep_choice = None
         if not any(b.isChecked() for b in self.group.buttons()) and self.group.buttons():
             self.group.buttons()[0].setChecked(True)
         try:
@@ -980,6 +1014,23 @@ class FinishWindow(QMainWindow):
             self.build_sliders(v.params)
         self.schedule_preview()
 
+    def extra_params(self) -> dict:
+        """Settings that live outside the picture choices (the signature's words, corner, colour)."""
+        if self.tool is not None and self.tool.key == "signature":
+            return {"text": self.sign_text.text().strip(), "corner": self.sign_corner.currentText().lower(),
+                    "colour": self.sign_colour.currentText()}
+        return {}
+
+    def _sign_changed(self):
+        self.settings.setValue("finish/signature", self.sign_text.text().strip())
+        self.settings.setValue("finish/sign_corner", self.sign_corner.currentText())
+        self.settings.setValue("finish/sign_colour", self.sign_colour.currentText())
+        if self.tool is not None and self.tool.key == "signature":
+            F.TOOLS["signature"].thumb_corner = self.sign_corner.currentText().lower()
+            keep = max(0, self.group.checkedId())
+            self._keep_choice = keep
+            self.render_choices()
+
     def current_params(self) -> dict:
         """The params Apply would use: the picked version, plus fine-tuning if switched on."""
         t, v = self.tool, self.selected()
@@ -987,6 +1038,12 @@ class FinishWindow(QMainWindow):
             return {}
         if t.key == "spotfix":
             return {"spots": [list(q) for q in self.spots]}
+        if t.key == "signature":
+            p = dict(v.params)
+            if self.fine_box.isChecked():
+                p.update({name: sp.lo + sl.value() * sp.step for name, (sl, sp) in self.sliders.items()})
+            p.update(self.extra_params())
+            return p
         if not self.fine_box.isChecked() or not self.fine_values:
             return v.params
         vals = {name: sp.lo + sl.value() * sp.step for name, (sl, sp) in self.sliders.items()}
@@ -1074,6 +1131,10 @@ class FinishWindow(QMainWindow):
             return
         v = self.selected()
         params = self.current_params()
+        if t.key == "signature" and not params.get("text"):
+            if not self.synchronous:
+                QMessageBox.information(self, t.title, "Type your signature in the box first.")
+            return
         if t.key == "spotfix" and not params.get("spots"):
             QMessageBox.information(self, t.title, "Click the blemishes on the image first.")
             return
