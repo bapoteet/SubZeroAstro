@@ -41,7 +41,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.7 beta"
+APP_VERSION = "0.8.8 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -1427,6 +1427,8 @@ class MainWindow(QMainWindow):
         f = self.frames[uid]
         self.apply_result(f, res)
         self.loaded_count += 1
+        if self.loaded_count == min(10, len(self.frames)):
+            QTimer.singleShot(0, self.suggest_filter_from_names)
         self.progress.setValue(self.loaded_count)
         self.refresh_item(uid)
         if uid == self.current_uid:
@@ -1463,11 +1465,17 @@ class MainWindow(QMainWindow):
 
     def suggest_filter_from_names(self):
         """The camera recorded no filter, but the file names mention one ("…Lult_0107.fit")."""
-        frames = [f for f in self.frames.values() if f.loaded and not f.filter_override
-                  and (f.info.get("filter") or "No filter") == "No filter"]
-        if len(frames) < 3 or getattr(self, "_filter_asked", None) == self.generation:
+        if getattr(self, "_filter_asked", None) == self.generation:
             return
+        measured = [f for f in self.frames.values() if f.loaded and not f.filter_override]
+        if len(measured) < min(10, len(self.frames)) or len(measured) < 3:
+            return                       # ask early: after the first few frames, not after all of them
+        if any((f.info.get("filter") or "No filter") != "No filter" for f in measured):
+            return                       # the files do record a filter
         self._filter_asked = self.generation
+        # frames not measured yet are included too, so the answer covers the whole set
+        frames = [f for f in self.frames.values() if not f.filter_override
+                  and (not f.loaded or (f.info.get("filter") or "No filter") == "No filter")]
         found = {}
         for f in frames:
             name = core.filter_from_name(f.path.name) or core.filter_from_name(f.folder.name)
