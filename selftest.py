@@ -652,6 +652,18 @@ def run(app, out_dir: Path) -> int:
         check(fw.app_header.page.text() == _uh.PAGE_FINISH and pw.app_header.page.text() == _uh.PAGE_PREPARE
               and state["pw"].parent().app_header.page.text() == _uh.PAGE_STACK,
               "every window shows the banner with its page title")
+        sw_ = state["pw"].parent()
+        check(fw.app_header.btn_back is not None and _uh.PAGE_PREPARE in fw.app_header.btn_back.text()
+              and pw.app_header.btn_back is not None and _uh.PAGE_STACK in pw.app_header.btn_back.text()
+              and sw_.app_header.btn_back is not None and _uh.PAGE_CULL in sw_.app_header.btn_back.text(),
+              "each page has '◀ previous page' at the top left")
+        check(pw.app_header.right.indexOf(pw.btn_finish) >= 0 and sw_.app_header.right.indexOf(sw_.btn_prepare) >= 0,
+              "next-step buttons sit at the top right")
+        pw.app_header.btn_back.click()
+        QApplication.processEvents()
+        check(sw_.isVisible(), "◀ back brings the previous window forward")
+        fw.raise_()
+        QApplication.processEvents()
         shot("15_finish_start.png", fw)
         fw.open_tool("combine")
         check(len(fw.variants) >= 2 and len(fw.group.buttons()) == len(fw.variants),

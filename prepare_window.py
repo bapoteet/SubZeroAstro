@@ -724,7 +724,7 @@ class PrepareWindow(QMainWindow):
         self.btn_finish.setEnabled(False)
         self.btn_finish.clicked.connect(lambda: open_finish(self, self.last_results))
         brow.addWidget(self.btn_pi)
-        self.app_header.add_next(self.btn_finish, "Finish the Image")          # top left, page-turn style
+        self.app_header.add_next(self.btn_finish, "Finish the Image")          # top right, page-turn style
         brow.addWidget(self.btn_cancel)
         brow.addWidget(self.btn_start)
         root.addLayout(brow)

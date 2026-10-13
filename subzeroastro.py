@@ -41,7 +41,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.6 beta"
+APP_VERSION = "0.8.7 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -1150,7 +1150,7 @@ class MainWindow(QMainWindow):
         tb2.addSeparator()
         tb2.addAction(self.act_start_over)
         self.update_preset_tooltips()
-        # next step, top left of the banner (like turning a page)
+        # next step, top right of the banner (like turning a page)
         self.btn_next = QPushButton()
         self.btn_next.setToolTip("Open the Calibrate and Stack page with the frames you kept (Ctrl+K)")
         self.btn_next.clicked.connect(self.open_stacking)

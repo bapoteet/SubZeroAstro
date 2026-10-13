@@ -398,7 +398,7 @@ class StackWindow(QMainWindow):
                                     "just made, then get a step-by-step PixInsight plan")
         self.btn_prepare.setEnabled(False)
         self.btn_prepare.clicked.connect(self.open_prepare)
-        self.app_header.add_next(self.btn_prepare, "Prepare for PixInsight")   # top left, page-turn style
+        self.app_header.add_next(self.btn_prepare, "Prepare for PixInsight")   # top right, page-turn style
         self.btn_pi = QPushButton("Stop Here – Continue in PixInsight")
         self.btn_pi.setToolTip("Open the folder with the new master lights selected, plus a note of the "
                                "recommended PixInsight steps")
@@ -765,7 +765,7 @@ class StackWindow(QMainWindow):
         self.btn_prepare.setEnabled(bool(ok))
         self.btn_pi.setEnabled(bool(ok))
         if ok:
-            self.log("\nMasters are ready. Next: click “Prepare for PixInsight ➜” (top left) to crop, plate solve, remove "
+            self.log("\nMasters are ready. Next: click “Prepare for PixInsight ➜” (top right) to crop, plate solve, remove "
                      "gradients and run the XTerminators.")
         self.last_results = w.results
         self.last_saved_cal = w.saved_cal
