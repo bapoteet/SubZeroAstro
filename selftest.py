@@ -751,10 +751,12 @@ def run(app, out_dir: Path) -> int:
         st_ = fw.state
         check(F.next_step(st_) is None and not st_.linear, f"recommended workflow runs to a finished picture "
                                                            f"({done})")
-        check(done.index("stars_out") == done.index("combine") + 1 if "stars_out" in done and "combine" in done
-              else False, f"stars from Prepare: 'Take Stars Out' is offered as a real step, not pre-ticked ({done})")
-        check("star_color" in done and done.index("star_color") < done.index("stars_back"),
-              "narrowband: Star Colours is recommended before the stars go back")
+        if state["fake"]:                                  # stars were separated in Prepare (fake StarX)
+            check(done.index("stars_out") == done.index("combine") + 1 if "stars_out" in done and "combine" in done
+                  else False, f"stars from Prepare: 'Take Stars Out' is offered as a real step, not pre-ticked "
+                              f"({done})")
+            check("star_color" in done and done.index("star_color") < done.index("stars_back"),
+                  "narrowband: Star Colours is recommended before the stars go back")
         check(any("(fine-tuned)" in x["label"] for x in fw.project.steps), "fine-tuned values are applied")
         n_before = len(fw.project.steps)
         for key in ("core", "local", "spotfix"):            # the optional tools
