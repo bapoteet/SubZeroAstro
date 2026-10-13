@@ -644,7 +644,9 @@ class PrepareWindow(QMainWindow):
         self.out_edit = QLineEdit(s.value("prep/out_dir", "") or "")
         self.out_edit.setPlaceholderText("blank = a 'Prepared' folder next to the masters")
         self.out_edit.setToolTip("Where the finished images go. Leave blank to use a 'Prepared' folder next to "
-                                 "each set of master lights. Your original masters are never changed.")
+                                 "each set of master lights. If you pick a folder, each target gets its own "
+                                 "subfolder named after it (e.g. …\\IC1805), so targets never mix. "
+                                 "Your original masters are never changed.")
         orow.addWidget(self.out_edit, 1)
         b_out = QPushButton("Browse…")
         b_out.clicked.connect(self.browse_out_dir)

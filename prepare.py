@@ -699,6 +699,29 @@ class PrepareOptions:
     checkpoints: bool = True                # save after each step; resume / go back
 
 
+_TARGETISH = re.compile(r"^(NGC|IC|M|SH2|SH|LDN|LBN|VDB|ABELL|ARP|UGC|PGC|C|B|CED|GUM|RCW|HICKSON|HCG)"
+                        r"[\s_-]*\d+", re.I)
+
+
+def _norm_target(s: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+
+def target_out_dir(chosen, target: str) -> Path:
+    """Where to save when the user picked an output folder. Each target gets its own folder,
+    so IC 1805 never lands in a folder left over from NGC 891:
+      .../IC1805            -> used as is
+      .../NGC891            -> .../IC1805   (the folder is named after a different target)
+      .../FromSubZeroStacker-> .../FromSubZeroStacker/IC1805"""
+    p = Path(chosen)
+    if not target or _norm_target(p.name) == _norm_target(target):
+        return p
+    safe = re.sub(r'[<>:"/\\|?*]+', "_", str(target)).strip() or "Target"
+    if _TARGETISH.match(p.name):
+        return p.parent / safe
+    return p / safe
+
+
 def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, cancel=None,
                 save_image=None) -> dict:
     """Prepare one set of masters (same target / grid). save_image(path, rgb8) writes
@@ -716,7 +739,7 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
         return bool(cancel and cancel())
 
     target = masters[0].target
-    out_dir = Path(opts.out_dir) if opts.out_dir else masters[0].path.parent / "Prepared"
+    out_dir = target_out_dir(opts.out_dir, target) if opts.out_dir else masters[0].path.parent / "Prepared"
     out_dir.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="fbprep_", dir=opts.work_dir or None))
     n = len(masters)

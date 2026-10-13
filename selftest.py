@@ -544,6 +544,11 @@ def run(app, out_dir: Path) -> int:
         pw = state["pw"]
         res = getattr(pw, "last_results", []) or []
         check(len(res) == 1, f"prepare produced results ({len(res)})")
+        from prepare import target_out_dir as _tod
+        check(_tod("C:/out/NGC891", "IC1805").name == "IC1805"
+              and _tod("C:/out", "IC1805").name == "IC1805"
+              and _tod("C:/out/IC1805", "IC1805").parent.name == "out",
+              "custom output folder gets a per-target subfolder")
         if res:
             names = sorted(Path(f).name for f in res[0]["files"])
             log("prepared: " + ", ".join(names))
