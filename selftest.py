@@ -219,7 +219,7 @@ def run(app, out_dir: Path) -> int:
         import splash as _sp
         sp = _sp.Splash("SubZeroAstro", "Brian A. Poteet", "From subs to masters - zero hassle.", "0.0 test")
         sp.show()
-        for t_ in (0.35, 0.9, 1.45, 1.8, 2.4, 3.0):
+        for t_ in (0.5, 1.0, 1.5, 1.9, 2.2, 2.6, 3.0, 3.5, 4.0):
             sp.set_time(t_)
             QApplication.processEvents()
             pm = sp.grab()
@@ -234,7 +234,7 @@ def run(app, out_dir: Path) -> int:
         while not state["splash_done"] and time.time() < t_end:
             QApplication.processEvents()
             time.sleep(0.01)
-        check(state["splash_done"] and not sp2.isVisible(), "intro animation plays and closes by itself (~3.5 s)")
+        check(state["splash_done"] and not sp2.isVisible(), "intro animation plays and closes by itself (~4.5 s)")
         w.open_folder(session, use_cache=False)
         QTimer.singleShot(250, wait_loaded)
 
