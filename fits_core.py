@@ -430,7 +430,21 @@ _FILTER_MAP = {
     "R": "R", "RED": "R",
     "G": "G", "GREEN": "G",
     "B": "B", "BLUE": "B",
+    # dual-band / multi-band filters for colour cameras (names as people type them)
+    "LULTIMATE": "L-Ultimate", "LULT": "L-Ultimate", "OPTOLONGLULTIMATE": "L-Ultimate",
+    "LEXTREME": "L-eXtreme", "LEXT": "L-eXtreme", "OPTOLONGLEXTREME": "L-eXtreme",
+    "LENHANCE": "L-eNhance", "LENH": "L-eNhance", "OPTOLONGLENHANCE": "L-eNhance",
+    "LPRO": "L-Pro", "OPTOLONGLPRO": "L-Pro",
+    "ALPT": "ALP-T", "ANTLIAALPT": "ALP-T",
+    "NBZ": "NBZ", "IDASNBZ": "NBZ", "NBX": "NBX",
+    "DUALBAND": "Dual-band", "DUOBAND": "Duo-band",
 }
+
+DUAL_BAND = {"L-Ultimate", "L-eXtreme", "L-eNhance", "ALP-T", "NBZ", "NBX", "Dual-band", "Duo-band"}
+
+
+def is_dual_band(filter_name) -> bool:
+    return normalize_filter(filter_name) in DUAL_BAND
 
 
 def normalize_filter(raw) -> str:
@@ -556,6 +570,7 @@ class Frame:
     metrics: dict = field(default_factory=dict)
     flagged: bool = False
     flag_note: str = ""                 # why an auto-cull preset flagged it
+    filter_override: str | None = None  # filter name set by the user (camera didn't record it)
     badge: str = "none"                 # green / amber / red / grey / none
     reasons: list = field(default_factory=list)
     score: float | None = None
@@ -648,15 +663,34 @@ def frames_from_files(files):
     return frames
 
 
-def scan_sources(sources):
+def _date_obs(path) -> str | None:
+    """DATE-OBS from the first header block (cheap: one small read)."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(2880 * 3)
+        for i in range(0, len(head) - 79, 80):
+            card = head[i:i + 80]
+            if card.startswith(b"DATE-OBS="):
+                return card[10:80].split(b"/")[0].strip().strip(b"'").strip().decode("ascii", "replace")
+            if card.startswith(b"END "):
+                break
+    except OSError:
+        pass
+    return None
+
+
+def scan_sources(sources, duplicates: list | None = None):
     """
     Combine several folders and/or file lists into one session.
     sources: list of ("folder", path, recursive) or ("files", [paths]).
     Returns (frames, root): frames with unique uids (duplicates dropped) and a
     root folder used to show short folder names in the sidebar.
+    Duplicates - the same file added twice, or the same frame copied into two folders
+    (same name, size and capture time) - are skipped and listed in `duplicates`.
     """
     frames: list[Frame] = []
     seen = set()
+    by_name = {}                       # (name, size) -> frame, to spot copies in other folders
     folders = []
     for src in sources:
         if src[0] == "folder":
@@ -668,8 +702,16 @@ def scan_sources(sources):
         for f in found:
             key = os.path.normcase(os.path.abspath(str(f.path)))
             if key in seen:
+                if duplicates is not None:
+                    duplicates.append(f.path)
+                continue
+            twin = by_name.get((f.path.name.lower(), f.size))
+            if twin is not None and f.size and _date_obs(f.path) == _date_obs(twin.path) is not None:
+                if duplicates is not None:
+                    duplicates.append(f.path)
                 continue
             seen.add(key)
+            by_name.setdefault((f.path.name.lower(), f.size), f)
             f.uid = len(frames)
             frames.append(f)
     root = common_root(folders)

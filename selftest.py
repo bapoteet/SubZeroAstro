@@ -285,6 +285,28 @@ def run(app, out_dir: Path) -> int:
 
     def shots_5():
         shot("5_zoom_100.png")
+        # --- 0.8.3: kept-frames summary, header window, filter name
+        kept_txt = w.kept_label.text()
+        check("of 16 frames" in kept_txt and "FWHM" in kept_txt, f"kept-frames summary shows live averages "
+                                                                 f"({kept_txt[:60]}…)")
+        check(w.btn_next.isEnabled() and w.btn_next.parent() is not None, "next step 'Calibrate & Stack ➜' in the banner")
+        w.show_header_window()
+        hd = getattr(w, "header_dialog", None)
+        check(hd is not None and hd.table.rowCount() >= 10 and "NAXIS1" in hd.as_text(),
+              f"FITS header window lists the header ({hd.table.rowCount() if hd else 0} cards)")
+        if hd:
+            hd.search.setText("EXPTIME")
+            check(hd.table.rowCount() == 1, "header window search finds a keyword")
+            hd.close()
+        all_uids = list(w.frames)
+        w.set_filter(all_uids, "L-Ultimate")
+        check(all(f.info.get("filter") == "L-Ultimate" for f in w.frames.values()) and "L-Ultimate" in w.known_filters,
+              "Set Filter Name relabels the frames")
+        w.set_filter(all_uids, None)
+        check(not any(f.filter_override for f in w.frames.values()), "filter name can be set back to the recorded one")
+        w.act_show_image.setChecked(False)
+        check(not w.view.isVisible(), "the image can be hidden")
+        w.act_show_image.setChecked(True)
         w.view.fit()
         # --- auto-cull presets
         for key in ("less", "semi", "aggressive"):
@@ -317,6 +339,10 @@ def run(app, out_dir: Path) -> int:
         dlg.add_source(("folder", second, False))
         dlg.add_source(("folder", second, False))           # duplicate is ignored
         check(len(dlg.sources()) == 2, "Load Data lists 2 folders (duplicate ignored)")
+        dlg.filter_combo.setCurrentText("LUlt")
+        check(dlg.filter_override() == "L-Ultimate", "Load Data: filter name typed as 'LUlt' becomes L-Ultimate")
+        dlg.filter_combo.setCurrentIndex(0)
+        check(dlg.filter_override() is None, "Load Data: '(as recorded)' leaves the files' filter")
         dlg.show()
         QTimer.singleShot(500, lambda: shots_7(dlg))
 
@@ -333,12 +359,15 @@ def run(app, out_dir: Path) -> int:
               f"Reopen Last Session restores folders and flags ({len(got)} flagged)")
         w.reset_session()
         state["t2"] = time.time()
-        w.open_sources(sources)
+        w.open_sources(sources + [("folder", session, False)])
+        check(w.toast.isVisible() and "16 duplicate" in w.toast.text(),
+              f"duplicate frames skipped with a notice ({w.toast.text()[:50]})")
         QTimer.singleShot(300, wait_two)
 
     def wait_two():
         if w.loaded_count >= len(w.frames) and len(w.frames) > 0:
             check(len(w.frames) == 32, f"two folders loaded together ({len(w.frames)} frames)")
+            pass
             folders = {f.rel_folder for f in w.frames.values()}
             check(folders == {"M33", "M33_night2"}, f"frames keep their folder names ({sorted(folders)})")
             w.refresh_stats()

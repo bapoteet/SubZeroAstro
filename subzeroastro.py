@@ -41,7 +41,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.2 beta"
+APP_VERSION = "0.8.3 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -66,6 +66,53 @@ def to_qimage(arr) -> QImage:
     h, w = arr.shape
     buf = arr.tobytes()
     return QImage(buf, w, h, w, QImage.Format_Grayscale8).copy()
+
+
+PREVIEW_MAX = 1600            # side of the previews kept on disk
+PREVIEW_KEEP = 3000           # at most this many preview files
+_preview_saves = 0
+
+
+def _preview_path(f) -> Path:
+    import hashlib
+    key = hashlib.sha1(f"{os.path.normcase(str(f.path))}|{f.size}|{f.mtime_ns}".encode("utf-8")).hexdigest()
+    return core.cache_dir() / "previews" / f"{key}.jpg"
+
+
+def preview_load(f):
+    """(QImage, factor) from the local preview cache, or None."""
+    p = _preview_path(f)
+    if not p.exists() or not f.display_size:
+        return None
+    img = QImage(str(p))
+    if img.isNull() or img.width() == 0:
+        return None
+    return img, max(1, int(round(f.display_size[0] / img.width())))
+
+
+def preview_save(f, img: QImage, factor: int):
+    """Keep a screen-sized JPEG of a frame on this computer, so it shows instantly next time."""
+    try:
+        p = _preview_path(f)
+        if p.exists():
+            return
+        p.parent.mkdir(parents=True, exist_ok=True)
+        k = 1
+        while max(img.width(), img.height()) / k > PREVIEW_MAX:
+            k += 1
+        small = img if k == 1 else img.scaled(img.width() // k, img.height() // k, Qt.IgnoreAspectRatio,
+                                               Qt.SmoothTransformation)
+        small.save(str(p), "JPG", 88)
+        global _preview_saves
+        _preview_saves += 1
+        if _preview_saves % 100:
+            return                                   # prune now and then, not on every frame
+        files = list(p.parent.glob("*.jpg"))
+        if len(files) > PREVIEW_KEEP:
+            for old in sorted(files, key=lambda x: x.stat().st_mtime)[:len(files) - PREVIEW_KEEP]:
+                old.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 class LoaderSignals(QObject):
@@ -410,6 +457,137 @@ class AutoFlagDialog(QDialog):
 # Load Data dialog: collect folders / files from several places, then start
 # --------------------------------------------------------------------------
 
+class HeaderDialog(QDialog):
+    """Every header card of a FITS / XISF file in its own window (a "header dump")."""
+
+    def __init__(self, parent, path=None, cards=None, title=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.resize(820, 680)
+        lay = QVBoxLayout(self)
+        self.head = QLabel()
+        self.head.setWordWrap(True)
+        self.head.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(self.head)
+        row = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search keywords, values and comments…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self.fill)
+        row.addWidget(self.search, 1)
+        b_open = QPushButton("Open Another File…")
+        b_open.clicked.connect(self.open_other)
+        b_copy = QPushButton("Copy All")
+        b_copy.setToolTip("Copy the whole header as text (80-column FITS cards)")
+        b_copy.clicked.connect(self.copy_all)
+        row.addWidget(b_open)
+        row.addWidget(b_copy)
+        lay.addLayout(row)
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Keyword", "Value", "Comment"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setAlternatingRowColors(True)
+        lay.addWidget(self.table, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.close)
+        lay.addWidget(bb)
+        self.cards = []
+        self.load(path, cards, title)
+
+    def load(self, path=None, cards=None, title=None):
+        self.path = Path(path) if path else None
+        if cards is None and self.path is not None:
+            try:
+                import stacking as st
+                cards = st.ImageSource(self.path).cards
+            except Exception as e:  # noqa: BLE001
+                cards = [("ERROR", str(e), "")]
+        self.cards = [(str(k), v, str(c or "")) for k, v, c in (cards or [])
+                      if not str(k).startswith("_")]
+        name = title or (self.path.name if self.path else "header")
+        self.setWindowTitle(f"FITS header — {name}")
+        size = ""
+        if self.path is not None and self.path.exists():
+            size = f" · {self.path.stat().st_size / 1e6:.1f} MB"
+        self.head.setText(f"<b>{name}</b>{size}<br><span style='color:#9a9aa6'>"
+                          f"{self.path.parent if self.path else ''}</span><br>{len(self.cards)} header cards")
+        self.fill()
+
+    def fill(self, *_):
+        q = self.search.text().strip().lower()
+        rows = [c for c in self.cards if not q or q in " ".join(str(x) for x in c).lower()]
+        self.table.setRowCount(len(rows))
+        for r, (k, v, c) in enumerate(rows):
+            for col, text in enumerate((k, "" if v is None else str(v), c)):
+                it = QTableWidgetItem(text)
+                if col == 0:
+                    f = it.font()
+                    f.setBold(True)
+                    it.setFont(f)
+                self.table.setItem(r, col, it)
+        self.table.resizeColumnToContents(1)
+        if self.table.columnWidth(1) > 320:
+            self.table.setColumnWidth(1, 320)
+
+    def as_text(self):
+        out = []
+        for k, v, c in self.cards:
+            if k in ("COMMENT", "HISTORY"):
+                out.append(f"{k:8s} {'' if v is None else v}")
+                continue
+            if isinstance(v, bool):
+                val = "T" if v else "F"
+            elif isinstance(v, str):
+                val = "'" + v.replace("'", "''") + "'"
+            else:
+                val = "" if v is None else str(v)
+            out.append(f"{k:8s}= {val:>20s}" + (f" / {c}" if c else ""))
+        return "\n".join(out)
+
+    def copy_all(self):
+        QApplication.clipboard().setText(self.as_text())
+
+    def open_other(self):
+        f, _ = QFileDialog.getOpenFileName(self, "Show the header of…", str(self.path.parent if self.path else ""),
+                                           "FITS / XISF (*.fits *.fit *.fts *.xisf);;All files (*)")
+        if f:
+            self.load(f)
+
+
+class Toast(QLabel):
+    """A message that floats over the top of a window for a few seconds."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWordWrap(True)
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet("QLabel { background:#3a2f12; color:#ffe2a0; border:1px solid #e0a030; "
+                           "border-radius:6px; padding:8px 16px; font-size:10.5pt; }")
+        self.hide()
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.hide)
+
+    def show_message(self, text, seconds=6):
+        self.setText(text)
+        w = min(760, max(320, self.parent().width() - 80))
+        self.setFixedWidth(w)
+        self.adjustSize()
+        self.move((self.parent().width() - w) // 2, 12)
+        self.raise_()
+        self.show()
+        self.timer.start(int(seconds * 1000))
+
+
+COMMON_FILTERS = ["L-Ultimate", "L-eXtreme", "L-eNhance", "L-Pro", "ALP-T", "NBZ", "UV/IR cut",
+                  "L", "R", "G", "B", "Ha", "OIII", "SII", "No filter"]
+
+
 class LoadDataDialog(QDialog):
     """Build a list of folders and files to process. Nothing is measured until
     Start Processing is pressed."""
@@ -457,6 +635,24 @@ class LoadDataDialog(QDialog):
         row.addStretch(1)
         row.addWidget(self.chk_sub)
         lay.addLayout(row)
+
+        frow = QHBoxLayout()
+        flab = QLabel("Filter used:")
+        flab.setToolTip("If the camera software didn't record the filter (the ASIAIR can't), or recorded it "
+                        "wrong, type or pick the real one here. It is used for grouping, quality "
+                        "comparison, stacking and matching your flats - your files are not changed.")
+        frow.addWidget(flab)
+        self.filter_combo = QComboBox()
+        self.filter_combo.setEditable(True)
+        self.filter_combo.addItem("(as recorded in the files)")
+        self.filter_combo.addItems(COMMON_FILTERS)
+        self.filter_combo.setToolTip(flab.toolTip())
+        last = settings.value("load/filter_override", "") or ""
+        if last:
+            self.filter_combo.setCurrentText(last)
+        frow.addWidget(self.filter_combo, 1)
+        frow.addWidget(QLabel("<span style='color:#9a9aa6'>for every frame loaded here</span>"))
+        lay.addLayout(frow)
 
         self.total = QLabel()
         f = self.total.font()
@@ -544,6 +740,12 @@ class LoadDataDialog(QDialog):
     def sources(self):
         return [self.list.item(i).data(self.ROLE_SRC) for i in range(self.list.count())]
 
+    def filter_override(self):
+        t = self.filter_combo.currentText().strip()
+        val = "" if (not t or t.startswith("(as recorded")) else core.normalize_filter(t)
+        self.settings.setValue("load/filter_override", val)
+        return val or None
+
     # -- drag and drop
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -585,6 +787,7 @@ class MainWindow(QMainWindow):
         self.known_filters: list[str] = []
         self.root: Path | None = None
         self.sources: list = []              # what was loaded, for Reload / Re-measure
+        self.filter_overrides: dict = {}     # path -> filter name set by the user
         self.medians: dict = {}
         self.disk_cache: dict[Path, dict] = {}      # folder -> {cache_key: entry}
         self.cache_dirty: set[Path] = set()
@@ -709,6 +912,15 @@ class MainWindow(QMainWindow):
             lab.setFont(tf)
             return lab
 
+        il.addWidget(heading("Kept frames"))
+        self.kept_label = QLabel("–")
+        self.kept_label.setWordWrap(True)
+        self.kept_label.setTextFormat(Qt.RichText)
+        self.kept_label.setToolTip("Live summary of the frames that will go to the stacker: everything not "
+                                   "rejected and not flagged. Updates as you flag and reject.")
+        self.kept_label.setStyleSheet("QLabel { background:#18263a; border:1px solid #2c4466; border-radius:5px;"
+                                      " padding:6px; }")
+        il.addWidget(self.kept_label)
         il.addWidget(heading("Quality"))
         qform = QFormLayout()
         qform.setLabelAlignment(Qt.AlignRight)
@@ -739,7 +951,15 @@ class MainWindow(QMainWindow):
             self.info_labels[key] = lab
         il.addLayout(form)
 
-        il.addWidget(QLabel("FITS header"))
+        hrow = QHBoxLayout()
+        hrow.addWidget(QLabel("FITS header"))
+        hrow.addStretch(1)
+        b_hdr = QToolButton()
+        b_hdr.setText("Open in Window")
+        b_hdr.setToolTip("Show the full header of this frame in its own window (Ctrl+H)")
+        b_hdr.clicked.connect(self.show_header_window)
+        hrow.addWidget(b_hdr)
+        il.addLayout(hrow)
         self.header_search = QLineEdit()
         self.header_search.setPlaceholderText("Search header…")
         self.header_search.setClearButtonEnabled(True)
@@ -793,6 +1013,7 @@ class MainWindow(QMainWindow):
         cv.addWidget(self.ready_bar)
         cv.addWidget(self.splitter, 1)
         self.setCentralWidget(central)
+        self.toast = Toast(central)
 
         self.status_label = QLabel()
         self.progress = QProgressBar()
@@ -854,6 +1075,20 @@ class MainWindow(QMainWindow):
 
         self.act_stack = act("Stack Kept Frames…", self.open_stacking, "Ctrl+K", QStyle.SP_MediaPlay,
                              "Open the Stacking window with the frames you kept (Ctrl+K)")
+        self.act_header = act("Show FITS Header…", self.show_header_window, "Ctrl+H", None,
+                              "Show every header card of the current frame in its own window (Ctrl+H)")
+        self.act_header_file = act("Inspect a File's FITS Header…", self.inspect_file_header, None, None,
+                                   "Show the header of any FITS or XISF file")
+        self.act_set_filter = act("Set Filter Name…", self.set_filter_dialog, None, None,
+                                  "Tell SubZeroAstro which filter was used, for the selected frames or all frames "
+                                  "(when the camera didn't record it). Your files are not changed.")
+        self.act_show_image = QAction("Show Image", self, checkable=True)
+        self.act_show_image.setChecked(True)
+        self.act_show_image.setShortcut("Ctrl+I")
+        self.act_show_image.setToolTip("Show or hide the big image (Ctrl+I). Hiding it stops loading previews "
+                                       "from the drive - faster on a NAS.")
+        self.act_show_image.toggled.connect(self.toggle_image)
+        self.addAction(self.act_show_image)
         self.act_start_over = act("Start Over – Load New Data…", self.start_over, "Ctrl+N",
                                   QStyle.SP_BrowserReload,
                                   "Clear this session and open a new folder (Ctrl+N)")
@@ -890,6 +1125,7 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         tb.addAction(self.act_fit)
         tb.addAction(self.act_100)
+        tb.addAction(self.act_show_image)
 
         # Second row: auto-cull presets and Start Over
         self.addToolBarBreak()
@@ -912,14 +1148,13 @@ class MainWindow(QMainWindow):
                                   f"QToolButton:hover {{ background: {colors[key]}40; }}")
         tb2.addAction(self.act_reject_flagged)
         tb2.addSeparator()
-        tb2.addAction(self.act_stack)
-        btn = tb2.widgetForAction(self.act_stack)
-        if btn is not None:
-            btn.setStyleSheet("QToolButton { border: 1px solid #4a86e8; border-radius: 4px; padding: 3px 10px; "
-                              "margin: 2px 3px; font-weight: bold; } QToolButton:hover { background: #4a86e840; }")
-        tb2.addSeparator()
         tb2.addAction(self.act_start_over)
         self.update_preset_tooltips()
+        # next step, top left of the banner (like turning a page)
+        self.btn_next = QPushButton()
+        self.btn_next.setToolTip("Open the Calibrate and Stack page with the frames you kept (Ctrl+K)")
+        self.btn_next.clicked.connect(self.open_stacking)
+        self.app_header.add_next(self.btn_next, "Calibrate & Stack")
 
         mb = self.menuBar()
         m = mb.addMenu("&File")
@@ -928,6 +1163,7 @@ class MainWindow(QMainWindow):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_export)
+        m.addAction(self.act_header_file)
         m.addSeparator()
         m.addAction(self.act_quit)
         m = mb.addMenu("&Frame")
@@ -936,6 +1172,8 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         for a in (self.act_flag, self.act_autoflag, self.act_reject_flagged, self.act_clear_flags):
             m.addAction(a)
+        m.addAction(self.act_set_filter)
+        m.addAction(self.act_header)
         cm = m.addMenu("Auto-cull")
         for a in self.preset_actions.values():
             cm.addAction(a)
@@ -954,6 +1192,7 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self.open_finish)
         m.addAction(a)
         m = mb.addMenu("&View")
+        m.addAction(self.act_show_image)
         m.addAction(self.act_fit)
         m.addAction(self.act_100)
         m = mb.addMenu("&Settings")
@@ -1020,7 +1259,7 @@ class MainWindow(QMainWindow):
         dlg = LoadDataDialog(self, self.settings, self.chk_sub.isChecked(), initial)
         if dlg.exec():
             self.chk_sub.setChecked(dlg.chk_sub.isChecked())
-            self.open_sources(dlg.sources())
+            self.open_sources(dlg.sources(), filter_name=dlg.filter_override())
 
     def choose_folder(self):
         start = self.settings.value("last_folder", str(Path.home()))
@@ -1033,12 +1272,13 @@ class MainWindow(QMainWindow):
         self.settings.setValue("last_folder", str(folder))
         self.open_sources([("folder", folder, self.chk_sub.isChecked())], use_cache)
 
-    def open_sources(self, sources, use_cache=True):
+    def open_sources(self, sources, use_cache=True, filter_name=None):
         self.statusBar().showMessage("Scanning folders…")
         QApplication.setOverrideCursor(Qt.WaitCursor)
+        dups = []
         try:
             QApplication.processEvents()
-            frames, root = core.scan_sources(sources)
+            frames, root = core.scan_sources(sources, dups)
         finally:
             QApplication.restoreOverrideCursor()
             self.statusBar().clearMessage()
@@ -1049,8 +1289,17 @@ class MainWindow(QMainWindow):
                                     + "\n\nTip: tick “Include subfolders” if your frames are in subfolders.")
             return
         self.sources = list(sources)
+        if filter_name:
+            for f in frames:
+                self.filter_overrides[str(f.path)] = filter_name
+        for f in frames:
+            f.filter_override = self.filter_overrides.get(str(f.path))
         self.open_frames(frames, root, use_cache)
         self.session_timer.start()
+        if dups:
+            self.toast.show_message(f"{len(dups)} duplicate frame{'s were' if len(dups) != 1 else ' was'} skipped "
+                                    "- the same file added twice, or the same frame in two folders.", 7)
+            self.log_dups = dups
         n_src = len(sources)
         if n_src > 1:
             self.setWindowTitle(f"{APP_NAME} — {n_src} sources under {root}")
@@ -1153,7 +1402,9 @@ class MainWindow(QMainWindow):
         f.stretch = tuple(res["stretch"])
         f.display_size = tuple(res["display_size"])
         f.cards = res["cards"]
-        f.info = res["info"]
+        f.info = dict(res["info"])
+        if f.filter_override:
+            f.info["filter"] = f.filter_override
         f.metrics = res.get("metrics") or {}
         f.night = core.night_of(f.info)
         filt = f.info.get("filter") or "No filter"
@@ -1348,7 +1599,8 @@ class MainWindow(QMainWindow):
         if f.error:
             return
         self.pending_display.add(key)
-        self.display_pool.start(DisplayTask(self.generation, uid, f.path, f.stretch, full, self.signals))
+        self.display_pool.start(DisplayTask(self.generation, uid, f.path, f.stretch, full, self.signals),
+                                2 if uid == self.current_uid else 0)
 
     def request_detail(self):
         uid = self.current_uid
@@ -1365,6 +1617,8 @@ class MainWindow(QMainWindow):
         key = (uid, full)
         self.pending_display.discard(key)
         self.cache[key] = (img, factor)
+        if not full and uid in self.frames:
+            preview_save(self.frames[uid], img, factor)
         self.cache.move_to_end(key)
         while len(self.cache) > CACHE_SIZE:
             old = next(iter(self.cache))
@@ -1572,6 +1826,15 @@ class MainWindow(QMainWindow):
         if f is None:
             self.view.clear("No frames to show" if self.frames else None)
             return
+        if not self.view.isVisible() and not self.act_show_image.isChecked():
+            return                                    # image hidden: don't read previews from the drive
+        if (uid, False) not in self.cache and (uid, True) not in self.cache and not f.error:
+            pv = preview_load(f)
+            if pv is not None:                        # screen-sized preview saved on this computer
+                self.cache[(uid, False)] = pv
+        # what you click comes first: drop queued look-ahead loads
+        self.display_pool.clear()
+        self.pending_display = {k for k in self.pending_display if k[0] == uid}
         if f.error:
             self.view.clear(f"Could not read {f.name}:\n{f.error}")
         elif (uid, True) in self.cache:
@@ -1961,6 +2224,7 @@ class MainWindow(QMainWindow):
         self.order = []
         self.root = None
         self.sources = []
+        self.filter_overrides = {}
         self.current_uid = None
         self.loaded_count = 0
         self.to_load = 0
@@ -2015,6 +2279,118 @@ class MainWindow(QMainWindow):
         if freed:
             self.statusBar().showMessage(f"Deleted old saved progress ({cp.human(freed)})", 5000)
 
+    # ------------------------------------------------------------ header dump, filter, image
+    def show_header_window(self):
+        f = self.frames.get(self.current_uid) if self.current_uid is not None else None
+        if f is None:
+            self.inspect_file_header()
+            return
+        dlg = HeaderDialog(self, f.path, f.cards or None, f.name)
+        dlg.show()
+        self.header_dialog = dlg
+
+    def inspect_file_header(self):
+        start = str(self.root) if self.root else self.settings.value("last_folder", str(Path.home()))
+        p, _ = QFileDialog.getOpenFileName(self, "Show the header of…", start,
+                                           "FITS / XISF (*.fits *.fit *.fts *.xisf);;All files (*)")
+        if p:
+            dlg = HeaderDialog(self, p)
+            dlg.show()
+            self.header_dialog = dlg
+
+    def set_filter_dialog(self):
+        if not self.frames:
+            QMessageBox.information(self, APP_NAME, "Load some frames first.")
+            return
+        sel = self.selected_uids()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Set Filter Name")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel("Which filter were these frames taken with?\n(Used for grouping, quality comparison, "
+                             "stacking and matching flats. Your files are not changed.)"))
+        combo = QComboBox()
+        combo.setEditable(True)
+        combo.addItems(COMMON_FILTERS)
+        cur = self.frames[sel[0]].info.get("filter") if sel else None
+        if cur and cur != "No filter":
+            combo.setCurrentText(cur)
+        lay.addWidget(combo)
+        r_sel = QCheckBox(f"Only the {len(sel)} selected frame(s)") if len(sel) > 1 else None
+        if r_sel:
+            r_sel.setChecked(True)
+            lay.addWidget(r_sel)
+        b_reset = QCheckBox("Go back to the filter recorded in the files")
+        lay.addWidget(b_reset)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        if not dlg.exec():
+            return
+        uids = sel if (r_sel and r_sel.isChecked()) else list(self.frames)
+        name = None if b_reset.isChecked() else core.normalize_filter(combo.currentText())
+        self.set_filter(uids, name)
+
+    def set_filter(self, uids, name):
+        for u in uids:
+            f = self.frames[u]
+            f.filter_override = name
+            if name:
+                self.filter_overrides[str(f.path)] = name
+                f.info["filter"] = name
+            else:
+                self.filter_overrides.pop(str(f.path), None)
+                f.info["filter"] = core.frame_info(core.cards_to_dict(f.cards)).get("filter") if f.cards else None
+        self.known_filters = sorted({f.info.get("filter") or "No filter" for f in self.frames.values() if f.loaded})
+        self.filter_combo.blockSignals(True)
+        self.filter_combo.clear()
+        self.filter_combo.addItem("All filters")
+        self.filter_combo.addItems(self.known_filters)
+        self.filter_combo.blockSignals(False)
+        self.refresh_stats()
+        self.rebuild_list()
+        self.session_timer.start()
+        self.statusBar().showMessage(f"Filter set to {name or 'as recorded'} for {len(uids)} frame(s)", 5000)
+
+    def toggle_image(self, on):
+        self.view.setVisible(on)
+        if on:
+            self.show_current()
+
+    def update_kept_summary(self):
+        if not hasattr(self, "btn_next") or not hasattr(self, "kept_label"):
+            return
+        kept = [f for f in self.frames.values() if not f.rejected and not f.flagged and not f.error]
+        if not self.frames:
+            self.kept_label.setText("–")
+            self.btn_next.setEnabled(False)
+            return
+        meas = [f for f in kept if f.metrics]
+        hours = sum(float((f.info or {}).get("exptime") or 0) for f in kept) / 3600
+
+        def avg(k):
+            v = [f.metrics.get(k) for f in meas if f.metrics.get(k) is not None]
+            return (sum(v) / len(v)) if v else None
+        txt = (f"<b>{len(kept)}</b> of {len(self.frames)} frames · <b>{hours:.1f} h</b>"
+               f"{'  ·  ' + str(len(meas)) + ' measured' if len(meas) < len(kept) else ''}<br>")
+        parts = []
+        fw = avg("fwhm")
+        if fw is not None:
+            scales = [float(f.info.get("scale")) for f in meas if (f.info or {}).get("scale")]
+            arc = f" ({fw * (sum(scales) / len(scales)):.1f}″)" if scales else ""
+            parts.append(f"FWHM <b>{fw:.2f}</b> px{arc}")
+        for k, lab, fmt in (("eccentricity", "Ecc", "{:.2f}"), ("snr", "SNR", "{:.0f}"), ("stars", "Stars", "{:.0f}")):
+            v = avg(k)
+            if v is not None:
+                parts.append(f"{lab} <b>{fmt.format(v)}</b>")
+        txt += " · ".join(parts) if parts else "<span style='color:#9a9aa6'>measuring…</span>"
+        filters = sorted({f.info.get("filter") or "No filter" for f in kept if f.info})
+        if len(filters) > 1:
+            txt += "<br><span style='color:#9a9aa6'>" + ", ".join(
+                f"{fl}: {sum(1 for f in kept if (f.info.get('filter') or 'No filter') == fl)}" for fl in filters) + "</span>"
+        self.kept_label.setText(txt)
+        self.btn_next.setEnabled(bool(kept))
+
     # ------------------------------------------------------------ session (0.6)
     @staticmethod
     def session_path() -> Path:
@@ -2041,6 +2417,7 @@ class MainWindow(QMainWindow):
         cur = self.frames.get(self.current_uid)
         d = {"sources": srcs,
              "flags": {str(f.path): f.flag_note for f in self.frames.values() if f.flagged and not f.rejected},
+             "filters": dict(self.filter_overrides),
              "frames": len(self.frames), "rejected": sum(1 for f in self.frames.values() if f.rejected),
              "show": self.show_combo.currentText(), "current": str(cur.path) if cur else None,
              "time": time.strftime("%Y-%m-%d %H:%M"), "clean": bool(clean)}
@@ -2083,6 +2460,7 @@ class MainWindow(QMainWindow):
                                     "(is the NAS / drive connected?).")
             return
         flags = d.get("flags", {})
+        self.filter_overrides.update(d.get("filters", {}) or {})
         self.open_sources(sources)
         if not self.frames:
             return
@@ -2118,6 +2496,10 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ status
     def update_status(self):
+        self.update_kept_summary()
+        self._update_status()
+
+    def _update_status(self):
         n = len(self.frames)
         if n == 0:
             self.status_label.setText("No folder open")

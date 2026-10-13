@@ -722,7 +722,7 @@ class PrepareWindow(QMainWindow):
         self.btn_finish.setEnabled(False)
         self.btn_finish.clicked.connect(lambda: open_finish(self, self.last_results))
         brow.addWidget(self.btn_pi)
-        brow.addWidget(self.btn_finish)
+        self.app_header.add_next(self.btn_finish, "Finish the Image")          # top left, page-turn style
         brow.addWidget(self.btn_cancel)
         brow.addWidget(self.btn_start)
         root.addLayout(brow)
@@ -1052,9 +1052,6 @@ class PrepareWindow(QMainWindow):
         self.last_results = res
         self.btn_pi.setEnabled(bool(res))
         self.btn_finish.setEnabled(bool(res))
-        if res:
-            self.btn_finish.setStyleSheet("QPushButton { background:#4a86e8; color:white; font-weight:bold; "
-                                          "padding:6px 14px; border-radius:4px; }")
         self.refresh_history(keep_view=True)
         if self.hist_combo.count() > 1:
             self.hist_combo.setCurrentIndex(self.hist_combo.count() - 1)

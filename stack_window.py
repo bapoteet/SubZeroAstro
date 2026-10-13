@@ -43,6 +43,8 @@ def lights_from_session(frames) -> tuple[list, list]:
             continue
         w, h = int(look.get("NAXIS1", 0) or 0), int(look.get("NAXIS2", 0) or 0)
         info = st.info_from_look(f.path, look, w, h, "light")
+        if getattr(f, "filter_override", None):
+            info.filter = f.filter_override          # the user said which filter was really used
         lights.append(st.LightFrame(info, f.score, (f.metrics or {}).get("fwhm")))
     return lights, skipped
 
@@ -396,7 +398,7 @@ class StackWindow(QMainWindow):
                                     "just made, then get a step-by-step PixInsight plan")
         self.btn_prepare.setEnabled(False)
         self.btn_prepare.clicked.connect(self.open_prepare)
-        brow.addWidget(self.btn_prepare)
+        self.app_header.add_next(self.btn_prepare, "Prepare for PixInsight")   # top left, page-turn style
         self.btn_pi = QPushButton("Stop Here – Continue in PixInsight")
         self.btn_pi.setToolTip("Open the folder with the new master lights selected, plus a note of the "
                                "recommended PixInsight steps")
@@ -519,6 +521,19 @@ class StackWindow(QMainWindow):
                 if v is None:
                     continue
                 self.table.setItem(r, c, QTableWidgetItem(v))
+            # filter: editable combo - force the filter when the header has it wrong / missing
+            fcombo = QComboBox()
+            fcombo.setEditable(True)
+            fchoices = sorted({c.filter for c in self.items if c.kind == "flat" and c.filter} | {g.filter})
+            for name in fchoices:
+                fcombo.addItem(name)
+            fcombo.setCurrentText(g.filter)
+            fcombo.setToolTip("The filter these lights were taken with. If the camera didn't record it (or got it "
+                              "wrong), pick the filter of your flats here and they will be used. Your files are "
+                              "not changed.")
+            fcombo.activated.connect(lambda _i, g=g, cbx=fcombo: self.set_group_filter(g, cbx.currentText()))
+            fcombo.lineEdit().editingFinished.connect(lambda g=g, cbx=fcombo: self.set_group_filter(g, cbx.currentText()))
+            self.table.setCellWidget(r, 2, fcombo)
             # rig name: editable combo
             combo = QComboBox()
             combo.setEditable(True)
@@ -547,6 +562,16 @@ class StackWindow(QMainWindow):
         if self.groups:
             self.table.selectRow(0)
         self.show_plan_details()
+
+    def set_group_filter(self, g, name):
+        import fits_core as core
+        name = core.normalize_filter(name.strip()) if name.strip() else ""
+        if not name or name == g.filter:
+            return
+        for lf in g.frames:
+            lf.info.filter = name
+        self.log(f"{g.target}: filter set to {name} for {len(g.frames)} frames - calibration re-matched")
+        self.refresh_all()
 
     def set_rig(self, g, name):
         name = name.strip()
@@ -739,9 +764,7 @@ class StackWindow(QMainWindow):
         self.btn_prepare.setEnabled(bool(ok))
         self.btn_pi.setEnabled(bool(ok))
         if ok:
-            self.btn_prepare.setStyleSheet("QPushButton { background: #4a86e8; color: white; font-weight: bold; "
-                                           "padding: 6px 14px; border-radius: 4px; }")
-            self.log("\nMasters are ready. Next: click “Prepare for PixInsight…” to crop, plate solve, remove "
+            self.log("\nMasters are ready. Next: click “Prepare for PixInsight ➜” (top left) to crop, plate solve, remove "
                      "gradients and run the XTerminators.")
         self.last_results = w.results
         self.last_saved_cal = w.saved_cal

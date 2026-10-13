@@ -21,14 +21,34 @@ PAGE_PREPARE = "Prepare for PixInsight"
 PAGE_FINISH = "Finish the Image"
 
 
+NEXT_STYLE = ("QPushButton { background:#2f6fd6; color:white; font-weight:700; font-size:10.5pt; "
+              "padding:7px 16px; border-radius:6px; border:1px solid #5a92ee; }"
+              "QPushButton:hover { background:#3b7ff0; }"
+              "QPushButton:disabled { background:#2a2f3a; color:#6c7486; border:1px solid #363c48; }")
+
+
 class AppHeader(QWidget):
     def __init__(self, page_title: str, parent=None):
         super().__init__(parent)
         self.setObjectName("appHeader")
         self.setStyleSheet("QWidget#appHeader { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
                            "stop:0 #10203a, stop:1 #16161c); border-bottom: 1px solid #2c3e5c; }")
-        v = QVBoxLayout(self)
-        v.setContentsMargins(8, 6, 8, 6)
+        from PySide6.QtWidgets import QGridLayout
+        g = QGridLayout(self)
+        g.setContentsMargins(10, 6, 10, 6)
+        g.setHorizontalSpacing(8)
+        # left: the "next step" button(s) - like turning the page of a book
+        self.left = QHBoxLayout()
+        self.left.setSpacing(6)
+        lw = QWidget()
+        lw.setStyleSheet("background:transparent;")
+        lw.setLayout(self.left)
+        g.addWidget(lw, 0, 0, Qt.AlignLeft | Qt.AlignVCenter)
+        # centre: name and page title
+        mid = QWidget()
+        mid.setStyleSheet("background:transparent;")
+        v = QVBoxLayout(mid)
+        v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         row = QHBoxLayout()
         row.setSpacing(10)
@@ -48,9 +68,26 @@ class AppHeader(QWidget):
         self.page.setStyleSheet("color:#9fc0ec; font-size:11pt; font-weight:600; background:transparent;"
                                 "border:none;")
         v.addWidget(self.page)
+        g.addWidget(mid, 0, 1)
+        self.right = QHBoxLayout()
+        rw = QWidget()
+        rw.setStyleSheet("background:transparent;")
+        rw.setLayout(self.right)
+        g.addWidget(rw, 0, 2, Qt.AlignRight | Qt.AlignVCenter)
+        g.setColumnStretch(0, 1)          # equal side columns keep the title centred
+        g.setColumnStretch(2, 1)
 
     def set_page(self, title: str):
         self.page.setText(title)
+
+    def add_next(self, button, text=None):
+        """Show a 'next step' button at the top left, with a right arrow."""
+        if text:
+            button.setText(f"{text}  ➜")
+        button.setStyleSheet(NEXT_STYLE)
+        button.setCursor(Qt.PointingHandCursor)
+        self.left.addWidget(button)
+        return button
 
 
 def install_header(window, page_title: str, with_menu: bool = False) -> AppHeader:
