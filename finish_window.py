@@ -214,6 +214,112 @@ class ExportDialog(QDialog):
         super().accept()
 
 
+class AstroBinDialog(QDialog):
+    """Share to AstroBin: the picture plus an acquisition CSV for AstroBin's upload page."""
+
+    def __init__(self, parent, settings, sessions, default_dir):
+        super().__init__(parent)
+        import astrobin as AB
+        self.settings, self.sessions = settings, sessions
+        self.setWindowTitle("Share to AstroBin")
+        self.setMinimumWidth(640)
+        lay = QVBoxLayout(self)
+        intro = QLabel("SubZeroAstro saves your picture and an <b>acquisition file</b> with every night's subs, "
+                       "exposure, gain, temperature and FWHM, then opens AstroBin's upload page.<br>"
+                       "On AstroBin: upload the picture, and on the <i>Acquisition</i> step click "
+                       "<b>Import CSV</b> and choose the .csv file.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        tbl = QPlainTextEdit()
+        tbl.setReadOnly(True)
+        tbl.setMaximumHeight(150)
+        lines = [f"{'Night':<12}{'Filter':<14}{'Subs':>6}{'Exp s':>8}{'Gain':>6}{'Temp':>6}" + f"{'FWHM(as)':>9}"]
+        for x in sessions:
+            lines.append(f"{x.date:<12}{x.filter[:13]:<14}{x.number:>6}{AB._fmt(x.duration):>8}"
+                         f"{AB._fmt(x.gain):>6}{AB._fmt(x.cooling, 0):>6}{AB._fmt(x.fwhm):>9}")
+        lines += ["", AB.summary(sessions)]
+        tbl.setPlainText("\n".join(lines))
+        tbl.setStyleSheet("font-family: Consolas, monospace;")
+        lay.addWidget(tbl)
+        form = QFormLayout()
+        # AstroBin wants its own filter ID numbers; remembered per filter name
+        self.fid = {}
+        for filt in sorted({x.filter for x in sessions}):
+            row = QHBoxLayout()
+            e = QLineEdit(settings.value(f"astrobin/filter_id/{filt}", "") or "")
+            e.setPlaceholderText("optional - AstroBin filter number")
+            e.setToolTip("AstroBin identifies filters by a number: open your filter's page in AstroBin's "
+                         "equipment database and copy the number from the page address. Remembered "
+                         "for next time. Leave blank to choose the filter on AstroBin instead.")
+            row.addWidget(e, 1)
+            b = QPushButton("Find…")
+            b.setToolTip("Open AstroBin's filter database in your browser")
+            b.clicked.connect(lambda _=False: self._open(AB.FILTER_SEARCH_URL))
+            row.addWidget(b)
+            self.fid[filt] = e
+            form.addRow(f"{filt} filter ID:", row)
+        from PySide6.QtWidgets import QDoubleSpinBox, QSpinBox
+        self.bortle = QSpinBox()
+        self.bortle.setRange(0, 9)
+        self.bortle.setSpecialValueText("(not set)")
+        self.bortle.setValue(int(settings.value("astrobin/bortle", 0) or 0))
+        form.addRow("Bortle class:", self.bortle)
+        self.sqm = QDoubleSpinBox()
+        self.sqm.setRange(0, 23)
+        self.sqm.setDecimals(2)
+        self.sqm.setSpecialValueText("(not set)")
+        self.sqm.setValue(float(settings.value("astrobin/sqm", 0) or 0))
+        form.addRow("Sky quality (SQM):", self.sqm)
+        self.chk_cal = QCheckBox("Include calibration frame counts (darks, flats, dark-flats, bias)")
+        self.chk_cal.setChecked(settings.value("astrobin/cal", True, type=bool))
+        form.addRow("", self.chk_cal)
+        self.chk_tif = QCheckBox("Also save a 16-bit TIFF (JPG is always saved)")
+        self.chk_tif.setToolTip("AstroBin accepts JPG, PNG and TIFF. The JPG is smaller and uploads quickly; "
+                                "the TIFF keeps full quality but may exceed your AstroBin plan's file size limit.")
+        self.chk_tif.setChecked(settings.value("astrobin/tif", False, type=bool))
+        form.addRow("", self.chk_tif)
+        row = QHBoxLayout()
+        self.dir = QLineEdit(str(default_dir))
+        b = QPushButton("Browse…")
+        b.clicked.connect(self._browse)
+        row.addWidget(self.dir, 1)
+        row.addWidget(b)
+        form.addRow("Folder:", row)
+        self.chk_open = QCheckBox("Open AstroBin's upload page when done")
+        self.chk_open.setChecked(settings.value("astrobin/open", True, type=bool))
+        form.addRow("", self.chk_open)
+        lay.addLayout(form)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText("Save for AstroBin")
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    @staticmethod
+    def _open(url):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl(url))
+
+    def _browse(self):
+        d = QFileDialog.getExistingDirectory(self, "Save the AstroBin files to", self.dir.text())
+        if d:
+            self.dir.setText(d)
+
+    def filter_ids(self):
+        return {f: e.text().strip() for f, e in self.fid.items()}
+
+    def accept(self):
+        for f, v in self.filter_ids().items():
+            self.settings.setValue(f"astrobin/filter_id/{f}", v)
+        self.settings.setValue("astrobin/bortle", self.bortle.value())
+        self.settings.setValue("astrobin/sqm", self.sqm.value())
+        self.settings.setValue("astrobin/cal", self.chk_cal.isChecked())
+        self.settings.setValue("astrobin/tif", self.chk_tif.isChecked())
+        self.settings.setValue("astrobin/open", self.chk_open.isChecked())
+        super().accept()
+
+
 # --------------------------------------------------------------------------
 # The window
 # --------------------------------------------------------------------------
@@ -252,7 +358,11 @@ class FinishWindow(QMainWindow):
                 ("Save Project As…", self.save_project_dialog, "Keep this project (every step) in a folder of "
                                                                  "your choice"),
                 ("Save the Picture…", self.export_dialog, "Save the image as it looks now (TIFF, JPG, PNG, "
-                                                          "XISF, FITS)")):
+                                                          "XISF, FITS)"),
+                ("Share to AstroBin…", self.share_astrobin, "Save the picture and an acquisition file that "
+                                                            "AstroBin's upload page imports (every night's subs, "
+                                                            "exposure, gain, temperature, FWHM), then open "
+                                                            "AstroBin's upload page")):
             b = QPushButton(text)
             b.setToolTip(tip)
             b.clicked.connect(slot)
@@ -1015,6 +1125,48 @@ class FinishWindow(QMainWindow):
             return F.export(self.state, folder / name, fmts, save_rgb8=save_rgb8)
         self.run_job(work, lambda files: (self.log("Saved " + ", ".join(str(f) for f in files)),
                                           tools.reveal(files)), "Saving the picture…")
+
+    def share_astrobin(self, auto_accept=False):
+        """Picture + acquisition CSV for AstroBin's upload page (its API cannot upload)."""
+        import astrobin as AB
+        if not self.state or self.state.rgb is None:
+            QMessageBox.information(self, "Finish", "Combine the colour channels first.")
+            return None
+        if self.state.linear and not auto_accept:
+            if QMessageBox.question(self, "Share to AstroBin", "The picture has not been brightened (stretched) "
+                                    "yet, so it will look almost black on AstroBin. Share it anyway?") \
+                    != QMessageBox.StandardButton.Yes:
+                return None
+        sessions = AB.acquisition(self.state.sources)
+        dlg = AstroBinDialog(self, self.settings, sessions, self.default_out_dir().parent / "AstroBin")
+        if not auto_accept and not dlg.exec():
+            return None
+        folder = Path(dlg.dir.text().strip())
+        name = cp.safe_name(self.state.target)
+        fmts = ["jpg"] + (["tif"] if dlg.chk_tif.isChecked() else [])
+        ids, bortle = dlg.filter_ids(), dlg.bortle.value() or None
+        sqm, cal, open_page = dlg.sqm.value() or None, dlg.chk_cal.isChecked(), dlg.chk_open.isChecked()
+
+        def work():
+            files = F.export(self.state, folder / f"{name}_AstroBin", fmts, save_rgb8=save_rgb8)
+            files.append(AB.write_csv(folder / f"{name}_astrobin_acquisition.csv", sessions, ids, bortle, sqm, cal))
+            return files
+
+        def done(files):
+            self.last_astrobin_files = files
+            self.log(f"Saved for AstroBin in {folder}: " + ", ".join(Path(f).name for f in files))
+            if self.synchronous:
+                return
+            tools.reveal(files)
+            if open_page:
+                AstroBinDialog._open(AB.UPLOAD_URL)
+            QMessageBox.information(self, "Share to AstroBin",
+                                    "<b>Ready for AstroBin.</b><br><br>1. Drag <b>" + Path(files[0]).name +
+                                    "</b> onto AstroBin's upload page.<br>2. On the <i>Acquisition</i> step, "
+                                    "choose <b>Import CSV</b> and pick <b>" + Path(files[-1]).name + "</b>.<br>"
+                                    "<br>The folder is open for you.")
+        self.run_job(work, done, "Saving for AstroBin…")
+        return dlg
 
     def stop_here_pixinsight(self):
         if not self.state:

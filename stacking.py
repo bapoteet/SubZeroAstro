@@ -1733,6 +1733,51 @@ def use_saved_calibration(item, files) -> bool:
     return True
 
 
+def acquisition_keywords(g, res, header, half=False) -> list:
+    """Per-night acquisition summary, kept in the master (and every file made from it) so the
+    final picture can be shared to AstroBin with its acquisition details filled in.
+      ACQ01 = 'night|subs|sub exposure s|gain|sensor C|FWHM arcsec|binning'
+      ACQCAL = 'darks|flats|flatDarks|bias'"""
+    skipped = {s for s, _ in res.skipped}
+    look = {k: v for k, v, _c in header}
+    pix = _num(look.get("XPIXSZ"))
+    focal = _num(look.get("FOCALLEN"))
+    scale = 206.265 * (pix / (2 if half else 1)) / focal if pix and focal else None
+    nights = {}
+    for f in g.frames:
+        i = f.info
+        if i.path.name in skipped:
+            continue
+        n = int(i.stackcnt or 1)
+        sub = (i.exposure_total / n) if n > 1 else (i.exptime or 0)
+        key = (i.night or "", round(float(sub), 3), i.gain, i.binning or 1)
+        d = nights.setdefault(key, {"n": 0, "temps": [], "fwhm": []})
+        d["n"] += n
+        if i.temp is not None:
+            d["temps"].append(i.temp)
+        if f.fwhm and scale:
+            d["fwhm"].append(f.fwhm * scale)
+    out = []
+
+    def fmt(v, nd=2):
+        return "" if v is None else f"{float(v):.{nd}f}".rstrip("0").rstrip(".")
+    for j, (key, d) in enumerate(sorted(nights.items(), key=lambda kv: kv[0][0]), 1):
+        if j > 99:
+            break
+        night, sub, gain, b = key
+        temp = round(float(np.mean(d["temps"]))) if d["temps"] else None
+        fw = float(np.mean(d["fwhm"])) if d["fwhm"] else None
+        out.append((f"ACQ{j:02d}", "|".join([night, str(d["n"]), fmt(sub, 4), fmt(gain), fmt(temp, 0), fmt(fw),
+                                             str(int(b))]), "night|subs|exp|gain|cool|fwhm|bin"))
+    plan = g.plan or CalPlan()
+    darks = plan.dark.count if plan.dark else 0
+    flats = plan.flat.count if plan.flat else 0
+    fdarks = plan.flat_dark.count if plan.flat_dark else 0
+    bias = (plan.bias.count if plan.bias else 0) or (plan.flat_bias.count if plan.flat_bias else 0)
+    out.append(("ACQCAL", f"{darks}|{flats}|{fdarks}|{bias}", "darks|flats|flatDarks|bias"))
+    return out
+
+
 def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) -> list:
     g = res.group
     i0 = g.ref
@@ -1769,6 +1814,10 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
     if g.ref.bayer:
         header.append(("COLORSPC", "RGB", "debayered" + (" (superpixel)" if opts.osc_half else " (bilinear)")))
     header += reference_keywords(res.ref_path or g.ref.path, half=bool(g.ref.bayer) and opts.osc_half)
+    try:
+        header += acquisition_keywords(g, res, header, half=bool(g.ref.bayer) and opts.osc_half)
+    except Exception:  # noqa: BLE001 - a summary must never stop a master being saved
+        pass
     if res.common_ref:
         header.append(("ALIGNREF", res.common_ref, "all masters of this target share this grid"))
     if res.autocrop:

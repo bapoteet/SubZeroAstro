@@ -106,6 +106,19 @@ image exactly as it is at that moment as PixInsight-ready XISF (linear or stretc
 if they are separated, or each filter if not combined yet) with a short note listing the PixInsight
 processes that carry on from there - and opens the folder with the files selected.
 
+### Share to AstroBin (new in 0.8.9)
+
+**Share to AstroBin…** (top of the Finish window) saves the picture as a JPG (and optionally a
+16-bit TIFF) plus `<target>_astrobin_acquisition.csv`, opens the folder and AstroBin's upload page.
+Upload the picture, then on AstroBin's *Acquisition* step click **Import CSV** and pick the file:
+every night's subs, exposure, gain, sensor temperature, binning, mean FWHM (arcsec) and your
+calibration frame counts are filled in. Optional: your AstroBin filter ID numbers (remembered per
+filter), Bortle class and SQM.
+
+AstroBin's public API is read-only, so the upload itself happens in your browser. The night-by-night
+details come from `ACQnn` / `ACQCAL` keywords SubZeroAstro now writes into every master it stacks;
+masters stacked elsewhere get one row each from their standard headers.
+
 ## Smart telescopes (new in 0.6)
 
 SubZeroAstro reads the files from **ZWO Seestar**, **DWARF** (mini / II / 3), **Vaonis Vespera**

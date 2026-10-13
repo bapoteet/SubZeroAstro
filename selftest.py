@@ -467,6 +467,12 @@ def run(app, out_dir: Path) -> int:
               f"master saved in PixInsight's 0-1 range (max {float(d.max()):.3f})")
         check(bool(look.get("ALIGNREF")) and look.get("FOCALLEN") == 1140.0,
               f"master records its common reference and plate-solve hints ({look.get('ALIGNREF')})")
+        import astrobin as AB
+        ses = AB.sessions_from_header(look)
+        check(sum(x.number for x in ses) == 16 and all(x.duration == 300 for x in ses) and ses
+              and ses[0].cal.get("flats", 0) > 0 and ses[0].filter == "Ha",
+              f"master records each night's acquisition for AstroBin "
+              f"({[(x.date, x.number, x.duration, x.fwhm) for x in ses]}, {ses[0].cal if ses else None})")
         origins = {(g.filter, k): getattr(g.plan, k).origin for g in win.groups for k in ("bias", "dark", "flat")
                    if getattr(g.plan, k) is not None}
         check(all(o == "library" for o in origins.values()),
@@ -735,6 +741,16 @@ def run(app, out_dir: Path) -> int:
         pf = getattr(fw, "last_pi_files", [])
         check(len(pf) >= 2 and pf[0].suffix == ".txt" and all(p.exists() for p in pf),
               f"Stop Here - Continue in PixInsight saves XISF + a note ({[p.name for p in pf]})")
+        fw.share_astrobin(auto_accept=True)
+        af = [Path(p) for p in getattr(fw, "last_astrobin_files", [])]
+        rows = []
+        if af and af[-1].suffix == ".csv":
+            import csv as _csv
+            rows = list(_csv.reader(open(af[-1], encoding="utf-8")))
+        check(any(p.suffix == ".jpg" for p in af) and len(rows) >= 3 and rows[0][:4] == ["date", "filter", "number",
+                                                                                            "duration"]
+              and sum(int(r[2]) for r in rows[1:]) == 32,
+              f"Share to AstroBin saves the picture + an acquisition CSV ({[p.name for p in af]}, {rows[:3]})")
         # go back two steps, then reopen: the project resumes
         fw.hist.setCurrentIndex(2)                           # just after the first two steps
         fw.go_back()
