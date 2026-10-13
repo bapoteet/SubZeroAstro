@@ -215,6 +215,26 @@ def run(app, out_dir: Path) -> int:
         log(f"screenshot {name}: {'saved' if ok else 'FAILED'} ({pm.width()}x{pm.height()})")
 
     def start():
+        # the intro animation: frames at set moments, and it closes by itself
+        import splash as _sp
+        sp = _sp.Splash("SubZeroAstro", "Brian A. Poteet", "From subs to masters - zero hassle.", "0.0 test")
+        sp.show()
+        for t_ in (0.35, 0.9, 1.45, 1.8, 2.4, 3.0):
+            sp.set_time(t_)
+            QApplication.processEvents()
+            pm = sp.grab()
+            pm.save(str(out_dir / f"0_splash_{t_:.2f}s.png"))
+        sp.close()
+        sp2 = _sp.Splash("SubZeroAstro", "Brian A. Poteet", "From subs to masters - zero hassle.")
+        state["splash_done"] = False
+        sp2.finished.connect(lambda: state.__setitem__("splash_done", True))
+        sp2.start()
+        sp2.app_ready()
+        t_end = time.time() + 8
+        while not state["splash_done"] and time.time() < t_end:
+            QApplication.processEvents()
+            time.sleep(0.01)
+        check(state["splash_done"] and not sp2.isVisible(), "intro animation plays and closes by itself (~3.5 s)")
         w.open_folder(session, use_cache=False)
         QTimer.singleShot(250, wait_loaded)
 

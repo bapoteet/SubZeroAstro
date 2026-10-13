@@ -1202,6 +1202,12 @@ class MainWindow(QMainWindow):
         a = QAction("Saved Progress (crash recovery)…", self)
         a.triggered.connect(lambda: CheckpointDialog(self, self.settings).exec())
         m.addAction(a)
+        a = QAction("Show Intro Animation at Startup", self)
+        a.setCheckable(True)
+        a.setChecked(self.settings.value("ui/splash", True, type=bool))
+        a.toggled.connect(lambda on: self.settings.setValue("ui/splash", on))
+        m.addAction(a)
+        self.act_splash = a
         m = mb.addMenu("&Help")
         a = QAction("Keyboard Shortcuts", self)
         a.triggered.connect(self.show_keys)
@@ -1212,6 +1218,16 @@ class MainWindow(QMainWindow):
         a = QAction("About", self)
         a.triggered.connect(self.show_about)
         m.addAction(a)
+        a = QAction("Play the Intro Animation", self)
+        a.triggered.connect(self.play_splash)
+        m.addAction(a)
+
+    def play_splash(self):
+        import splash
+        sp = splash.Splash(APP_NAME, APP_AUTHOR, APP_TAGLINE, APP_VERSION)
+        sp.app_ready()
+        sp.start()
+        self._splash = sp
 
     # ---------------------------------------------------------- settings
     def _restore_settings(self):
@@ -2677,10 +2693,28 @@ def main():
         QMessageBox.critical(None, APP_NAME, f"Unexpected error:\n\n{value}\n\n{msg[-1500:]}")
     sys.excepthook = excepthook
 
+    sp = None
+    if QSettings("FITSBlasterWin", "FITSBlasterWin").value("ui/splash", True, type=bool):
+        try:
+            import splash
+            sp = splash.Splash(APP_NAME, APP_AUTHOR, APP_TAGLINE, APP_VERSION)
+            sp.start()
+            app.processEvents()
+        except Exception:  # noqa: BLE001 - the intro must never stop the app starting
+            sp = None
     w = MainWindow()
-    w.show()
-    if len(sys.argv) <= 1:
-        QTimer.singleShot(400, w.offer_resume)
+
+    def show_main():
+        w.show()
+        w.raise_()
+        w.activateWindow()
+        if len(sys.argv) <= 1:
+            QTimer.singleShot(400, w.offer_resume)
+    if sp is not None:
+        sp.finished.connect(show_main)
+        sp.app_ready()
+    else:
+        show_main()
     if len(sys.argv) > 1:
         target = Path(sys.argv[1])
         QTimer.singleShot(0, lambda: w.open_folder(target) if target.is_dir()
