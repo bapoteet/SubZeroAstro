@@ -1,7 +1,8 @@
 """
 ui_header.py - the banner shown at the top of every SubZeroAstro window:
 
-                 SubZeroAstro   by Brian A. Poteet
+                         SubZeroAstro
+                       by Brian A. Poteet
                   Astro Image Quality and Cull
 
 It sits above the menus and toolbars, so it is always visible.
@@ -54,23 +55,21 @@ class AppHeader(QWidget):
         v = QVBoxLayout(mid)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
-        row = QHBoxLayout()
-        row.setSpacing(10)
-        row.addStretch(1)
+        # three centred lines: name / by author (very small) / page title
         self.name = QLabel(APP_NAME)
+        self.name.setAlignment(Qt.AlignCenter)
         self.name.setStyleSheet("color:#cfe3ff; font-size:20pt; font-weight:700; letter-spacing:1px;"
                                 "background:transparent; border:none;")
-        row.addWidget(self.name, 0, Qt.AlignBottom)
+        v.addWidget(self.name)
         self.by = QLabel(f"by {AUTHOR}")
-        self.by.setStyleSheet("color:#8a93a6; font-size:8pt; font-style:italic; padding-bottom:5px;"
+        self.by.setAlignment(Qt.AlignCenter)
+        self.by.setStyleSheet("color:#8a93a6; font-size:7pt; font-style:italic; margin-top:-3px;"
                               "background:transparent; border:none;")
-        row.addWidget(self.by, 0, Qt.AlignBottom)
-        row.addStretch(1)
-        v.addLayout(row)
+        v.addWidget(self.by)
         self.page = QLabel(page_title)
         self.page.setAlignment(Qt.AlignCenter)
         self.page.setStyleSheet("color:#9fc0ec; font-size:11pt; font-weight:600; background:transparent;"
-                                "border:none;")
+                                "border:none; margin-top:1px;")
         v.addWidget(self.page)
         g.addWidget(mid, 0, 1)
         self.right = QHBoxLayout()
