@@ -289,7 +289,7 @@ def run(app, out_dir: Path) -> int:
         kept_txt = w.kept_label.text()
         check("of 16 frames" in kept_txt and "FWHM" in kept_txt, f"kept-frames summary shows live averages "
                                                                  f"({kept_txt[:60]}…)")
-        check(w.btn_next.isEnabled() and w.btn_next.parent() is not None, "next step 'Calibrate & Stack ➜' in the banner")
+        check(w.btn_next.isEnabled() and 'Calibrate and Stack' in w.btn_next.text(), "next step 'Calibrate and Stack ➜' in the banner")
         w.show_header_window()
         hd = getattr(w, "header_dialog", None)
         check(hd is not None and hd.table.rowCount() >= 10 and "NAXIS1" in hd.as_text(),

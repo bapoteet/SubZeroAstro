@@ -1154,7 +1154,7 @@ class MainWindow(QMainWindow):
         self.btn_next = QPushButton()
         self.btn_next.setToolTip("Open the Calibrate and Stack page with the frames you kept (Ctrl+K)")
         self.btn_next.clicked.connect(self.open_stacking)
-        self.app_header.add_next(self.btn_next, "Calibrate & Stack")
+        self.app_header.add_next(self.btn_next, "Calibrate and Stack")
 
         mb = self.menuBar()
         m = mb.addMenu("&File")

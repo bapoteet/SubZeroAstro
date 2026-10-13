@@ -559,6 +559,7 @@ class StackWindow(QMainWindow):
                 it.setToolTip(tip)
                 self.table.setItem(r, c, it)
         self.table.blockSignals(False)
+        self.table.setColumnWidth(2, max(self.table.columnWidth(2), 130))   # room for the filter name
         if self.groups:
             self.table.selectRow(0)
         self.show_plan_details()
