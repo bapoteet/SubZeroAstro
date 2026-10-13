@@ -496,7 +496,7 @@ class FinishWindow(QMainWindow):
         sg = QFormLayout(self.sign_row)
         sg.setContentsMargins(0, 0, 0, 0)
         self.sign_text = QLineEdit(self.settings.value("finish/signature", "") or "")
-        self.sign_text.setPlaceholderText("Your name, e.g. B. Poteet")
+        self.sign_text.setPlaceholderText("Type your name as you want it to appear")
         self.sign_text.setToolTip("What to write - remembered for next time")
         sg.addRow("Signature:", self.sign_text)
         self.sign_corner = QComboBox()
