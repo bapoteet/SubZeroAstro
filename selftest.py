@@ -142,6 +142,9 @@ def run(app, out_dir: Path) -> int:
     check(_F.dual_band_filter("LUlt") and _F.dual_band_filter("Optolong L-Synergy") and not _F.dual_band_filter("L-Pro")
           and core.band_lines("L-Synergy")[0] == "SII" and core.band_lines("L-Ultimate")[0] == "Ha",
           "dual-band filters recognised (L-Ultimate: Ha+OIII, L-Synergy: SII+OIII)")
+    check(core.filter_from_name("Light_IC 1805_180.0s_Bin1_2600MC_SQA55Lult_0107.fit") == "L-Ultimate"
+          and core.filter_from_name("Light_Ha_001.fits") is None and core.filter_from_name("Lullaby.fits") is None,
+          "filter found in file names ('…SQA55Lult_0107.fit' -> L-Ultimate)")
     _pal = _P.palettes_for([_P.load_master(_P.find_masters([sm])[0])])
     check(_pal[0].startswith("HOO (dual-band)"), f"Seestar LP stack gets dual-band quick-look palettes ({_pal})")
     # faint, noisy subs with hot pixels (like 10 s Seestar subs) must still align

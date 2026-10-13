@@ -41,7 +41,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.4 beta"
+APP_VERSION = "0.8.5 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -1461,7 +1461,36 @@ class MainWindow(QMainWindow):
                                         else f"%v / %m  ·  ~{left:.0f} s left")
             self.update_status()
 
+    def suggest_filter_from_names(self):
+        """The camera recorded no filter, but the file names mention one ("…Lult_0107.fit")."""
+        frames = [f for f in self.frames.values() if f.loaded and not f.filter_override
+                  and (f.info.get("filter") or "No filter") == "No filter"]
+        if len(frames) < 3 or getattr(self, "_filter_asked", None) == self.generation:
+            return
+        self._filter_asked = self.generation
+        found = {}
+        for f in frames:
+            name = core.filter_from_name(f.path.name) or core.filter_from_name(f.folder.name)
+            if name:
+                found.setdefault(name, []).append(f.uid)
+        if not found:
+            return
+        name, uids = max(found.items(), key=lambda kv: len(kv[1]))
+        if len(uids) < 0.6 * len(frames):
+            return
+        if getattr(self, "auto_answer_filter", None) is not None:
+            ok = self.auto_answer_filter
+        else:
+            ok = QMessageBox.question(
+                self, APP_NAME, f"The files record no filter, but {len(uids)} of their names mention "
+                f"“{name}”.\n\nUse {name} as the filter for these frames? (Used for grouping, stacking, matching "
+                "flats and choosing colour palettes. Your files are not changed. You can change it any time "
+                "with Frame › Set Filter Name….)") == QMessageBox.StandardButton.Yes
+        if ok:
+            self.set_filter(uids, name)
+
     def loading_finished(self):
+        QTimer.singleShot(300, self.suggest_filter_from_names)
         self.progress.hide()
         self.progress.setFormat("%v / %m")
         self.refresh_stats()
@@ -1517,13 +1546,25 @@ class MainWindow(QMainWindow):
     def update_warnings(self):
         msgs = []
         groups = {}
+        fwhms = {}
         for f in self.frames.values():
             if f.metrics and f.metrics.get("eccentricity") is not None and not f.rejected:
                 groups.setdefault(f.info.get("filter") or "No filter", []).append(f.metrics["eccentricity"])
+                if f.metrics.get("fwhm"):
+                    fwhms.setdefault(f.info.get("filter") or "No filter", []).append(f.metrics["fwhm"])
         for filt, es in sorted(groups.items()):
             if len(es) >= 3:
                 es.sort()
                 med = es[len(es) // 2]
+                fw = sorted(fwhms.get(filt, []))
+                fmed = fw[len(fw) // 2] if fw else None
+                if fmed is not None and fmed < 2.0:
+                    # stars only ~1.5 px wide: roundness can't be measured reliably, round stars read 0.4-0.6
+                    if med > 0.75:
+                        msgs.append(f"⚠ {filt}: stars look elongated (median e {med:.2f}), but they are very small "
+                                    f"(FWHM {fmed:.1f} px, undersampled) so this reading is uncertain — "
+                                    "check a few frames at 100%")
+                    continue
                 if med > 0.7:
                     msgs.append(f"⚠ {filt}: stars elongated in most frames (median e {med:.2f}) — "
                                 "check tracking, guiding or wind")

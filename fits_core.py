@@ -449,6 +449,20 @@ def is_dual_band(filter_name) -> bool:
     return normalize_filter(filter_name) in DUAL_BAND
 
 
+_NAME_FILTER = re.compile(r"(?i)(?<![a-z])(l[-_ ]?ult(?:imate)?|l[-_ ]?ext(?:reme)?|l[-_ ]?enh(?:ance)?|"
+                          r"l[-_ ]?syn(?:ergy)?|alp[-_ ]?t|nbz|nbx|l[-_ ]?pro)(?![a-z])")
+
+
+def filter_from_name(text) -> str | None:
+    """A filter named in a file or folder name ("..._SQA55Lult_0107.fit" -> L-Ultimate), for cameras
+    whose software doesn't record the filter."""
+    m = _NAME_FILTER.search(str(text))
+    if not m:
+        return None
+    f = normalize_filter(re.sub(r"[-_ ]", "", m.group(1)))
+    return f if f in DUAL_BAND or f == "L-Pro" else None
+
+
 def band_lines(filter_name):
     """The two emission lines a dual-band filter passes: (red-pixel line, 'OIII')."""
     return ("SII", "OIII") if normalize_filter(filter_name) in SII_OIII_BAND else ("Ha", "OIII")
