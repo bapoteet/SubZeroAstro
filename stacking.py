@@ -572,7 +572,8 @@ def plan_group(g: LightGroup, items: list[CalItem]) -> CalPlan:
         p.flat = pick(flats, lambda c: (dist(c), 0 if c.origin == "added" else 1, -c.count))
         dd = dist(p.flat)
         if 9999 > dd > 30:
-            p.notes.append(f"The flat is from {p.flat.night}, {dd} days from the lights — dust may have moved.")
+            p.notes.append(f"Heads-up only — this flat WILL be used. It is from {p.flat.night}, {dd} days from "
+                           "the lights, so dust may have moved; if dust spots look wrong, take new flats.")
         if p.flat.rotator is not None and L.rotator is not None and abs(p.flat.rotator - L.rotator) > 2:
             p.notes.append(f"Flats were taken at camera angle {p.flat.rotator:g}°, lights at {L.rotator:g}° — "
                            "dust shadows may not line up.")
