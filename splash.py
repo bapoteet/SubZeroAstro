@@ -97,14 +97,14 @@ def _spine():
         kinds.append("L")
     pts += [(0.140, 0.526), (0.112, 0.519)]
     kinds += ["S", "S"]
-    x, y, ang, step = 0.090, 0.515, math.radians(192), 0.024     # tail
-    for i in range(16):
+    x, y, ang, step = 0.090, 0.515, math.radians(196), 0.021     # tail
+    for i in range(13):
         pts.append((x, y))
         kinds.append("Cd")
         x += step * math.cos(ang)
         y += step * math.sin(ang)
         ang += math.radians(3.4)
-        step *= 0.955
+        step *= 0.94
     return pts, kinds
 
 
@@ -133,13 +133,15 @@ def _bone_paths():
         p.addEllipse(QPointF(*c), rx, ry)
         out.append((p, w, a, filled))
 
-    # skull and mandible
-    poly((0.768, 0.618), (0.763, 0.652), (0.785, 0.690), (0.825, 0.706), (0.862, 0.700), (0.888, 0.680),
-         (0.935, 0.656), (0.990, 0.633), (1.018, 0.612), (1.012, 0.596), (0.960, 0.592), (0.890, 0.590),
-         (0.845, 0.600), (0.800, 0.606), a=0.95)
-    ell((0.862, 0.648), 0.020, 0.017, a=0.0, w=0.005, filled=False)          # orbit (drawn as a dark ring)
-    poly((0.788, 0.608), (0.792, 0.574), (0.812, 0.562), (0.870, 0.566), (0.995, 0.582), (0.998, 0.590),
-         (0.870, 0.580), (0.820, 0.584), (0.806, 0.610), a=0.9)
+    # skull (lateral, nose to the right) and mandible
+    poly((0.765, 0.618), (0.760, 0.655), (0.775, 0.688), (0.800, 0.705), (0.835, 0.712), (0.865, 0.703),
+         (0.888, 0.684), (0.905, 0.668), (0.940, 0.655), (0.975, 0.643), (1.005, 0.632), (1.018, 0.622),
+         (1.016, 0.604), (0.990, 0.598), (0.940, 0.596), (0.890, 0.598), (0.865, 0.606), (0.820, 0.612),
+         (0.790, 0.600), (0.775, 0.606), a=0.92)
+    ell((0.872, 0.652), 0.017, 0.015, a=0.0, w=0.004, filled=False)          # orbit
+    line((0.815, 0.621), (0.893, 0.626), w=0.006, a=1.0)                      # zygomatic arch
+    poly((0.800, 0.612), (0.822, 0.642), (0.838, 0.612), (0.990, 0.592), (1.002, 0.588), (0.995, 0.578),
+         (0.900, 0.572), (0.805, 0.576), (0.792, 0.584), a=0.88)                # mandible
     for i in range(9):                                                        # teeth
         x = 0.885 + i * 0.013
         line((x, 0.592), (x + 0.002, 0.582), w=0.006, a=0.9)
@@ -422,8 +424,8 @@ class Splash(QWidget):
             p.drawPath(SOFT)
             for path, w, a, filled in BONES:
                 if a == 0.0:                                       # holes (orbit, obturator foramen)
-                    p.setPen(QPen(QColor(20, 28, 40, int(200 * xray)), w))
-                    p.setBrush(QColor(20, 28, 40, int(160 * xray)))
+                    p.setPen(QPen(QColor(205, 222, 242, int(150 * xray)), w))
+                    p.setBrush(QColor(25, 33, 46, int(110 * xray)))
                     p.drawPath(path)
                     continue
                 glow = QPen(QColor(150, 200, 255, int(45 * a * xray)), w * 2.6, Qt.SolidLine, Qt.RoundCap,
