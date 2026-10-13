@@ -412,8 +412,8 @@ class StackWindow(QMainWindow):
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.clicked.connect(self.cancel)
         brow.addWidget(self.btn_cancel)
-        self.btn_start = QPushButton("  Check && Stack  ")
-        self.btn_start.setStyleSheet("QPushButton { font-weight: bold; padding: 6px 18px; }")
+        self.btn_start = QPushButton("▶  Check && Stack")
+        self.btn_start.setStyleSheet(__import__("ui_header").RUN_STYLE)
         self.btn_start.clicked.connect(self.start)
         brow.addWidget(self.btn_start)
         lay.addLayout(brow)
@@ -827,8 +827,7 @@ class StackWindow(QMainWindow):
         import prepare_window
         self.prep_win = prepare_window.PrepareWindow(self, self.settings, self.master_files())
         self.prep_win.setAttribute(Qt.WA_DeleteOnClose, True)
-        self.prep_win.show()
-        self.prep_win.raise_()
+        __import__("ui_header").present(self.prep_win, self)
 
     def closeEvent(self, ev):
         if self.worker and self.worker.isRunning():

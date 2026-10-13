@@ -50,6 +50,8 @@ class State:
     lin_lum: np.ndarray | None = None      # (h, w) unstretched luminance, kept when the image is brightened
     sat_core: bool = False                 # the brightest area was clipped in the masters themselves
     stars_missing: bool = False            # starless master whose stars-only file was not found
+    stars_hidden: bool = False             # stars separated by Prepare but still shown in the picture:
+                                           # "Take Stars Out" makes the separation visible
 
     def copy(self) -> "State":
         return replace(self, channels=dict(self.channels), channel_stars=dict(self.channel_stars),
@@ -175,8 +177,7 @@ def load_state(paths) -> State:
             s.kind = "osc_dual"
         st_img = stars_of(m)
         if st_img is not None and st_img.shape == s.rgb.shape:
-            s.stars, s.stars_out = st_img, True
-            s.done.append("stars_out")
+            s.stars, s.stars_out, s.stars_hidden = st_img, True, True
         elif m.look.get("STARLESS"):
             # already starless but the stars file is missing: never run star removal twice
             s.done.append("stars_out")
@@ -197,8 +198,7 @@ def load_state(paths) -> State:
         k = sorted(f)[0]
         s.rgb = s.channels[k][None].copy()
         if k in s.channel_stars:
-            s.stars, s.stars_out = s.channel_stars[k][None].copy(), True
-            s.done.append("stars_out")
+            s.stars, s.stars_out, s.stars_hidden = s.channel_stars[k][None].copy(), True, True
         s.channels = {}
         s.channel_stars = {}
     return s
@@ -276,9 +276,13 @@ def display_fixed(img: np.ndarray, ref: np.ndarray) -> np.ndarray:
     return (np.clip(np.stack(out), 0, 1).transpose(1, 2, 0) * 255 + 0.5).astype(np.uint8)
 
 
-def state_display(s: State, linked=True) -> np.ndarray:
-    """What the user should see for a state: the full picture (stars added back for
-    viewing if they are separated)."""
+STAR_TOOLS = ("star_stretch", "shrink", "star_color")
+
+
+def state_display(s: State, linked=True, with_stars=None) -> np.ndarray:
+    """What the user should see for a state. With the stars taken out you see the nebula on
+    its own; the stars are shown when they were not taken out yet (stars_hidden), while the
+    star steps are worked on, or when with_stars=True."""
     if s.rgb is None:                          # mono set not combined yet: show a quick colour mix
         ch = {k: v + s.channel_stars.get(k, 0) for k, v in s.channels.items()}
         keys = [k for k in ("R", "G", "B") if k in ch] if s.kind in ("mono_rgb", "mono_lrgb") else []
@@ -289,11 +293,40 @@ def state_display(s: State, linked=True) -> np.ndarray:
         else:
             img = next(iter(ch.values()))[None]
         return display_rgb8(img, True, linked=False)
+    if with_stars is None:
+        with_stars = s.stars_hidden or bool(s.done and s.done[-1] in STAR_TOOLS)
     img = s.rgb
-    if s.stars_out and s.stars is not None and s.linear == s.stars_linear:
-        st_ = s.stars if s.stars.shape[0] == img.shape[0] else np.repeat(s.stars, img.shape[0], 0)
-        img = img + st_ if s.linear else 1 - (1 - img) * (1 - np.clip(st_, 0, 1))
-    return display_rgb8(img, s.linear, linked)
+    if not (with_stars and s.stars_out and s.stars is not None):
+        return display_rgb8(img, s.linear, linked)
+    st_ = s.stars if s.stars.shape[0] == img.shape[0] else np.repeat(s.stars, img.shape[0], 0)
+    if s.linear and s.stars_linear:
+        return display_rgb8(img + st_, True, linked)
+    if not s.linear and not s.stars_linear:
+        return display_rgb8(1 - (1 - img) * (1 - np.clip(st_, 0, 1)), False, linked)
+    # one brightened, the other not: put both on screen scale, then screen-blend
+    a = display_rgb8(img, s.linear, linked).astype(np.float32) / 255
+    b = display_rgb8(st_, s.stars_linear, linked).astype(np.float32) / 255
+    if s.stars_linear:                         # unstretched stars: keep only the stars, not the noise floor
+        b = np.clip((b - 0.12) / 0.88, 0, 1)
+    return (np.clip(1 - (1 - a) * (1 - b), 0, 1) * 255 + 0.5).astype(np.uint8)
+
+
+def merge_hidden_stars(s: State) -> State:
+    """The stars were never taken out (step skipped): put them back into the picture for good."""
+    if not s.stars_hidden or s.stars is None or s.rgb is None:
+        return s
+    s = s.copy()
+    st_ = s.stars if s.stars.shape[0] == s.rgb.shape[0] else np.repeat(s.stars, s.rgb.shape[0], 0)
+    if s.linear and s.stars_linear:
+        s.rgb = (s.rgb + st_).astype(np.float32)
+    else:
+        s.rgb = (1 - (1 - np.clip(s.rgb, 0, 1)) * (1 - np.clip(st_, 0, 1))).astype(np.float32)
+    s.stars, s.stars_out, s.stars_hidden = None, False, False
+    return s
+
+
+# tools that work on picture and stars side by side, so stars from Prepare can stay separate
+KEEPS_STARS_APART = {"stars_out", "palette", "combine", "balance", "scnr", "ha_glow"}
 
 
 # ==========================================================================
@@ -328,6 +361,17 @@ class Tool:
     spatial = False                # effect depends on pixel scale -> thumbnails are 1:1 crops
     optional = False               # offered, but not pushed by "Recommended next"
     editor = None                  # "curve" -> the window also shows a curve you can drag
+    shows_stars = False            # previews show the stars too (star steps)
+
+    def __init_subclass__(cls, **kw):
+        super().__init_subclass__(**kw)
+        if "apply" in cls.__dict__ and cls.__dict__.get("key", "") not in KEEPS_STARS_APART:
+            orig = cls.__dict__["apply"]
+
+            def apply(self, s, params, _orig=orig):
+                return _orig(self, merge_hidden_stars(s), params)
+            apply.__doc__ = orig.__doc__
+            cls.apply = apply
 
     def sliders(self, s: "State", params: dict) -> list:
         """Fine-tune controls, starting at the picked version's values."""
@@ -360,7 +404,7 @@ class Tool:
 
     def preview(self, s: "State", params: dict) -> np.ndarray:
         """What a version looks like (thumbnails and the live fine-tune preview)."""
-        return state_display(self.apply(s, params))
+        return state_display(self.apply(s, params), with_stars=True if self.shows_stars else None)
 
 
 # --------------------------------------------------------------------------
@@ -499,8 +543,7 @@ class CombineChannels(Tool):
                                      for k, v in s.channel_stars.items()}, raw=True) * mix, 0, None).astype(np.float32)
             s.stars_out = True
             s.stars_linear = True
-            if "stars_out" not in s.done:
-                s.done.append("stars_out")
+            s.stars_hidden = "stars_out" not in s.done
         s.channels, s.channel_stars = {}, {}
         s.palette = pal
         s.done.append(self.key)
@@ -711,7 +754,7 @@ class TakeStarsOut(Tool):
     key = "stars_out"
 
     def possible(self, s):
-        return not s.stars_out and self.runner is not None
+        return s.stars_hidden or (not s.stars_out and self.runner is not None)
     title = "Take Stars Out"
     tip = ("Splits the stars from the nebula or galaxy (StarXTerminator) so each can be brightened "
            "separately - you get bright detail without bloated stars. They go back in at the end.")
@@ -721,20 +764,34 @@ class TakeStarsOut(Tool):
     def applicable(self, s):
         if s.rgb is None:
             return False, "Combine the colour channels first"
+        if s.stars_hidden:
+            return True, ""
         if s.stars_out:
-            return False, "Stars are already separated"
+            return False, "Stars are already taken out"
         if self.runner is None:
             return False, "Needs StarXTerminator (set the RC-Astro CLI in the Prepare window)"
         return True, ""
 
     def variants(self, s):
+        if s.stars_hidden:
+            return [Variant("Take the stars out", {}, "Uses the stars StarXTerminator already separated in "
+                                                      "Prepare - instant", True)]
         return [Variant("Separate the stars", {}, "Runs StarXTerminator on the full image", True)]
+
+    def why(self, s):
+        if s.stars_hidden:
+            return ("Prepare already separated the stars - this takes them out of view (instantly), so the "
+                    "nebula can be brightened strongly. They go back in at 'Put Stars Back'.")
+        return self.tip
 
     def apply(self, s, params):
         s = s.copy()
-        starless, stars = self.runner(s.rgb, s.linear)
-        s.rgb, s.stars = starless.astype(np.float32), stars.astype(np.float32)
-        s.stars_out, s.stars_linear = True, s.linear
+        if s.stars_hidden:
+            s.stars_hidden = False
+        else:
+            starless, stars = self.runner(s.rgb, s.linear)
+            s.rgb, s.stars = starless.astype(np.float32), stars.astype(np.float32)
+            s.stars_out, s.stars_linear = True, s.linear
         s.done.append(self.key)
         return s
 
@@ -889,12 +946,13 @@ class BrightenStars(Tool):
         return s.stars_out or bool(s.channel_stars) or TOOLS["stars_out"].possible(s)
 
     key = "star_stretch"
+    shows_stars = True
     title = "Brighten Stars Separately"
     tip = ("Brightens the stars-only image gently, so stars stay small and colourful instead of "
            "turning into big white blobs.")
 
     def applicable(self, s):
-        if not s.stars_out or s.stars is None:
+        if not s.stars_out or s.stars is None or s.stars_hidden:
             return False, "Take the stars out first"
         if not s.stars_linear:
             return False, "Stars already brightened"
@@ -927,11 +985,12 @@ class ShrinkStars(Tool):
 
     key = "shrink"
     spatial = True
+    shows_stars = True
     title = "Shrink Stars"
     tip = "Makes stars smaller and less dominant, so the nebula or galaxy stands out."
 
     def applicable(self, s):
-        if not s.stars_out or s.stars is None:
+        if not s.stars_out or s.stars is None or s.stars_hidden:
             return False, "Take the stars out first"
         if s.stars_linear:
             return False, "Brighten the stars first"
@@ -961,6 +1020,100 @@ class ShrinkStars(Tool):
 
 
 # --------------------------------------------------------------------------
+NARROWBAND_KINDS = ("osc_dual", "osc_sho", "mono_nb")
+STAR_BLUE, STAR_WHITE, STAR_ORANGE = (0.66, 0.78, 1.0), (1.0, 0.97, 0.92), (1.0, 0.70, 0.42)
+
+
+def star_colour_map(stars: np.ndarray, spread=1.0):
+    """Per-pixel position on a hot-to-cool star colour scale (-1 blue .. 0 white .. +1 orange),
+    estimated from how much brighter each star is in the red channel than in green/blue.
+    Behind a dual-band filter that compares the star's light at Ha (656 nm) with OIII
+    (500 nm) - two points on its spectrum, enough to tell hot blue stars from cool orange ones."""
+    st_ = np.clip(stars, 0, None)
+    lum = st_.max(axis=0)
+    ok = (lum < 0.85).astype(np.float32)                 # clipped cores carry no colour - use the rims
+    r = _blur(st_[0] * ok, 1.5)
+    gb = _blur(0.5 * (st_[1] + st_[2]) * ok, 1.5)
+    ratio = np.log((r + 1e-4) / (gb + 1e-4))
+    lm, lmad = _stats(lum)
+    thr = max(lm + 6 * lmad, lm + 0.02)                  # clearly part of a star, not background
+    sel = (lum > thr) & (ok > 0)
+    vals = ratio[sel] if sel.sum() > 30 else ratio.ravel()
+    med = float(np.median(vals))
+    mad = float(np.median(np.abs(vals - med))) + 1e-3
+    x = np.clip((ratio - med) / (2.2 * mad / max(spread, 0.1)), -1, 1)   # scaled to this image's stars
+    # one colour per star: spread the estimate from its rim over the whole disc
+    wgt = lum * ok + 1e-6
+    x = _blur(x * wgt, 2.5) / _blur(wgt, 2.5)
+    return np.clip(x, -1, 1).astype(np.float32), lum
+
+
+def _star_ramp(x):
+    b, w, o = (np.asarray(c, np.float32)[:, None, None] for c in (STAR_BLUE, STAR_WHITE, STAR_ORANGE))
+    xm, xp = np.clip(-x, 0, 1)[None], np.clip(x, 0, 1)[None]
+    return w + (b - w) * xm + (o - w) * xp
+
+
+class StarColours(Tool):
+    def possible(self, s):
+        return (s.stars_out or bool(s.channel_stars) or TOOLS["stars_out"].possible(s)) and \
+            (s.rgb is None or s.rgb.shape[0] == 3 or bool(s.channels))
+
+    key = "star_color"
+    spatial = True
+    shows_stars = True
+    title = "Star Colours"
+    tip = ("Gives stars natural-looking colours - blue-white, white, yellow and orange - instead of the "
+           "single tint a narrowband palette paints them. Or makes them clean white.")
+
+    def is_optional(self, s):
+        return s.kind not in NARROWBAND_KINDS
+
+    def why(self, s):
+        if s.kind in NARROWBAND_KINDS:
+            return ("A dual-band or narrowband palette colours every star the same (often teal or blue). "
+                    "This estimates each star's real colour from your data and paints it back in.")
+        return self.tip
+
+    def applicable(self, s):
+        if not s.stars_out or s.stars is None or s.stars_hidden:
+            return False, "Take the stars out first"
+        if s.stars.shape[0] != 3:
+            return False, "Needs a colour image"
+        return True, ""
+
+    def variants(self, s):
+        nb = s.kind in NARROWBAND_KINDS
+        return [Variant("Natural", {"mode": "natural", "sat": 0.85, "spread": 1.0},
+                        "Each star's colour estimated from your data", nb),
+                Variant("Natural, vivid", {"mode": "natural", "sat": 1.3, "spread": 1.4},
+                        "Stronger star colours", False),
+                Variant("White", {"mode": "natural", "sat": 0.0, "spread": 1.0},
+                        "Clean white stars - the classic narrowband look", False),
+                Variant("As they are", {"mode": "keep", "sat": 1.0, "spread": 1.0},
+                        "Leave the star colours unchanged", not nb)]
+
+    def sliders(self, s, params):
+        if params.get("mode") == "keep":
+            return []
+        return [Slider("sat", "Colour strength", 0.0, 1.6, params["sat"], "0 = white stars"),
+                Slider("spread", "Colour range", 0.4, 2.0, params["spread"],
+                       "How different hot and cool stars look from each other")]
+
+    def apply(self, s, params):
+        s = s.copy()
+        if params.get("mode") != "keep":
+            x, lum = star_colour_map(s.stars, float(params.get("spread", 1.0)))
+            col = _star_ramp(x)
+            sat = float(params.get("sat", 1.0))
+            col = 1.0 + (col - 1.0) * sat                        # sat 0 -> white
+            col = col / np.max(col, axis=0, keepdims=True)
+            s.stars = np.clip(lum[None] * col, 0, None).astype(np.float32)
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
 class PutStarsBack(Tool):
     def possible(self, s):
         return s.stars_out or bool(s.channel_stars) or TOOLS["stars_out"].possible(s)
@@ -970,7 +1123,7 @@ class PutStarsBack(Tool):
     tip = "Blends the stars back over the processed nebula or galaxy (screen blend), at the strength you pick."
 
     def applicable(self, s):
-        if not s.stars_out or s.stars is None:
+        if not s.stars_out or s.stars is None or s.stars_hidden:
             return False, "Stars are not separated"
         if s.linear != s.stars_linear:
             return False, ("Brighten the stars first" if s.stars_linear else "Brighten the image first")
@@ -1477,7 +1630,7 @@ class TameCore(Tool):
 
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
                             TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
-                            PutStarsBack(),
+                            StarColours(), PutStarsBack(),
                             SpotFix())}
 
 
@@ -1510,7 +1663,7 @@ def busiest_spot(s: State, size=420):
 # ==========================================================================
 
 _POLISH = ["core", "curves", "saturation", "local"]
-_STARS = ["star_stretch", "shrink", "stars_back"]
+_STARS = ["star_stretch", "shrink", "star_color", "stars_back"]
 WORKFLOWS = {
     "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix"],
     "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix"],
@@ -1619,7 +1772,8 @@ class Project:
         np.savez(d / "state.npz", **arrays)
         meta = {"linear": s.linear, "stars_linear": s.stars_linear, "stars_out": s.stars_out, "done": s.done,
                 "skipped": s.skipped, "kind": s.kind, "target": s.target, "sources": s.sources,
-                "palette": s.palette, "sat_core": s.sat_core, "filter": s.filter}
+                "palette": s.palette, "sat_core": s.sat_core, "filter": s.filter,
+                "stars_hidden": s.stars_hidden}
         cp.write_json(d / "meta.json", meta)
         thumb = state_display(s.small(700))
         np.save(d / "preview.npy", thumb, allow_pickle=False)
@@ -1645,7 +1799,8 @@ class Project:
                   skipped=meta.get("skipped", []), kind=meta.get("kind", "osc"), target=meta.get("target", ""),
                   sources=meta.get("sources", []), palette=meta.get("palette"),
                   lin_lum=z["lin_lum"].astype(np.float32) if "lin_lum" in z else None,
-                  sat_core=bool(meta.get("sat_core", False)), filter=meta.get("filter"))
+                  sat_core=bool(meta.get("sat_core", False)), filter=meta.get("filter"),
+                  stars_hidden=bool(meta.get("stars_hidden", False)))
         return s
 
     def preview(self, n):
@@ -1735,7 +1890,8 @@ PI_EQUIVALENT = {
     "ha_glow": "Continuum subtraction (PixelMath: Ha - k*R) then NBRGBCombination or PixelMath into R",
     "spotfix": "CloneStamp",
     "core": "HDRMultiscaleTransform through a luminance (range) mask on the core",
-    "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
+    "star_color": "PixelMath on the stars image (colour from the R/(G+B) ratio), or Narrowband Normalization's star options",
+        "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
 }
 
 

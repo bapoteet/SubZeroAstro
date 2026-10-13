@@ -27,6 +27,11 @@ NEXT_STYLE = ("QPushButton { background:#2f6fd6; color:white; font-weight:700; f
               "QPushButton:hover { background:#3b7ff0; }"
               "QPushButton:disabled { background:#2a2f3a; color:#6c7486; border:1px solid #363c48; }")
 
+RUN_STYLE = ("QPushButton { background:#2e8b57; color:white; font-weight:700; padding:6px 18px; "
+             "border-radius:5px; border:1px solid #47a873; }"
+             "QPushButton:hover { background:#36a065; }"
+             "QPushButton:disabled { background:#2a2f3a; color:#6c7486; border:1px solid #363c48; }")
+
 BACK_STYLE = ("QPushButton { background:#262b36; color:#c3cad8; font-size:9.5pt; padding:6px 12px; "
               "border-radius:6px; border:1px solid #3a4252; }"
               "QPushButton:hover { background:#2f3644; color:#e4e9f2; }")
@@ -105,6 +110,42 @@ class AppHeader(QWidget):
         return b
 
 
+def present(window, like=None, ms: int = 320):
+    """Bring a page on screen like turning a page: same place and size as the page it was
+    opened from, fading in. Never fails - a window that cannot fade just appears."""
+    try:
+        from PySide6.QtCore import QEasingCurve, QPropertyAnimation
+        src = like.window() if like is not None else None
+        if src is not None and src is not window and not window.isVisible():
+            if src.isMaximized():
+                window.setGeometry(src.normalGeometry())
+                window.setWindowOpacity(0.0)
+                window.showMaximized()
+            else:
+                window.setGeometry(src.geometry())
+                window.setWindowOpacity(0.0)
+                window.show()
+        else:
+            if window.isMinimized():
+                window.showNormal()
+            window.setWindowOpacity(0.0)
+            window.show()
+        window.raise_()
+        window.activateWindow()
+        anim = QPropertyAnimation(window, b"windowOpacity", window)
+        anim.setDuration(ms)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.finished.connect(lambda: window.setWindowOpacity(1.0))
+        window._page_fade = anim
+        anim.start()
+    except Exception:  # noqa: BLE001
+        window.setWindowOpacity(1.0)
+        window.show()
+        window.raise_()
+
+
 def install_header(window, page_title: str, with_menu: bool = False) -> AppHeader:
     """Put the banner at the very top of a QMainWindow, above its menu bar and toolbars.
     Call this BEFORE building menus: Qt deletes a menu bar that is replaced, so the window
@@ -129,10 +170,6 @@ def install_header(window, page_title: str, with_menu: bool = False) -> AppHeade
     prev_header = getattr(prev, "app_header", None) if prev is not None else None
     if prev_header is not None:
         def go_back():
-            if prev.isMinimized():
-                prev.showNormal()
-            prev.show()
-            prev.raise_()
-            prev.activateWindow()
+            present(prev)
         header.add_back(prev_header.page.text(), go_back)
     return header

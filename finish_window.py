@@ -633,7 +633,8 @@ class FinishWindow(QMainWindow):
         self.state = s
         self.project.save(s, "load", "Masters loaded")
         self.log(f"Loaded {s.target} — {F.KIND_LABEL.get(s.kind, s.kind)}"
-                 + (", stars already separated by Prepare" if s.stars_out else ""))
+                 + (" — Prepare already separated the stars; 'Take Stars Out' hides them instantly"
+                    if s.stars_hidden else ""))
         if getattr(s, "stars_missing", False):
             self.log("This master is already starless, but its stars-only file (…_stars.xisf) was not found "
                      "next to it — the picture will be finished without stars. Re-run Prepare to get both.")
@@ -689,7 +690,8 @@ class FinishWindow(QMainWindow):
             return
         self.title.setText(f"<b>{s.target}</b> — {F.KIND_LABEL.get(s.kind, s.kind)}, "
                            f"{'linear (not stretched yet)' if s.linear else 'stretched'}"
-                           + ("  ·  stars separated" if s.stars_out else ""))
+                           + ("  ·  stars out (they go back at 'Put Stars Back')"
+                              if s.stars_out and not s.stars_hidden else ""))
         for t, status in F.workflow(s):
             it = QListWidgetItem(f"{STATUS_MARK[status]}  {t.title}")
             it.setData(Qt.UserRole, t.key)
@@ -864,7 +866,8 @@ class FinishWindow(QMainWindow):
         def work():
             vs = t.variants(s, method, linked) if t.key == "stretch" else t.variants(s)
             small = F.thumb_state(t, s, 300)
-            thumbs = [F.state_display(t.apply(small, v.params)) for v in vs]
+            thumbs = [F.state_display(t.apply(small, v.params), with_stars=True if t.shows_stars else None)
+                      for v in vs]
             return vs, thumbs
         self.run_job(work, self._choices_ready, "Making the choices…")
 

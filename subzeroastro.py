@@ -37,11 +37,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
 
 import checkpoints as cp
 import fits_core as core
+import ui_header
 from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.12 beta"
+APP_VERSION = "0.8.13 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -2246,22 +2247,19 @@ class MainWindow(QMainWindow):
         self.ready_bar.hide()
         self.stack_win = stack_window.StackWindow(self, kept, self.settings)
         self.stack_win.setAttribute(Qt.WA_DeleteOnClose, True)
-        self.stack_win.show()
-        self.stack_win.raise_()
+        ui_header.present(self.stack_win, self)
 
     def open_prepare(self):
         import prepare_window
         self.prep_win = prepare_window.PrepareWindow(self, self.settings)
         self.prep_win.setAttribute(Qt.WA_DeleteOnClose, True)
-        self.prep_win.show()
-        self.prep_win.raise_()
+        ui_header.present(self.prep_win, self)
 
     def open_finish(self):
         import finish_window
         self.finish_win = finish_window.FinishWindow(self, self.settings)
         self.finish_win.setAttribute(Qt.WA_DeleteOnClose, True)
-        self.finish_win.show()
-        self.finish_win.raise_()
+        ui_header.present(self.finish_win, self)
 
     def start_over(self):
         """Clear the session and open a new folder."""

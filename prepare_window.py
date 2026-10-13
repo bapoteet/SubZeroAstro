@@ -413,8 +413,7 @@ def open_finish(parent, results):
     files = [f for f in files if not first_target or f.name.startswith(first_target)] or files
     win = finish_window.FinishWindow(parent, parent.settings if hasattr(parent, "settings") else None, files)
     win.setAttribute(Qt.WA_DeleteOnClose, True)
-    win.show()
-    win.raise_()
+    __import__("ui_header").present(win, parent)
     if parent is not None:
         parent.finish_win = win
     return win
@@ -548,7 +547,7 @@ class PrepareWindow(QMainWindow):
         hr.addWidget(self.btn_before)
         self.btn_redo = QPushButton("Go Back && Redo This Step")
         self.btn_redo.setToolTip("Throw away this step and the ones after it. Change its settings on the right, "
-                                 "then press Prepare — the earlier steps are not run again.")
+                                 "then press Run Selected Steps — the earlier steps are not run again.")
         self.btn_redo.clicked.connect(self.redo_from_step)
         hr.addWidget(self.btn_redo)
         self.btn_hclear = QPushButton("Start Fresh")
@@ -714,8 +713,10 @@ class PrepareWindow(QMainWindow):
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.clicked.connect(self.cancel)
-        self.btn_start = QPushButton("  Prepare for PixInsight  ")
-        self.btn_start.setStyleSheet("QPushButton { font-weight: bold; padding: 6px 18px; }")
+        self.btn_start = QPushButton("▶  Run Selected Steps")
+        self.btn_start.setToolTip("Run the ticked steps (crop, plate solve, gradients, XTerminators) on the "
+                                  "masters on the left")
+        self.btn_start.setStyleSheet(__import__("ui_header").RUN_STYLE)
         self.btn_start.clicked.connect(self.start)
         self.btn_pi = QPushButton("Stop Here – Continue in PixInsight")
         self.btn_pi.setToolTip("Open the folder with the prepared masters (selected) to load them into PixInsight")
@@ -881,7 +882,7 @@ class PrepareWindow(QMainWindow):
         if steps:
             self.hist_label.setText(
                 f"{len(steps)} step(s) saved ({', '.join(t['title'] for t in steps)}; "
-                f"{cp.human(cps.size())}, last {steps[-1].get('time', '')}). Pressing Prepare continues from "
+                f"{cp.human(cps.size())}, last {steps[-1].get('time', '')}). Pressing Run Selected Steps continues from "
                 "here — any step whose settings you changed is redone, together with the steps after it.")
         else:
             self.hist_label.setText("No saved progress for this target yet. Each finished step will appear here, "
@@ -936,7 +937,7 @@ class PrepareWindow(QMainWindow):
         msg = (f"Go back to before <b>{st_['title']}</b>?<br><br>The saved result of this step"
                + (f" and of the steps after it ({', '.join(later)})" if later else "")
                + " will be thrown away. Change the settings on the right if you like, then press "
-                 "<b>Prepare for PixInsight</b> — the steps before it are not run again.")
+                 "<b>Run Selected Steps</b> — the steps before it are not run again.")
         if QMessageBox.question(self, "Go back", msg) != QMessageBox.Yes:
             return
         self.cps.truncate(i - 1)
