@@ -683,6 +683,13 @@ class StackWindow(QMainWindow):
         if not groups:
             QMessageBox.information(self, "Stacking", "Tick at least one group to stack.")
             return
+        ui = __import__("ui_header")
+        if getattr(self.btn_start, "_done", False) and not skip_preflight:
+            if not ui.confirm_again(self, "Stacking", "<b>These frames were already stacked</b> in this window.<br><br>"
+                                    "Stack them again? The masters already saved are kept; the new ones are "
+                                    "saved as <i>_2</i>, <i>_3</i>, …"):
+                return
+        ui.mark_ready(self.btn_start, "▶  Check && Stack")
         opts = self.options()
         if not opts.masters_root:
             QMessageBox.information(self, "Stacking", "Choose where master lights should be saved "
@@ -782,6 +789,7 @@ class StackWindow(QMainWindow):
         self.btn_prepare.setEnabled(bool(ok))
         self.btn_pi.setEnabled(bool(ok))
         if ok:
+            __import__("ui_header").mark_done(self.btn_start, "✓  Stacked – Run Again?")
             self.log("\nMasters are ready. Next: click “Continue to Image Processing ➜” (top right) to crop, plate solve, remove "
                      "gradients and run the XTerminators.")
         self.last_results = w.results

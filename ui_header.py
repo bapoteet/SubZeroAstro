@@ -36,6 +36,37 @@ RUN_STYLE = ("QPushButton { background:#2e8b57; color:white; font-weight:700; pa
              "QPushButton:hover { background:#36a065; }"
              "QPushButton:disabled { background:#2a2f3a; color:#6c7486; border:1px solid #363c48; }")
 
+DONE_STYLE = ("QPushButton { background:#b7791f; color:white; font-weight:700; padding:6px 18px; "
+              "border-radius:5px; border:1px solid #d69e2e; }"
+              "QPushButton:hover { background:#c98a2a; }"
+              "QPushButton:disabled { background:#2a2f3a; color:#6c7486; border:1px solid #363c48; }")
+
+
+def mark_done(button, text):
+    """A page's run button after its job finished: amber, so it is not pressed again by accident."""
+    button.setText(text)
+    button.setStyleSheet(DONE_STYLE)
+    button._done = True
+
+
+def mark_ready(button, text):
+    button.setText(text)
+    button.setStyleSheet(RUN_STYLE)
+    button._done = False
+
+
+def confirm_again(parent, title, text) -> bool:
+    from PySide6.QtWidgets import QMessageBox
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Question)
+    box.setWindowTitle(title)
+    box.setText(text)
+    yes = box.addButton("Run Again", QMessageBox.AcceptRole)
+    box.addButton("Cancel", QMessageBox.RejectRole)
+    box.exec()
+    return box.clickedButton() is yes
+
+
 BACK_STYLE = ("QPushButton { background:#262b36; color:#c3cad8; font-size:9.5pt; padding:6px 12px; "
               "border-radius:6px; border:1px solid #3a4252; }"
               "QPushButton:hover { background:#2f3644; color:#e4e9f2; }")

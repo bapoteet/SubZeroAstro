@@ -877,6 +877,8 @@ class PrepareWindow(QMainWindow):
             found = P.find_masters(paths)
             known = {str(m.path) for s in self.sets for m in s}
             new = [P.load_master(f) for f in found if str(f) not in known]
+            if new and getattr(self.btn_start, "_done", False):      # new masters: a fresh run, green again
+                __import__("ui_header").mark_ready(self.btn_start, "▶  Run Selected Steps")
         finally:
             QApplication.restoreOverrideCursor()
         if not new:
@@ -1082,8 +1084,16 @@ class PrepareWindow(QMainWindow):
         if not any(cb.isChecked() for cb in (self.fmt_xisf, self.fmt_fits, self.fmt_tif, self.fmt_jpg, self.fmt_png)):
             QMessageBox.information(self, "Prepare", "Tick at least one format under 'Save final images'.")
             return
+        ui = __import__("ui_header")
+        if show_dialog and getattr(self.btn_start, "_done", False):
+            if not ui.confirm_again(self, "Astro Image Processing",
+                                    "<b>These masters were already processed</b> in this window.<br><br>Run the "
+                                    "selected steps again? Steps whose settings you did not change are taken "
+                                    "from saved progress, so only changed steps are redone."):
+                return
         if show_dialog and not self.ask_output_folder():
             return
+        ui.mark_ready(self.btn_start, "▶  Run Selected Steps")
         out = self.out_edit.text().strip()
         if out:
             try:
@@ -1158,6 +1168,7 @@ class PrepareWindow(QMainWindow):
         if self.hist_combo.count() > 1:
             self.hist_combo.setCurrentIndex(self.hist_combo.count() - 1)
         if res:
+            __import__("ui_header").mark_done(self.btn_start, "✓  Done – Run Again?")
             self.progress.setFormat("Ready for final processing in PixInsight")
             if getattr(self, "show_dialog", True):
                 ReadyDialog(self, res).exec()

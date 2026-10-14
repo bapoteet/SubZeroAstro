@@ -579,6 +579,9 @@ def run(app, out_dir: Path) -> int:
         pw = state["pw"]
         res = getattr(pw, "last_results", []) or []
         check(len(res) == 1, f"prepare produced results ({len(res)})")
+        check(getattr(pw.btn_start, "_done", False) and "Run Again" in pw.btn_start.text()
+              and getattr(state["win"].btn_start, "_done", False),
+              "after a run the page's run button turns amber ('Run Again?') on both pages")
         from prepare import target_out_dir as _tod
         check(_tod("C:/out/NGC891", "IC1805").name == "IC1805"
               and _tod("C:/out", "IC1805").name == "IC1805"
