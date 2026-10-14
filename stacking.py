@@ -1099,23 +1099,24 @@ def _apply(T, pts):
     return pts @ T[:, :2].T + T[:, 2]
 
 
-def match_frames(ref_pts, tgt_pts, tol=3.0):
-    """Transform T (2x3) mapping target coordinates to reference coordinates,
-    plus (inliers, rms). Raises ValueError if the frames cannot be matched."""
-    if len(ref_pts) < 6 or len(tgt_pts) < 6:
-        raise ValueError("too few stars")
-    R, T_ = ref_pts[:40], tgt_pts[:40]
+def _match_once(ref_pts, tgt_pts, tol, n_tri, mirrored):
+    """One attempt: triangles from the n_tri brightest stars; mirrored=True also allows a
+    left-right mirror image (a frame saved flipped, or with the other row order)."""
+    M = np.array([[-1.0, 0, 0], [0, 1.0, 0]]) if mirrored else None
+    tp = tgt_pts.copy()
+    if mirrored:
+        tp[:, 0] = -tp[:, 0]
+    R, T_ = ref_pts[:n_tri], tp[:n_tri]
     inv_r, tri_r = _triangles(R)
     inv_t, tri_t = _triangles(T_)
     if len(inv_r) == 0 or len(inv_t) == 0:
         raise ValueError("too few stars")
-    # nearest reference triangle for every target triangle
     dists = np.sqrt(((inv_t[:, None, :] - inv_r[None, :, :]) ** 2).sum(-1))
     best = np.argmin(dists, axis=1)
     good = np.nonzero(dists[np.arange(len(best)), best] < 0.03)[0]
     if good.size == 0:
         raise ValueError("no matching star patterns")
-    good = good[np.argsort(dists[good, best[good]])][:300]
+    good = good[np.argsort(dists[good, best[good]])][:400]
 
     def count_inliers(T):
         p = _apply(T, tgt_pts)
@@ -1129,10 +1130,11 @@ def match_frames(ref_pts, tgt_pts, tol=3.0):
     for gi in good:
         src = T_[tri_t[gi]]
         dst = R[tri_r[best[gi]]]
-        T = _fit_similarity(src, dst)
-        sc = math.hypot(T[0, 0], T[1, 0])
+        Tm = _fit_similarity(src, dst)
+        sc = math.hypot(Tm[0, 0], Tm[1, 0])
         if not 0.8 < sc < 1.25:
             continue
+        T = _compose(Tm, M) if mirrored else Tm          # in the frame's own coordinates
         ok, _ = count_inliers(T)
         n = int(ok.sum())
         if n > best_n:
@@ -1141,18 +1143,43 @@ def match_frames(ref_pts, tgt_pts, tol=3.0):
                 break
     if best_T is None or best_n < 6:
         raise ValueError("could not match the star field")
-    # refine with all inliers (affine when there are plenty)
     T = best_T
     for _ in range(3):
         ok, j = count_inliers(T)
         src, dst = tgt_pts[ok], ref_pts[j[ok]]
         if len(src) < 6:
             break
-        T = _fit_affine(src, dst) if len(src) >= 20 else _fit_similarity(src, dst)
+        # affine keeps a mirror image; a similarity fit would turn it back
+        T = _fit_affine(src, dst) if (len(src) >= 20 or mirrored) else _fit_similarity(src, dst)
     ok, j = count_inliers(T)
     res = _apply(T, tgt_pts[ok]) - ref_pts[j[ok]]
     rms = float(np.sqrt((res ** 2).sum(1).mean())) if ok.any() else 99.0
     return T, int(ok.sum()), rms, ok, j
+
+
+def match_frames(ref_pts, tgt_pts, tol=3.0):
+    """Transform T (2x3) mapping target coordinates to reference coordinates,
+    plus (inliers, rms, ok, j). Tries the 40 brightest stars, then 80, then the frame
+    mirrored (frames saved flipped by other capture software / settings).
+    Raises ValueError if the frames cannot be matched."""
+    if len(ref_pts) < 6 or len(tgt_pts) < 6:
+        raise ValueError("too few stars")
+    last = None
+    for n_tri, mirrored in ((40, False), (80, False), (40, True), (80, True)):
+        if n_tri > 40 and min(len(ref_pts), len(tgt_pts)) <= 40:
+            continue
+        try:
+            T, n, rms, ok, j = _match_once(ref_pts, tgt_pts, tol, n_tri, mirrored)
+            if n >= max(6, int(0.15 * min(len(ref_pts), len(tgt_pts)))) or n_tri == 80:
+                return T, n, rms, ok, j
+            last = ValueError("too few stars in common")
+        except ValueError as e:
+            last = e
+    raise last or ValueError("could not match the star field")
+
+
+def is_mirrored(T) -> bool:
+    return float(np.linalg.det(np.asarray(T)[:, :2])) < 0
 
 
 def warp_planes(planes, T: np.ndarray, out_shape, rows=256) -> list:
@@ -1424,7 +1451,8 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     if common and common.get("name") != ref_info.path.name:
         try:
             T_g2c, inl, rms, _ok, _j = match_frames(common["pts"], ref_pts)
-            log.append(f"Aligned to the common reference {common['name']} (stars matched {inl}, rms {rms:.2f} px) "
+            log.append(f"Aligned to the common reference {common['name']} (stars matched {inl}, rms {rms:.2f} px"
+                       + (", mirror image of it" if is_mirrored(T_g2c) else "") + ") "
                        "so all masters of this target line up")
             res.ref_path = common.get("path", ref_info.path)
         except ValueError as e:
@@ -1504,6 +1532,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     used = []
     cache_files = []
     frame_noise = []
+    n_mirrored = 0
     welford = None
     for idx, lf in enumerate(frames):
         prog(f"{g.label()}: calibrating and aligning {idx + 1}/{n}", 0.05 + 0.6 * idx / n)
@@ -1520,8 +1549,11 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         weight = 1.0 / noise ** 2 if opts.weighting else 1.0
         entries.append((lf.info, T, k_phot, bgs, weight))
         frame_noise.append(noise)
+        mir = is_mirrored(T)
+        n_mirrored += int(mir)
         log.append(f"  {lf.info.path.name}: stars matched {inl}, rms {rms:.2f} px, scale {k_phot:.3f}, "
-                   f"noise {noise:.1f}" + (f", score {lf.score:.0f}" if lf.score is not None else ""))
+                   f"noise {noise:.1f}" + (f", score {lf.score:.0f}" if lf.score is not None else "")
+                   + (" (mirror image — lined up anyway)" if mir else ""))
         if use_cache:
             p = cache_dir / f"f{len(used):05d}.npy"
             np.save(p, np.stack([np.clip(x, -65000, 65000).astype(np.float16) for x in normed]))
@@ -1583,6 +1615,9 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     out = np.nan_to_num(out)
     res.data = out[0] if nc == 1 else out
     total = sum(1 for _ in entries) * out.size
+    if n_mirrored:
+        log.append(f"Note: {n_mirrored} frame(s) were mirror images of the reference (saved flipped, e.g. by a "
+                   "different capture setting) — they were lined up anyway")
     log.append(f"Combined {len(entries)} frames (sigma clip k={opts.kappa:g}, "
                f"{'noise-weighted' if opts.weighting else 'equal weights'}); "
                f"{100 * rejected / max(total, 1):.3f}% of pixels rejected as outliers")

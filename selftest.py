@@ -614,6 +614,19 @@ def run(app, out_dir: Path) -> int:
         check(core.band_lines("ASD2") == ("SII", "OIII") and core.band_lines("ASD1") == ("Ha", "OIII"),
               "Askar D1 (Ha+OIII) and D2 (SII+OIII) are known dual-band filters")
         check(not _bad, f"filter-wheel names like 'Ha 7nm', 'O', 'S', 'Antlia Ha 3nm Pro' are recognised ({_bad})")
+        import stacking as _stk
+        _rg = np.random.default_rng(3)
+        _sky = np.c_[_rg.uniform(0, 4000, 900), _rg.uniform(0, 3000, 900)]
+        _fl = _rg.pareto(1.6, 900) + 1
+        _o = np.argsort(-_fl)[:150]
+        _ref = _sky[_o] + _rg.normal(0, 0.3, (150, 2))
+        _mir = np.c_[4000 - _sky[_o, 0], _sky[_o, 1]] + _rg.normal(0, 0.3, (150, 2))
+        try:
+            _T, _n, _rms, *_r = _stk.match_frames(_ref, _mir)
+            _okm = _stk.is_mirrored(_T) and _rms < 1.0 and _n > 100
+        except ValueError:
+            _okm = False
+        check(_okm, "a frame saved as a mirror image (other capture setting / row order) is still lined up")
         import tools as _tl
         check(_tl._json_answer('Update available\n{"products": []}') == {"products": []}
               and _tl._json_answer("usage: something") is None,
