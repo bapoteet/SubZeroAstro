@@ -346,10 +346,11 @@ def run(app, out_dir: Path) -> int:
         _av = (w.screen() or QApplication.primaryScreen()).availableGeometry()
         check(_av.contains(w.geometry()), f"a page never hangs off the screen "
                                           f"(window {w.geometry().getRect()}, screen {_av.getRect()})")
-        w.setGeometry(_g)
+        QApplication.processEvents()
         _sb = w.statusBar()
         check(_sb.isVisible() and _av.contains(_sb.mapToGlobal(_sb.rect().bottomLeft())),
               "page 1 status line (frame counts) is on screen")
+        w.setGeometry(_g)                    # back to the screenshot size
         check("good" in w.kept_label.text() and "poor" in w.kept_label.text(),
               "good / marginal / poor counts shown in the Kept frames box")
         from PySide6.QtWidgets import QMenu as _QMenu

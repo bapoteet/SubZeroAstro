@@ -19,9 +19,9 @@ from PySide6.QtCore import QThread, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
-                               QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                               QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-                               QPlainTextEdit, QProgressBar, QPushButton, QSplitter,
+                               QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSplitter,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 import fits_core as core
@@ -288,7 +288,12 @@ class StackWindow(QMainWindow):
                       "next time. Master lights go to  <i>&lt;master lights folder&gt;\\&lt;target&gt;</i>.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#9a9aa6;")
-        form.addRow(hint)
+        box.setToolTip(hint.text())          # the full explanation on hover; one short line on the page
+        short = QLabel("Calibration masters are saved by rig, camera and filter and found again automatically; "
+                       "master lights get a subfolder per target. (Hover for details.)")
+        short.setStyleSheet("color:#9a9aa6;")
+        short.setToolTip(hint.text())
+        form.addRow(short)
         lay.addWidget(box)
 
         split = QSplitter(Qt.Vertical)
@@ -311,8 +316,14 @@ class StackWindow(QMainWindow):
         self.details = QLabel("Select a row to see which calibration will be used.")
         self.details.setWordWrap(True)
         self.details.setTextFormat(Qt.RichText)
-        self.details.setMinimumHeight(60)
-        gl.addWidget(self.details)
+        self.table.setMinimumHeight(70)
+        det = QScrollArea()                   # long notes scroll instead of making the page taller
+        det.setWidget(self.details)
+        det.setWidgetResizable(True)
+        det.setFrameShape(QFrame.NoFrame)
+        det.setMinimumHeight(48)
+        det.setMaximumHeight(130)
+        gl.addWidget(det)
         split.addWidget(gbox)
 
         # calibration
@@ -338,6 +349,7 @@ class StackWindow(QMainWindow):
         cl.addLayout(crow)
         self.cal_list = QListWidget()
         self.cal_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.cal_list.setMinimumHeight(40)
         cl.addWidget(self.cal_list, 1)
         split.addWidget(cbox)
 
@@ -348,6 +360,7 @@ class StackWindow(QMainWindow):
         f = QFont("Consolas")
         f.setStyleHint(QFont.Monospace)
         self.log_view.setFont(f)
+        self.log_view.setMinimumHeight(40)
         split.addWidget(self.log_view)
         split.setSizes([330, 220, 160])
         lay.addWidget(split, 1)
@@ -369,13 +382,13 @@ class StackWindow(QMainWindow):
         self.osc_mode.addItems(["Full resolution", "Half resolution (faster, less disk)"])
         self.osc_mode.setCurrentIndex(1 if self.settings.value("stack/osc_half", False, type=bool) else 0)
         obox.addWidget(self.osc_mode)
-        obox.addWidget(QLabel("Save as:"))
         self.fmt_fits = QCheckBox("FITS")
         self.fmt_fits.setChecked(self.settings.value("stack/fits", True, type=bool))
         self.fmt_xisf = QCheckBox("XISF")
         self.fmt_xisf.setChecked(self.settings.value("stack/xisf", False, type=bool))
-        obox.addWidget(self.fmt_fits)
-        obox.addWidget(self.fmt_xisf)
+        obox.addStretch(1)
+        lay.addLayout(obox)
+        obox = QHBoxLayout()                  # second row: keeps the page narrow enough for a laptop
         self.save_cal = QCheckBox("Save new calibration masters")
         self.save_cal.setChecked(self.settings.value("stack/save_cal", True, type=bool))
         obox.addWidget(self.save_cal)
@@ -384,6 +397,10 @@ class StackWindow(QMainWindow):
                                      "(e.g. L, R, G, B or Ha, OIII, SII), ready to combine without re-aligning")
         self.align_common.setChecked(self.settings.value("stack/align_common", True, type=bool))
         obox.addWidget(self.align_common)
+        obox.addSpacing(16)
+        obox.addWidget(QLabel("Save as:"))
+        obox.addWidget(self.fmt_fits)
+        obox.addWidget(self.fmt_xisf)
         obox.addStretch(1)
         lay.addLayout(obox)
 
