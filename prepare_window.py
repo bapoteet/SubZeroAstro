@@ -499,7 +499,7 @@ class PrepareWindow(QMainWindow):
             self.add_master_paths(master_files)
 
     # ------------------------------------------------------------------ UI
-    def _tool_row(self, form, label, key, finder, tip):
+    def _tool_row(self, form, label, key, finder, tip, extra=()):
         row = QHBoxLayout()
         edit = QLineEdit(self.settings.value(key, "") or "")
         edit.setPlaceholderText("auto-detect")
@@ -519,6 +519,8 @@ class PrepareWindow(QMainWindow):
         edit.editingFinished.connect(lambda: (self.settings.setValue(key, edit.text().strip()), self.detect_tools()))
         row.addWidget(edit, 1)
         row.addWidget(btn)
+        for w in extra:
+            row.addWidget(w)
         row.addWidget(status)
         form.addRow(label + ":", row)
         return edit, status
@@ -532,9 +534,13 @@ class PrepareWindow(QMainWindow):
             tform, "ASTAP", "prep/astap", tools.find_astap, "ASTAP program (astap.exe or astap_cli.exe) or its folder")
         self.gx_edit, self.gx_status = self._tool_row(
             tform, "GraXpert", "prep/graxpert", tools.find_graxpert, "GraXpert program (GraXpert-win64.exe)")
+        self.btn_rc_lic = QPushButton("RC-Astro Licences…")
+        self.btn_rc_lic.setToolTip("See which RC-Astro tools are licensed on this computer and activate them "
+                                   "with the code from your rc-astro.com account. Also updates the RC-Astro CLI.")
+        self.btn_rc_lic.clicked.connect(lambda: self.rc_licences())
         self.rc_edit, self.rc_status = self._tool_row(
             tform, "RC-Astro CLI", "prep/rcastro", tools.find_rcastro,
-            r"rc-astro.exe (normally C:\Program Files\RC-Astro\CLI)")
+            r"rc-astro.exe (normally C:\Program Files\RC-Astro\CLI)", extra=(self.btn_rc_lic,))
         root.addWidget(tbox)
 
         split = QSplitter(Qt.Horizontal)
@@ -792,6 +798,24 @@ class PrepareWindow(QMainWindow):
         return cfg or dict(XT_START[key])
 
     # ------------------------------------------------------------ tools
+    def rc_licences(self, show=True):
+        """The RC-Astro Licences dialog (view / activate / update). Returns it (tests use show=False)."""
+        if not self.rc_path:
+            QMessageBox.information(
+                self, "RC-Astro Licences",
+                "The RC-Astro CLI was not found on this computer.\n\nInstall it from rc-astro.com "
+                "(Stand-Alone Tools → CLI), then come back - or use Browse… if it is installed somewhere "
+                "unusual.")
+            return None
+        import rc_licence
+        dlg = rc_licence.LicenceDialog(self.rc_path, self)
+        if show:
+            dlg.exec()
+            if dlg.changed:
+                self.detect_tools()
+                self.log("RC-Astro licences re-read after changes in the RC-Astro Licences window.")
+        return dlg
+
     def detect_tools(self):
         astap = tools.find_astap(self.astap_edit.text().strip() or None)
         self.astap_path = astap
@@ -853,7 +877,7 @@ class PrepareWindow(QMainWindow):
         cfg = self._xt_cfg(key)
         panel = ParamPanel(spec, xt_start_values(key, cfg.get("values")), cfg.get("mode"))
         holder.setVisible(not licensed)
-        holder.setText("Not licensed on this computer — activate it in your RC-Astro account")
+        holder.setText("Not licensed on this computer — click 'RC-Astro Licences…' at the top to activate it")
         v.addWidget(panel)
         self.panels[key] = panel
         self.xt_boxes[key].setEnabled(licensed)

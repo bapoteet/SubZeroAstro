@@ -12,6 +12,7 @@ Exit code 0 = all checks passed. Used by the automatic GitHub build.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import tempfile
@@ -550,8 +551,91 @@ def run(app, out_dir: Path) -> int:
                   "BlurXTerminator PSF Diameter greyed out while Automatic PSF is on")
         else:
             check("not found" in pw.rc_status.text(), "missing RC-Astro CLI reported clearly")
+        check(hasattr(pw, "btn_rc_lic") and pw.btn_rc_lic.isEnabled()
+              and "Licences" in pw.btn_rc_lic.text(), "'RC-Astro Licences…' button on the RC-Astro CLI row")
+        import tools as _tl
+        check(_tl._clean_console("\x1b[1mHi\x1b[0m\r\nwait 10%\rwait 100%\n\n\n\nok") == "Hi\nwait 100%\n\nok",
+              "rc-astro console messages shown without colour codes or progress redraws")
         pw.resize(1450, 900)
-        QTimer.singleShot(900, shots_11)
+        QTimer.singleShot(900, rc_lic_1 if state["fake"] else shots_11)
+
+    def _when_idle(dlg, then, t0=None):
+        t0 = t0 or time.time()
+        if dlg.busy() or dlg.before is None:
+            if time.time() - t0 > 60:
+                check(False, "RC-Astro licence window answered within a minute")
+                QTimer.singleShot(10, rc_lic_end)
+            else:
+                QTimer.singleShot(150, lambda: _when_idle(dlg, then, t0))
+        else:
+            QTimer.singleShot(50, then)
+
+    def rc_lic_1():
+        pw = state["pw"]
+        state["rc_env"] = {k: os.environ.get(k) for k in ("FAKE_RC_UNLICENSED", "FAKE_RC_STATE")}
+        st_file = session.parent / "fake_rc_activated.txt"
+        if st_file.exists():
+            st_file.unlink()
+        os.environ["FAKE_RC_UNLICENSED"] = "sxt"
+        os.environ["FAKE_RC_STATE"] = str(st_file)
+        pw.detect_tools()
+        check(not pw.xt_boxes["sxt"].isEnabled(), "an unlicensed StarXTerminator is greyed out on the page")
+        dlg = pw.rc_licences(show=False)
+        state["dlg"] = dlg
+        dlg.show()
+        _when_idle(dlg, rc_lic_2)
+
+    def rc_lic_2():
+        dlg = state["dlg"]
+        txt = dlg.status.text()
+        check("StarXTerminator" in txt and "not licensed" in txt and "1.0.3-fake" in txt,
+              "licence window lists each RC-Astro tool and its licence")
+        shot("11a_rc_licences.png", dlg)
+        dlg.code_edit.setText("BAD-CODE")
+        dlg.activate()
+        _when_idle(dlg, rc_lic_3)
+
+    def rc_lic_3():
+        dlg = state["dlg"]
+        out = dlg.out.toPlainText()
+        check("not valid" in out and "did not change" in out and not dlg.changed,
+              "a refused activation code is reported and nothing changes")
+        dlg.code_edit.setText("ABC-123")
+        dlg.activate()
+        _when_idle(dlg, rc_lic_4)
+
+    def rc_lic_4():
+        dlg, pw = state["dlg"], state["pw"]
+        out = dlg.out.toPlainText()
+        check("registered" in out and "Activated - 3 of 3" in out and dlg.changed and not dlg.code_edit.text(),
+              "activation code pasted into 'rc-astro license' activates every tool")
+        dlg.check_update()
+        state["t_up"] = time.time()
+        QTimer.singleShot(200, rc_lic_5)
+
+    def rc_lic_5():
+        dlg, pw = state["dlg"], state["pw"]
+        if dlg.busy() and time.time() - state["t_up"] < 60:
+            QTimer.singleShot(150, rc_lic_5)
+            return
+        check("up to date" in dlg.out.toPlainText(), "Check for Updates shows what rc-astro update says")
+        dlg.accept()
+        pw.detect_tools()
+        check(pw.xt_boxes["sxt"].isEnabled() and "not licensed" not in pw.rc_status.text(),
+              "after activating, the page re-reads the licences and StarXTerminator is available")
+        QTimer.singleShot(10, rc_lic_end)
+
+    def rc_lic_end():
+        for k, v in state.get("rc_env", {}).items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        d = state.get("dlg")
+        if d is not None and d.isVisible():
+            d.reject()
+        state["pw"].detect_tools()
+        QTimer.singleShot(600, shots_11)
 
     def shots_11():
         pw = state["pw"]

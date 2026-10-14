@@ -186,8 +186,13 @@ data and hands over to PixInsight with a step-by-step plan.
 - **ASTAP** — plate solving (astap.exe or astap_cli.exe, with a star database installed)
 - **GraXpert** — AI gradient removal (GraXpert-win64.exe)
 - **RC-Astro CLI** — the stand-alone BlurXTerminator / NoiseXTerminator / StarXTerminator
-  (normally `C:\Program Files\RC-Astro\CLI\rc-astro.exe`). Your existing licenses work;
-  the status line shows each product's license.
+  (normally `C:\Program Files\RC-Astro\CLI\rc-astro.exe`, on a Mac `/Applications/RC-Astro/CLI/rc-astro`).
+  Your existing licenses work; the status line shows each product's license.
+  **RC-Astro Licences…** (next to the RC-Astro CLI row) shows which tools are licensed on this
+  computer and activates them without a terminal: click *Open My RC-Astro Account*, then *Get
+  Activation Code* there, paste the code and click **Activate** — one code activates every tool
+  you own (it runs RC-Astro's own `rc-astro license` for you). *Do It in a Terminal Window* is
+  RC-Astro's manual way; *Check for Updates* / *Download & Install Update* use `rc-astro update`.
 
 **Steps** (each optional, run in this order on every master of the target):
 1. **Crop** — the yellow box on the preview. *Auto-crop* trims the ragged stacking edges
@@ -397,6 +402,7 @@ and it only sees the frames you kept.
 - `prepare.py` — Stage 4 pipeline: crop, solve, gradients, XTerminators, quick-look, PixInsight plan
 - `prepare_window.py` — the Prepare for PixInsight window
 - `tools.py` — running ASTAP, GraXpert and the RC-Astro CLI
+- `rc_licence.py` — the RC-Astro Licences window (view / activate / update)
 - `tests/fake_tools/` — stand-ins for those tools used by the automatic tests
 - `selftest.py` — the automatic real-window self-test
 - `run.bat`, `build_exe.bat`, `requirements.txt` — setup and launch

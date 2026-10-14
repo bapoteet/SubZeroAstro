@@ -2,7 +2,10 @@
 (schemaVersion 4): products document, per-product parameter documents and
 the NDJSON event stream. 'Processing' copies the image (BXT sharpens nothing,
 NXT smooths slightly, SXT writes a starless and a stars image).
-Set FAKE_RC_UNLICENSED=sxt,nxt to make products unlicensed (exit 77)."""
+Set FAKE_RC_UNLICENSED=sxt,nxt to make products unlicensed (exit 77).
+`license` reads an activation code from stdin like the real CLI; with FAKE_RC_STATE=<file>
+a good code writes that file and every product counts as licensed from then on
+(the code BAD-CODE is refused). `update` reports that the CLI is up to date."""
 import json
 import os
 import sys
@@ -13,6 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 VERSION = "1.0.3-fake"
 UNLICENSED = set(filter(None, os.environ.get("FAKE_RC_UNLICENSED", "").split(",")))
+STATE = os.environ.get("FAKE_RC_STATE")
+if STATE and Path(STATE).exists():
+    UNLICENSED = set()
 # like the real rc-astro 1.0.1 on ROWORDER=TOP-DOWN files: images come back upside down,
 # and the stars-only image is written without being announced
 FLIP = os.environ.get("FAKE_RC_FLIP", "1") == "1"
@@ -50,6 +56,20 @@ def main(argv):
         out({"schemaVersion": 4, "cliVersion": VERSION, "devices": DEVICES,
              "products": [{"key": k, "name": v["name"], "displayName": v["displayName"],
                            "mlVersions": [v["mlVersion"]], "license": lic(k)} for k, v in SPECS.items()]})
+        return 0
+    if argv == ["license"]:
+        sys.stdout.write("\x1b[1mRC Astro license activation\x1b[0m\r\nPaste your activation code: ")
+        sys.stdout.flush()
+        code = sys.stdin.readline().strip()
+        if not code or code == "BAD-CODE":
+            print("\nError: the activation code is not valid.")
+            return 1
+        if STATE:
+            Path(STATE).write_text(code)
+        print("\nThis computer is now registered to your RC Astro account.")
+        return 0
+    if argv[:1] == ["update"]:
+        print(f"Checking for updates…\nrc-astro {VERSION} is up to date.")
         return 0
     if not argv or argv[0] not in SPECS:
         print("Error: unknown product", file=sys.stderr)

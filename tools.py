@@ -68,6 +68,44 @@ def _run_capture(cmd, timeout=120):
     return p.returncode, p.stdout, p.stderr
 
 
+RC_ACCOUNT_URL = "https://www.rc-astro.com/account/"
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def _clean_console(text):
+    """Console output without colour codes, carriage-return redraws or empty runs of lines."""
+    lines = []
+    for ln in _ANSI.sub("", text or "").replace("\r\n", "\n").split("\n"):
+        ln = ln.split("\r")[-1].rstrip()
+        if ln or (lines and lines[-1]):
+            lines.append(ln)
+    return "\n".join(lines).strip()
+
+
+def open_in_terminal(cmd):
+    """Run a command in a visible terminal window the user can type into
+    (Command Prompt on Windows, Terminal on macOS). Returns True when one was opened."""
+    cmd = [str(c) for c in cmd]
+    try:
+        if os.name == "nt":
+            subprocess.Popen(["cmd", "/k"] + cmd, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10))
+            return True
+        import shlex
+        line = " ".join(shlex.quote(c) for c in cmd)
+        if sys.platform == "darwin":
+            line = line.replace("\\", "\\\\").replace('"', '\\"')
+            subprocess.Popen(["osascript", "-e", f'tell application "Terminal" to do script "{line}"',
+                              "-e", 'tell application "Terminal" to activate'])
+            return True
+        for term in ("x-terminal-emulator", "gnome-terminal", "konsole", "xterm"):
+            if shutil.which(term):
+                subprocess.Popen([term, "-e", "sh", "-c", line + "; exec sh"])
+                return True
+    except OSError:
+        pass
+    return False
+
+
 def _stream(cmd, on_line, cancel=None, cwd=None):
     """Run a command, calling on_line(text) for every stdout line. Returns exit code."""
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
@@ -314,6 +352,45 @@ class RCAstro:
         self.schema = doc.get("schemaVersion")
         return doc
 
+    def licences(self) -> list:
+        """[(key, display name, valid, message)] for every product the CLI knows."""
+        doc = self.products()
+        return [(p["key"], p.get("displayName") or p.get("name") or p["key"],
+                 bool((p.get("license") or {}).get("valid")), (p.get("license") or {}).get("message", ""))
+                for p in doc.get("products", [])]
+
+    def activate(self, code: str, timeout=120):
+        """Run `rc-astro license` and paste the activation code from the user's rc-astro.com
+        account into it, as RC-Astro's instructions say to do in a terminal. One code activates
+        every product the account owns. Returns (exit code, everything the CLI printed)."""
+        code = (code or "").strip()
+        if not code:
+            raise ToolError("paste the activation code from your RC-Astro account first")
+        try:
+            p = subprocess.run(_command(self.exe) + ["license"], input=code + "\n", capture_output=True,
+                               text=True, timeout=timeout, creationflags=CREATE_NO_WINDOW,
+                               encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            raise ToolError("rc-astro license did not finish (no answer from RC-Astro's server?). "
+                            "Check the internet connection, or use 'Do It in a Terminal Window'.")
+        except (OSError, subprocess.SubprocessError) as e:
+            raise ToolError(f"could not start {Path(self.exe).name}: {e}")
+        return p.returncode, _clean_console((p.stdout or "") + ("\n" + p.stderr if p.stderr else ""))
+
+    def check_update(self, timeout=60):
+        """`rc-astro update`: an online check; returns (exit code, what it said)."""
+        try:
+            code, out, err = _run_capture(_command(self.exe) + ["update"], timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise ToolError("the update check did not finish - is this computer online?")
+        except (OSError, subprocess.SubprocessError) as e:
+            raise ToolError(f"could not start {Path(self.exe).name}: {e}")
+        return code, _clean_console(out + ("\n" + err if err else ""))
+
+    def install_update(self):
+        """`rc-astro update --install`: downloads the new installer and launches it (Windows, macOS)."""
+        return open_in_terminal(_command(self.exe) + ["update", "--install"])
+
     def spec(self, key: str) -> ProductSpec:
         code, out, err = _run_capture(_command(self.exe) + [key, "--json"])
         if code == EX_NOPERM and not out.strip():
@@ -381,8 +458,8 @@ class RCAstro:
             except OSError:
                 pass
         if code == EX_NOPERM:
-            raise NotLicensed(f"{key} is not licensed on this computer — activate it in your RC-Astro account "
-                              f"or run: rc-astro {key} --license")
+            raise NotLicensed(f"{key} is not licensed on this computer — click 'RC-Astro Licences…' next to "
+                              f"the RC-Astro CLI row (Astro Image Processing page) to activate it")
         if code != 0:
             raise ToolError("; ".join(errors + err_lines)[:600] or f"rc-astro {key} failed (exit {code})")
         return written or [str(out)]
