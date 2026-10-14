@@ -279,6 +279,61 @@ def run(app, out_dir: Path) -> int:
 
     def shots_1():
         shot("1_main_window_fwhm.png")
+        # --- optional helper programs: banner on page 1 + Your Tools window --------------
+        import tool_check as _tc
+        import os as _os
+        _fk = Path(__file__).resolve().parent / "tests" / "fake_tools"
+        _none = {t[2]: str(session.parent / "no_such_tool.exe") for t in _tc.TOOLS}
+        _miss = _tc.check(_none)
+        check(not any(r["ok"] for r in _miss) and all("not found" in r["detail"] for r in _miss),
+              "missing helper programs are each reported with what happens without them")
+        bn = w.tools_banner
+        _old_off = w.settings.value(_tc.BANNER_OFF, "")
+        w.settings.setValue(_tc.BANNER_OFF, "")
+        bn.show_results(_miss)
+        check(not bn.isHidden() and "RC-Astro" in bn.label.text() and "cull and stack" in bn.label.text(),
+              "page 1 shows an amber banner when helper programs are missing")
+        shot("1a_tools_banner.png")
+        bn.dismiss()
+        bn.show_results(_miss)
+        check(bn.isHidden(), "'Don't Remind Me' hides the banner while nothing changes")
+        if _fk.is_dir() and not getattr(sys, "frozen", False):
+            _paths = {"prep/astap": str(_fk / "fake_astap.py"), "prep/graxpert": str(_fk / "fake_graxpert.py"),
+                      "prep/rcastro": str(_fk / "fake_rcastro.py")}
+            _env = _os.environ.get("FAKE_RC_UNLICENSED")
+            _os.environ["FAKE_RC_UNLICENSED"] = "sxt"
+            _some = _tc.check(_paths)
+            _rc = next(r for r in _some if r["key"] == "rcastro")
+            check(_rc["problem"] == "not licensed" and "StarXTerminator" in _rc["detail"],
+                  "an installed but unlicensed RC-Astro tool is flagged on page 1")
+            bn.show_results(_some)
+            check(not bn.isHidden(), "a new problem brings the banner back after 'Don't Remind Me'")
+            if _env is None:
+                _os.environ.pop("FAKE_RC_UNLICENSED", None)
+            else:
+                _os.environ["FAKE_RC_UNLICENSED"] = _env
+            _all = _tc.check(_paths)
+            check(all(r["ok"] and not r["problem"] for r in _all), "all helper programs found and ready")
+            bn.show_results(_all)
+            check(bn.isHidden(), "no banner when every helper program is ready")
+        _old = {k: w.settings.value(k, "") for k in _none}
+        for k, v in _none.items():
+            w.settings.setValue(k, v)
+        dlg = _tc.ToolsDialog(w.settings, w, _miss)
+        dlg.show()
+        dlg.checker.wait(30000)
+        QApplication.processEvents()
+        check(all("not found" in dlg.rows[k][0].text() for k in dlg.rows) and not dlg.b_lic.isEnabled(),
+              "Your Tools window lists each helper with its status, Browse… and Download Page")
+        shot("1b_your_tools.png", dlg)
+        dlg.accept()
+        for k, v in _old.items():
+            w.settings.setValue(k, v)
+        w.settings.setValue(_tc.BANNER_OFF, _old_off)
+        bn.hide()
+        from PySide6.QtWidgets import QMenu as _QMenu
+        check(any("Your Tools" in a.text() for mm in w.findChildren(_QMenu) for a in mm.actions()),
+              "Settings menu has 'Your Tools…'")
         w.chart_metric.setCurrentIndex(w.chart_metric.findData("score"))
         w.sort_combo.setCurrentText("Quality score")
         w.worst_first.setChecked(True)

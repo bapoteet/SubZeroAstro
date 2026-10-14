@@ -513,8 +513,7 @@ class PrepareWindow(QMainWindow):
         status.setMinimumWidth(260)
 
         def browse():
-            f, _ = QFileDialog.getOpenFileName(self, f"Locate {label}", edit.text() or "C:\\Program Files",
-                                               "Programs (*.exe);;All files (*)")
+            f = __import__("tool_check").browse_program(self, label, edit.text())
             if f:
                 edit.setText(f)
                 self.settings.setValue(key, f)

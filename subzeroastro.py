@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.7 beta"
+APP_VERSION = "0.9.8 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -821,8 +821,16 @@ class MainWindow(QMainWindow):
         self._build_actions()
         self._restore_settings()
         QTimer.singleShot(3000, self.cleanup_checkpoints)
+        QTimer.singleShot(1200, self.tools_banner.start_check)     # optional helpers, checked in the background
         self.view.on_detail = self.request_detail
         self.update_status()
+
+    def open_tools(self):
+        import tool_check
+        dlg = tool_check.ToolsDialog(self.settings, self, self.tools_banner.results or None)
+        dlg.exec()
+        self.tools_banner.show_results(dlg.results)
+        return dlg
 
     # ---------------------------------------------------------------- UI
     def _build_ui(self):
@@ -1012,6 +1020,9 @@ class MainWindow(QMainWindow):
         cv = QVBoxLayout(central)
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(0)
+        import tool_check
+        self.tools_banner = tool_check.ToolsBanner(self.settings)
+        cv.addWidget(self.tools_banner)
         cv.addWidget(self.ready_bar)
         cv.addWidget(self.splitter, 1)
         self.setCentralWidget(central)
@@ -1201,6 +1212,10 @@ class MainWindow(QMainWindow):
         sm = m.addMenu("Star measurement")
         for a in self.mode_actions.values():
             sm.addAction(a)
+        a = QAction("Your Tools (ASTAP, GraXpert, RC-Astro)…", self)
+        a.setToolTip("See which helper programs are installed, locate them, and activate RC-Astro licences")
+        a.triggered.connect(self.open_tools)
+        m.addAction(a)
         a = QAction("Saved Progress (crash recovery)…", self)
         a.triggered.connect(lambda: CheckpointDialog(self, self.settings).exec())
         m.addAction(a)
@@ -1276,6 +1291,9 @@ class MainWindow(QMainWindow):
         self.display_pool.clear()
         self.save_disk_cache()
         self.save_session(clean=True)
+        ck = getattr(self.tools_banner, "checker", None)
+        if ck is not None and ck.isRunning():
+            ck.wait(10000)
         super().closeEvent(event)
 
     # ------------------------------------------------------------ opening

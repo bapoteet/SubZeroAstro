@@ -403,6 +403,7 @@ and it only sees the frames you kept.
 - `prepare_window.py` — the Prepare for PixInsight window
 - `tools.py` — running ASTAP, GraXpert and the RC-Astro CLI
 - `rc_licence.py` — the RC-Astro Licences window (view / activate / update)
+- `tool_check.py` — the background check of the helper programs, page 1's banner and Settings > Your Tools…
 - `tests/fake_tools/` — stand-ins for those tools used by the automatic tests
 - `selftest.py` — the automatic real-window self-test
 - `run.bat`, `build_exe.bat`, `requirements.txt` — setup and launch
