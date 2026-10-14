@@ -416,7 +416,7 @@ bullets([
   "**Stop Here – Continue in PixInsight** - see 5.4.",
 ]);
 sec("9.7", "Starting your next target", ["End this Project and Start New Project", "New project", "Next target"]);
-p("When a picture is finished, click the purple **↺ End this Project and Start New Project** button at the top right of Finishing Touches. SubZeroAstro asks first - and if you have not saved the picture yet, offers **Save the Picture First…**. Then every page and image closes, the helper programs are checked again, and you are back on **page 1 (Quality and Cull)** with the **Load Data** window open, ready for the next target's light frames: cull, stack, process and finish, from the beginning.");
+p("When a picture is finished, click the teal **↺ End this Project and Start New Project** button at the top right of Finishing Touches. SubZeroAstro asks first - and if you have not saved the picture yet, offers **Save the Picture First…**. Then every page and image closes, the helper programs are checked again, and you are back on **page 1 (Quality and Cull)** with the **Load Data** window open, ready for the next target's light frames: cull, stack, process and finish, from the beginning.");
 tip("Nothing on your disk is deleted. Your masters, finished pictures and every Finishing Touches step stay where they are: open the same masters on Finishing Touches later and the project carries on where you stopped.", "Your work is safe");
 
 ch(10, "Recipes for common setups");

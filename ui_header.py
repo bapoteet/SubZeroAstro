@@ -268,9 +268,9 @@ def open_page(owner, attr: str, key, make):
     return w
 
 
-NEW_PROJECT_STYLE = ("QPushButton { background:#5b3fa8; color:white; font-weight:700; font-size:%spt; "
-                     "padding:7px 14px; border-radius:6px; border:1px solid #7d63c9; }"
-                     "QPushButton:hover { background:#6a4dbd; }" % _PT(10))
+NEW_PROJECT_STYLE = ("QPushButton { background:#1d7373; color:white; font-weight:700; font-size:%spt; "
+                     "padding:7px 14px; border-radius:6px; border:1px solid #3aa3a3; }"
+                     "QPushButton:hover { background:#238a8a; }" % _PT(10))
 
 
 def main_page():
