@@ -660,8 +660,11 @@ class FinishWindow(QMainWindow):
         self.state = s
         self.project.save(s, "load", "Masters loaded")
         self.log(f"Loaded {s.target} — {F.KIND_LABEL.get(s.kind, s.kind)}"
+                 + (f" ({len(s.channels)} filters: {', '.join(sorted(s.channels))})" if s.channels else "")
                  + (" — Prepare already separated the stars; 'Take Stars Out' hides them instantly"
                     if s.stars_hidden else ""))
+        if getattr(s, "load_note", ""):
+            self.log(s.load_note)
         if getattr(s, "stars_missing", False):
             self.log("This master is already starless, but its stars-only file (…_stars.xisf) was not found "
                      "next to it — the picture will be finished without stars. Re-run Prepare to get both.")

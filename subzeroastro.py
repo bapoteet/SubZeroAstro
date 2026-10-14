@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.16 beta"
+APP_VERSION = "0.8.17 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84

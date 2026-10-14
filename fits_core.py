@@ -468,14 +468,39 @@ def band_lines(filter_name):
     return ("SII", "OIII") if normalize_filter(filter_name) in SII_OIII_BAND else ("Ha", "OIII")
 
 
+_BRANDS = ("ANTLIA", "ASTRODON", "CHROMA", "BAADER", "ZWO", "OPTOLONG", "ASTRONOMIK", "SVBONY", "PLAYERONE",
+           "QHY", "ATIK", "IDAS", "STARIZONA", "MOTHERSHIP", "PRO", "ULTRA", "V", "3NM", "PREMIUM")
+_LETTER = {"O": "OIII", "S": "SII"}                # single letters on many filter wheels ("H" is in the map)
+
+
 def normalize_filter(raw) -> str:
+    """One name per filter, however the capture software spells it:
+    'Ha 7nm', 'H-alpha', 'Hα', 'Antlia Ha 3nm Pro', 'OIII 6.5nm', 'O', 'S' -> Ha / OIII / SII."""
     if raw is None:
         return "No filter"
     s = str(raw).strip()
     if not s:
         return "No filter"
-    key = re.sub(r"[\s_\-]", "", s.upper())
-    return _FILTER_MAP.get(key, s)
+    up = s.upper().replace("Α", "A").replace("α".upper(), "A")
+    key = re.sub(r"[\s_\-.,()]", "", up)
+    if key in _FILTER_MAP:
+        return _FILTER_MAP[key]
+    if key in _LETTER:
+        return _LETTER[key]
+    # drop bandwidths (7nm, 6.5nm, 3NM) and brand / series words, then try again
+    k2 = re.sub(r"\d+(?:[.,]\d+)?NM", "", re.sub(r"[\s_\-,()]", "", up))
+    k2 = k2.replace(".", "")
+    for b_ in _BRANDS:
+        k2 = k2.replace(b_, "") if len(k2) > len(b_) + 1 or k2 != b_ else k2
+    if k2 in _FILTER_MAP and _FILTER_MAP[k2] in ("Ha", "OIII", "SII", "Hβ"):
+        return _FILTER_MAP[k2]
+    if k2 in _LETTER:
+        return _LETTER[k2]
+    for token, name in (("HALPHA", "Ha"), ("HALFA", "Ha"), ("OIII", "OIII"), ("O3", "OIII"), ("SII", "SII"),
+                        ("S2", "SII"), ("HBETA", "Hβ")):
+        if token in k2:
+            return name
+    return _FILTER_MAP.get(k2, s)
 
 
 def frame_info(look: dict) -> dict:

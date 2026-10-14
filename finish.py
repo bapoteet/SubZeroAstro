@@ -50,6 +50,7 @@ class State:
     lin_lum: np.ndarray | None = None      # (h, w) unstretched luminance, kept when the image is brightened
     sat_core: bool = False                 # the brightest area was clipped in the masters themselves
     stars_missing: bool = False            # starless master whose stars-only file was not found
+    load_note: str = ""                    # message for the user about how the masters were read
     stars_hidden: bool = False             # stars separated by Prepare but still shown in the picture:
                                            # "Take Stars Out" makes the separation visible
 
@@ -189,6 +190,19 @@ def load_state(paths) -> State:
         if st_img is not None:
             s.channel_stars[m.filter] = st_img[0]
     f = set(s.channels)
+    known = {"Ha", "OIII", "SII", "Hβ", "L", "R", "G", "B"}
+    unknown = sorted(f - known)
+    if len(f) >= 2 and unknown and not ({"Ha", "OIII"} <= f or {"R", "G", "B"} <= f):
+        # filters we cannot name: never drop channels - combine them in a sensible order instead
+        names = sorted(f)
+        role = ("Ha", "OIII", "SII") if len(names) <= 3 else ("R", "G", "B", "L")
+        ren = dict(zip(names, role))
+        s.channels = {ren[k]: v for k, v in s.channels.items() if k in ren}
+        s.channel_stars = {ren[k]: v for k, v in s.channel_stars.items() if k in ren}
+        s.load_note = ("Filter names not recognised (" + ", ".join(names) + ") - treated as "
+                       + ", ".join(f"{k} = {v}" for k, v in ren.items())
+                       + ". To fix, set the filter names on the first page (Frame > Set Filter Name).")
+        f = set(s.channels)
     if {"Ha", "OIII"} <= f:
         s.kind = "mono_nb"
     elif {"R", "G", "B"} <= f:
