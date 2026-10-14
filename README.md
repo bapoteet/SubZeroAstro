@@ -118,6 +118,13 @@ image exactly as it is at that moment as PixInsight-ready XISF (linear or stretc
 if they are separated, or each filter if not combined yet) with a short note listing the PixInsight
 processes that carry on from there - and opens the folder with the files selected.
 
+### Start a new project (new in 0.9.9)
+
+**↺ End this Project and Start New Project** (top right of Finishing Touches) closes every page and
+image and takes you back to page 1 with the Load Data window open, ready for the next target. It asks
+first, and offers *Save the Picture First…* if the picture has not been saved. Nothing on disk is
+deleted; reopening the same masters on Finishing Touches resumes the project.
+
 ### Share to AstroBin (new in 0.8.9)
 
 **Share to AstroBin…** (top of the Finish window) saves the picture as a JPG (and optionally a

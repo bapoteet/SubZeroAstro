@@ -268,6 +268,61 @@ def open_page(owner, attr: str, key, make):
     return w
 
 
+NEW_PROJECT_STYLE = ("QPushButton { background:#5b3fa8; color:white; font-weight:700; font-size:%spt; "
+                     "padding:7px 14px; border-radius:6px; border:1px solid #7d63c9; }"
+                     "QPushButton:hover { background:#6a4dbd; }" % _PT(10))
+
+
+def main_page():
+    """Page 1 (Quality and Cull) - the window every project starts from."""
+    from PySide6.QtWidgets import QApplication
+    return next((w for w in QApplication.topLevelWidgets()
+                 if hasattr(w, "reset_session") and hasattr(w, "load_data") and alive(w)), None)
+
+
+def other_pages(main):
+    """Every open page except page 1 (Calibrate and Stack, Image Processing, Finishing Touches)."""
+    from PySide6.QtWidgets import QApplication
+    return [w for w in QApplication.topLevelWidgets()
+            if w is not main and alive(w) and getattr(w, "app_header", None) is not None]
+
+
+def new_project(from_page, load=True):
+    """End the current project: close pages 2-4 with their images, clear page 1 and start again
+    from the Load Data window. Nothing on disk is deleted. Returns True when it happened."""
+    from PySide6.QtCore import QTimer
+    main = main_page()
+    if main is None:
+        return False
+    pages = other_pages(main)
+    working = [w for w in pages + [main] if busy(w)]
+    if working:
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(from_page, "Start New Project",
+                                "A page is still working (" + ", ".join(
+                                    getattr(getattr(w, "app_header", None), "page", None).text()
+                                    if getattr(w, "app_header", None) else w.windowTitle() for w in working) +
+                                "). Wait for it to finish or press its Cancel button, then try again.")
+        return False
+    if main.isHidden():
+        present(main, from_page)                     # page 1 fades in where this page was
+    for w in pages:
+        w.close()                                    # each page saves its settings as it closes
+        w.deleteLater()
+    for owner in [main] + pages:
+        for attr in ("stack_win", "prep_win", "finish_win"):
+            if hasattr(owner, attr):
+                setattr(owner, attr, None)
+    main.reset_session()
+    if hasattr(main, "tools_banner"):
+        main.tools_banner.start_check()              # helper programs checked again for the new project
+    if hasattr(main, "statusBar"):
+        main.statusBar().showMessage("New project - choose the light frames of your next target", 8000)
+    if load:
+        QTimer.singleShot(800, main.load_data)
+    return True
+
+
 MANUAL_NAME = "SubZeroAstro_User_Manual.pdf"
 MANUAL_URL = "https://github.com/bapoteet/SubZeroAstro/blob/main/docs/" + MANUAL_NAME
 

@@ -348,6 +348,14 @@ class FinishWindow(QMainWindow):
         F.TOOLS["stars_out"].runner = make_star_runner(settings)
         import ui_header
         ui_header.install_header(self, ui_header.PAGE_FINISH, with_menu=False)
+        self.picture_saved = False
+        self.btn_new_project = QPushButton("↺  End this Project and Start New Project")
+        self.btn_new_project.setStyleSheet(ui_header.NEW_PROJECT_STYLE)
+        self.btn_new_project.setCursor(Qt.PointingHandCursor)
+        self.btn_new_project.setToolTip("Close every page and image and begin a new target from the start: "
+                                        "Quality and Cull, then stacking. Nothing on disk is deleted.")
+        self.btn_new_project.clicked.connect(lambda: self.end_project())
+        self.app_header.right.addWidget(self.btn_new_project)
         self._build_ui()
         self.resize(1500, 950)
         self.refresh()
@@ -1238,6 +1246,7 @@ class FinishWindow(QMainWindow):
         def work():
             return F.export(self.state, folder / name, fmts, save_rgb8=save_rgb8)
         self.run_job(work, lambda files: (self.log("Saved " + ", ".join(str(f) for f in files)),
+                                          setattr(self, "picture_saved", True),
                                           tools.reveal(files)), "Saving the picture…")
 
     def share_astrobin(self, auto_accept=False):
@@ -1268,6 +1277,7 @@ class FinishWindow(QMainWindow):
 
         def done(files):
             self.last_astrobin_files = files
+            self.picture_saved = True
             self.log(f"Saved for AstroBin in {folder}: " + ", ".join(Path(f).name for f in files))
             if self.synchronous:
                 return
@@ -1292,6 +1302,7 @@ class FinishWindow(QMainWindow):
 
         def done(files):
             self.last_pi_files = files
+            self.picture_saved = True
             note = files[0].read_text(encoding="utf-8")
             self.log(f"Saved for PixInsight in {folder}")
             tools.reveal(files[1] if len(files) > 1 else files[0])
@@ -1303,6 +1314,34 @@ class FinishWindow(QMainWindow):
                 box.setDetailedText(note)
                 box.exec()
         self.run_job(work, done, "Saving for PixInsight…")
+
+    def end_project(self, ask=True, load=True):
+        """'End this Project and Start New Project': confirm, then close every page and go back to page 1."""
+        import ui_header
+        if ask:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Question)
+            box.setWindowTitle("Start New Project")
+            saved = ("Your picture has been saved." if self.picture_saved else
+                     "<b>You have not saved the picture in this session.</b> Use <i>Save the Picture…</i> first "
+                     "if you want to keep it.")
+            box.setText("<b>End this project and start a new one?</b><br><br>"
+                        "All pages and images close and SubZeroAstro starts again at "
+                        "<b>Quality and Cull</b> with the Load Data window, ready for your next target.<br><br>"
+                        f"{saved}<br><br><small>Nothing on disk is deleted. Every step here is kept: opening "
+                        "these masters on Finishing Touches later carries on where you stopped.</small>")
+            b_save = None if self.picture_saved or not self.state or self.state.rgb is None else \
+                box.addButton("Save the Picture First…", QMessageBox.ActionRole)
+            b_go = box.addButton("Start New Project", QMessageBox.AcceptRole)
+            box.addButton("Cancel", QMessageBox.RejectRole)
+            box.setDefaultButton(b_go)
+            box.exec()
+            if b_save is not None and box.clickedButton() is b_save:
+                self.export_dialog()
+                return False
+            if box.clickedButton() is not b_go:
+                return False
+        return ui_header.new_project(self, load=load)
 
     def closeEvent(self, ev):
         if self.job and self.job.isRunning():

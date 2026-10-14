@@ -1081,10 +1081,20 @@ def run(app, out_dir: Path) -> int:
         check(len(fw2.project.steps) == 1 and fw2.state.linear and not [k for k in fw2.state.done
                                                                         if k != "stars_out"],
               "Back to Start returns to the original masters")
-        fw2.close()
-        state["pw"].close()
-        state["win"].close()
-        finish(0 if not failures else 1)
+        # End this Project and Start New Project: every page closes, page 1 is empty and shown
+        import ui_header as _uh2
+        check("Start New Project" in fw2.btn_new_project.text() and
+              fw2.btn_new_project.parent() is not None, "Finishing Touches has 'End this Project and Start New "
+                                                        "Project' at the top")
+        _before = len(_uh2.other_pages(w))
+        ok_new = fw2.end_project(ask=False, load=False)
+        QApplication.processEvents()
+        QApplication.sendPostedEvents(None, 0)
+        left = [x.windowTitle() for x in _uh2.other_pages(w) if x.isVisible()]
+        check(ok_new and _before >= 2 and not left and not w.frames and w.list.count() == 0
+              and getattr(w, "stack_win", None) is None and not w.isHidden(),
+              f"Start New Project closes every page ({_before} open, still showing: {left}) and empties page 1")
+        QTimer.singleShot(900, lambda: (shot("19a_new_project.png"), finish(0 if not failures else 1)))
 
     QTimer.singleShot(300, start)
     return app.exec()
