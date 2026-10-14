@@ -193,7 +193,7 @@ class ToolsDialog(QDialog):
     def __init__(self, settings, parent=None, results=None):
         super().__init__(parent)
         self.setWindowTitle("Your Tools")
-        self.setMinimumWidth(760)
+        self.setMinimumWidth(940)
         self.settings = settings
         self.results = results or []
         self.checker = None
@@ -211,7 +211,6 @@ class ToolsDialog(QDialog):
             title.setWordWrap(True)
             title.setMinimumWidth(260)
             status = QLabel("checking…")
-            status.setWordWrap(True)
             edit = QLineEdit(settings.value(skey, "") or "")
             edit.setPlaceholderText("auto-detect")
             b_browse = QPushButton("Browse…")

@@ -640,7 +640,7 @@ def plan_html(target: str, masters: list, steps: list, files: list) -> str:
 <style>body{{font-family:Segoe UI,Arial,sans-serif;background:#1e1e22;color:#e4e4ea;max-width:900px;margin:24px auto;padding:0 16px}}
 h1{{font-size:22px}} table{{border-collapse:collapse;width:100%}} td{{border-bottom:1px solid #3a3a42;padding:8px;vertical-align:top}}
 tr.d td{{opacity:.6}} .where{{color:#8fb4ff}} .done{{color:#5fd27a;font-size:12px}} li{{margin:2px 0}}</style></head><body>
-<h1>{target}: your images are ready for final processing</h1>
+<h1>{target}: ready for Finishing Touches (or PixInsight)</h1>
 <p>SubZeroAstro prepared these linear masters. Open them in PixInsight and continue with the steps below —
 steps marked ✅ were already done here.</p>
 <h3>Prepared files</h3><ul>{flist}</ul>
