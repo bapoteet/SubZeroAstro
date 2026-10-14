@@ -511,6 +511,22 @@ class FinishWindow(QMainWindow):
         sg.addRow("Colour:", self.sign_colour)
         self.sign_row.setVisible(False)
         tl.addWidget(self.sign_row)
+        # Final Crop: buttons for the box drawn on the picture
+        self.crop_row = QWidget()
+        cr = QHBoxLayout(self.crop_row)
+        cr.setContentsMargins(0, 0, 0, 0)
+        b_found = QPushButton("Found Edges")
+        b_found.setToolTip("Put the box back where SubZeroAstro found ragged or off-colour edges")
+        b_found.clicked.connect(lambda: self._set_crop_box("found"))
+        b_all = QPushButton("Whole Picture")
+        b_all.setToolTip("Box around the whole picture (then drag its sides)")
+        b_all.clicked.connect(lambda: self._set_crop_box("all"))
+        cr.addWidget(QLabel("Drag the yellow box or its sides:"))
+        cr.addStretch(1)
+        cr.addWidget(b_found)
+        cr.addWidget(b_all)
+        self.crop_row.setVisible(False)
+        tl.addWidget(self.crop_row)
         self.sign_timer = QTimer(self)
         self.sign_timer.setSingleShot(True)
         self.sign_timer.setInterval(450)
@@ -833,6 +849,7 @@ class FinishWindow(QMainWindow):
         self.chk_mask.blockSignals(False)
         self.chk_mask.setVisible(key == "core")
         self.sign_row.setVisible(key == "signature")
+        self.crop_row.setVisible(key == "final_crop")
         if key == "signature":
             F.TOOLS["signature"].thumb_corner = self.sign_corner.currentText().lower()
         self.fine_box.blockSignals(True)
@@ -851,6 +868,8 @@ class FinishWindow(QMainWindow):
             self.view.on_click = self._spot_click
             self.view.on_wheel = self._spot_wheel
         self.render_choices()
+        if key == "final_crop":
+            self._set_crop_box("found")
 
     def close_tool(self):
         self.tool = None
@@ -1019,6 +1038,17 @@ class FinishWindow(QMainWindow):
             self.build_sliders(v.params)
         self.schedule_preview()
 
+    def _set_crop_box(self, which):
+        """Show the full picture with a draggable crop box (Final Crop)."""
+        if self.state is None or not self.variants:
+            return
+        small = self.state.small(PREVIEW_SIDE)
+        rgb8 = F.state_display(small, linked=self.chk_linked.isChecked())
+        h, w = self.state.shape
+        self.view.set_image(rgb8, (w, h), w / rgb8.shape[1])
+        self.view.set_crop(tuple(self.variants[0].params["rect"]) if which == "found" else (0, 0, w, h))
+        self.preview_hint.setText("Drag the box, then press Crop to the Box. Nothing changes until then.")
+
     def extra_params(self) -> dict:
         """Settings that live outside the picture choices (the signature's words, corner, colour)."""
         if self.tool is not None and self.tool.key == "signature":
@@ -1043,6 +1073,8 @@ class FinishWindow(QMainWindow):
             return {}
         if t.key == "spotfix":
             return {"spots": [list(q) for q in self.spots]}
+        if t.key == "final_crop":
+            return {"rect": [int(x) for x in self.view.crop()]}
         if t.key == "signature":
             p = dict(v.params)
             if self.fine_box.isChecked():
@@ -1068,6 +1100,8 @@ class FinishWindow(QMainWindow):
         t, s = self.tool, self.state
         if t is None or s is None or (not self.variants and t.key != "spotfix"):
             return                      # choices not ready yet
+        if t.key == "final_crop":       # the box on the picture is the preview
+            return
         if self.preview_job and self.preview_job.isRunning():
             self.preview_pending = True
             return

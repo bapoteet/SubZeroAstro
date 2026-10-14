@@ -459,6 +459,13 @@ def open_finish(parent, results):
 
 
 def _open(path):
+    if path and sys.platform == "darwin":
+        import subprocess
+        try:
+            subprocess.Popen(["open", str(path)])  # noqa: S603,S607
+        except OSError:
+            pass
+        return
     if path and sys.platform.startswith("win"):
         try:
             os.startfile(str(Path(path)))  # noqa: S606 - Path() fixes '//nas/share' style network paths

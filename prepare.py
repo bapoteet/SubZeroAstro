@@ -211,7 +211,7 @@ def line_up(masters, log=None):
         return None
     ref = masters[0]
     ref_pts, _ = st.find_stars(_binned_lum(ref), 2, max_stars=200)
-    overlap = None
+    overlap = tuple(ref.autocrop) if ref.autocrop else None
     for m in masters[1:]:
         if m.alignref and m.alignref == ref.alignref:
             continue
@@ -221,10 +221,17 @@ def line_up(masters, log=None):
         except ValueError as e:
             lg(f"Could not line up {m.name} with {ref.name} ({e}) — it is used as it is")
             continue
+        own = m.autocrop                      # its own well-covered area (ragged stacking edges outside)
         planes = st.warp_planes(list(m.data), T, ref.shape)
         valid = np.isfinite(planes[0])
         m.data = np.stack([np.nan_to_num(p, nan=0.0) for p in planes]).astype(np.float32)
         overlap = _intersect(overlap, _valid_rect(valid))
+        if own:                               # carry that area over to the reference grid
+            x0, y0, x1, y1 = own
+            c = st._apply(T, np.array([[x0, y0], [x1, y0], [x0, y1], [x1, y1]], dtype=np.float64))
+            inner = (int(np.ceil(max(c[0, 0], c[2, 0]))), int(np.ceil(max(c[0, 1], c[1, 1]))),
+                     int(np.floor(min(c[1, 0], c[3, 0]))), int(np.floor(min(c[2, 1], c[3, 1]))))
+            overlap = _intersect(overlap, inner)
         m.alignref = ref.alignref or str(ref.path)
         m.autocrop = ref.autocrop
         m.cards = [c for c in m.cards if not _WCS_KEYS.match(str(c[0]))]   # its old plate solution no longer fits

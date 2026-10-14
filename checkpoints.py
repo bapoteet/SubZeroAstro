@@ -36,7 +36,12 @@ def set_root(path: str | None):
 
 def default_root() -> Path:
     base = os.environ.get("LOCALAPPDATA")
-    return Path(base) / "SubZeroAstro" / "checkpoints" if base else Path.home() / ".cache" / "subzeroastro" / "checkpoints"
+    if base:
+        return Path(base) / "SubZeroAstro" / "checkpoints"
+    import sys
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "SubZeroAstro" / "checkpoints"
+    return Path.home() / ".cache" / "subzeroastro" / "checkpoints"
 
 
 def root() -> Path:

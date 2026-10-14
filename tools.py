@@ -135,11 +135,32 @@ def eval_expr(expr: str, values: dict) -> bool:
 # RC-Astro CLI
 # ==========================================================================
 
+MAC = sys.platform == "darwin"
+
+
+def app_exe(p) -> Path:
+    """A macOS .app bundle -> the program inside it (Contents/MacOS/...)."""
+    p = Path(p)
+    if p.suffix.lower() == ".app" and p.is_dir():
+        inner = p / "Contents" / "MacOS"
+        named = [inner / p.stem, inner / p.stem.lower()]
+        for c in named + sorted(inner.glob("*")) if inner.is_dir() else []:
+            if c.is_file():
+                return c
+    return p
+
+
+def _mac_cands(*paths):
+    return [app_exe(Path(x).expanduser()) for x in paths] if MAC else []
+
+
 def find_rcastro(configured: str | None = None) -> str | None:
     cands = []
     if configured:
-        p = Path(configured)
-        cands += [p] if p.suffix else [p / "rc-astro.exe", p / "rc-astro"]
+        p = app_exe(Path(configured))
+        cands += [p] if p.suffix or p.is_file() else [p / "rc-astro.exe", p / "rc-astro"]
+    cands += _mac_cands("/Applications/RC-Astro/CLI/rc-astro", "/Applications/RC-Astro CLI/rc-astro",
+                        "/usr/local/bin/rc-astro", "/opt/homebrew/bin/rc-astro", "~/Applications/RC-Astro/rc-astro")
     for base in (os.environ.get("ProgramFiles", r"C:\Program Files"), r"C:\Program Files"):
         cands.append(Path(base) / "RC-Astro" / "CLI" / "rc-astro.exe")
     for c in cands:
@@ -352,8 +373,9 @@ class RCAstro:
 def find_graxpert(configured: str | None = None) -> str | None:
     cands = []
     if configured:
-        p = Path(configured)
-        cands += [p] if p.suffix else [p / "GraXpert-win64.exe", p / "GraXpert.exe"]
+        p = app_exe(Path(configured))
+        cands += [p] if p.suffix or p.is_file() else [p / "GraXpert-win64.exe", p / "GraXpert.exe"]
+    cands += _mac_cands("/Applications/GraXpert.app", "~/Applications/GraXpert.app")
     for base in (os.environ.get("ProgramFiles", r"C:\Program Files"), os.environ.get("LOCALAPPDATA", "")):
         if base:
             cands += [Path(base) / "GraXpert" / "GraXpert-win64.exe", Path(base) / "GraXpert" / "GraXpert.exe",
@@ -403,8 +425,11 @@ class GraXpert:
 def find_astap(configured: str | None = None) -> str | None:
     cands = []
     if configured:
-        p = Path(configured)
-        cands += [p] if p.suffix else [p / "astap_cli.exe", p / "astap.exe", p / "astap_cli", p / "astap"]
+        p = app_exe(Path(configured))
+        cands += [p] if p.suffix or p.is_file() else [p / "astap_cli.exe", p / "astap.exe", p / "astap_cli",
+                                                      p / "astap"]
+    cands += _mac_cands("/usr/local/bin/astap_cli", "/opt/homebrew/bin/astap_cli", "/Applications/astap_cli",
+                        "/Applications/ASTAP.app/Contents/MacOS/astap_cli", "/Applications/ASTAP.app")
     for base in (os.environ.get("ProgramFiles", r"C:\Program Files"), r"C:\Program Files"):
         cands += [Path(base) / "astap" / "astap_cli.exe", Path(base) / "astap" / "astap.exe"]
     for c in cands:
@@ -469,9 +494,21 @@ def reveal(paths):
     import subprocess
     import sys as _sys
     paths = [Path(x) for x in (paths if isinstance(paths, (list, tuple)) else [paths]) if x]
-    if not paths or not _sys.platform.startswith("win"):
+    if not paths:
         return False
     p = paths[0]
+    if _sys.platform == "darwin":                     # Finder, with the file selected
+        try:
+            subprocess.Popen(["open", str(p)] if p.is_dir() else ["open", "-R", str(p)])  # noqa: S603,S607
+            return True
+        except OSError:
+            return False
+    if not _sys.platform.startswith("win"):
+        try:
+            subprocess.Popen(["xdg-open", str(p if p.is_dir() else p.parent)])  # noqa: S603,S607
+            return True
+        except OSError:
+            return False
     try:
         if p.is_dir():
             os.startfile(str(p))  # noqa: S606

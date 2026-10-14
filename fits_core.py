@@ -12,6 +12,7 @@ Nothing in here imports Qt, so it can be tested on its own.
 from __future__ import annotations
 
 import os
+import sys
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -1105,7 +1106,12 @@ CACHE_VERSION = 2
 def cache_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA")
     # storage keeps its original name so saved measurements survive the rename to SubZeroAstro
-    d = Path(base) / "FITSBlasterWin" / "cache" if base else Path.home() / ".cache" / "fitsblasterwin"
+    if base:
+        d = Path(base) / "FITSBlasterWin" / "cache"
+    elif sys.platform == "darwin":
+        d = Path.home() / "Library" / "Caches" / "SubZeroAstro"
+    else:
+        d = Path.home() / ".cache" / "fitsblasterwin"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

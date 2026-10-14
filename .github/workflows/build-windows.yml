@@ -150,3 +150,78 @@ jobs:
           gh release create "$env:TAG" SubZeroAstro-Windows.zip --target "${{ github.sha }}" @pre `
             --title "SubZeroAstro $env:TAG" `
             --notes "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder. From subs to masters - zero hassle. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway. Free code signing provided by SignPath.io, certificate by SignPath Foundation (when signed)."
+
+  build-mac:
+    # The same app for Macs with Apple silicon (M1/M2/M3/M4), built and self-tested on a real Mac.
+    # Unsigned for now: the first time, right-click SubZeroAstro.app > Open (see the README).
+    needs: build
+    if: always()
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install libraries
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Self-test (Python, real window)
+        env:
+          PYTHONFAULTHANDLER: "1"
+        run: |
+          mkdir -p selftest_mac
+          python subzeroastro.py --selftest selftest_mac 2>&1 | tee selftest_mac/console.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Build SubZeroAstro.app
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" \
+            --osx-bundle-identifier io.github.bapoteet.subzeroastro subzeroastro.py
+          VER=$(python -c "import re;print(re.search(r'^APP_VERSION = \"([^\"]+)\"', open('subzeroastro.py').read(), re.M).group(1))")
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VER%% *}" dist/SubZeroAstro.app/Contents/Info.plist || true
+          codesign --force --deep --sign - dist/SubZeroAstro.app   # ad-hoc signature (needed on Apple silicon)
+
+      - name: Self-test (the built app)
+        run: |
+          dist/SubZeroAstro.app/Contents/MacOS/SubZeroAstro --selftest "$PWD/selftest_mac_app"
+          cat selftest_mac_app/selftest_result.txt
+
+      - name: Package
+        run: |
+          cp README.md LICENSE dist/
+          cd dist && ditto -c -k --sequesterRsrc --keepParent SubZeroAstro.app ../SubZeroAstro-macOS-AppleSilicon.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: SubZeroAstro-macOS-AppleSilicon
+          path: SubZeroAstro-macOS-AppleSilicon.zip
+
+      - name: Publish self-test results to the selftest-results-mac branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p results
+          cp -r selftest_mac selftest_mac_app results/ 2>/dev/null || true
+          echo "commit ${{ github.sha }}  run ${{ github.run_id }}  $(date -u)" > results/RUN.txt
+          cd results
+          git init -q -b selftest-results-mac
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Mac self-test results for ${{ github.sha }}"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" selftest-results-mac
+
+      - name: Add the Mac app to the release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+        run: gh release upload "$TAG" SubZeroAstro-macOS-AppleSilicon.zip --clobber

@@ -821,6 +821,18 @@ def run(app, out_dir: Path) -> int:
               f"finished sky is neutral and sensibly bright ({[round(x, 3) for x in sky]})")
         check(len(fw.project.steps) == n_before + 2,           # core + local contrast (Spot Fix undone)
               f"every step saved in the project ({len(fw.project.steps)})")
+        # Final Crop: a box on the picture, trimmed to what the user drags
+        h0, w0 = fw.state.shape
+        fw.open_tool("final_crop")
+        QApplication.processEvents()
+        check(fw.crop_row.isVisibleTo(fw) and not fw.view.locked and fw.view.rect_item.isVisible(),
+              "Final Crop shows a draggable box on the picture")
+        shot("22_finish_final_crop.png", fw)
+        fw.view.set_crop((20, 10, w0 - 30, h0 - 16))
+        fw.apply_choice()
+        QApplication.processEvents()
+        check(fw.state.shape == (h0 - 26, w0 - 50) and "final_crop" in fw.state.done,
+              f"Final Crop trims the picture to the box ({fw.state.shape} from {(h0, w0)})")
         # Sign Your Picture
         before_sig = fw.state.rgb.copy()
         fw.open_tool("signature")

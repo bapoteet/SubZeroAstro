@@ -1128,8 +1128,77 @@ class StarColours(Tool):
 
 
 # --------------------------------------------------------------------------
-SIGN_FONTS = [("Elegant script", "Segoe Script", False), ("Handwritten", "Ink Free", False),
-              ("Classic", "Georgia", True)]
+def bad_edges(s: "State", max_frac=0.15):
+    """Edges that are ragged or discoloured (e.g. a strip only one filter covered): walk in from
+    each side while the line's colour or brightness is clearly off. Full-size (x0, y0, x1, y1)."""
+    h, w = s.shape
+    sm = s.small(800)
+    a = state_display(sm, with_stars=True).astype(np.float32) / 255.0      # (h, w, 3) as seen
+    sh, sw = a.shape[:2]
+    fy, fx = h / sh, w / sw
+
+    def inward(lines):                       # lines: (n, L, 3) from the edge inward
+        med = np.median(lines, axis=1)        # (n, 3)
+        n = len(med)
+        core = med[n // 4: 3 * n // 4] if n >= 8 else med
+        ref = np.median(core, axis=0)
+        spread = 1.4826 * np.median(np.abs(core - ref), axis=0) + 0.006
+        dev = np.max(np.abs(med - ref) / spread, axis=1)
+        cut, good, limit = 0, 0, int(n * max_frac)
+        for i in range(min(n, limit + 3)):
+            if dev[i] > 6.0:
+                cut, good = i + 1, 0
+            else:
+                good += 1
+                if good >= 3:
+                    break
+        return min(cut + (1 if cut else 0), limit)
+    left = inward(a.transpose(1, 0, 2))
+    right = inward(a.transpose(1, 0, 2)[::-1])
+    top = inward(a)
+    bottom = inward(a[::-1])
+    return (int(left * fx), int(top * fy), int(w - right * fx), int(h - bottom * fy))
+
+
+class FinalCrop(Tool):
+    key = "final_crop"
+    title = "Final Crop"
+    tip = ("A last clean-up crop: trims ragged or discoloured edges and frames the picture. The yellow box "
+           "starts at the edges SubZeroAstro found - drag it or its sides to adjust.")
+    optional = True
+    pick = False
+    editor = "crop"                  # the window shows a draggable box on the picture
+
+    def applicable(self, s):
+        if s.rgb is None and not s.channels:
+            return False, "Load masters first"
+        return True, ""
+
+    def variants(self, s):
+        x0, y0, x1, y1 = bad_edges(s)
+        h, w = s.shape
+        found = (x0, y0, x1, y1) != (0, 0, w, h)
+        note = ("The box starts where the edges look ragged or off-colour" if found else
+                "No bad edges found - drag the box to frame the picture")
+        return [Variant("Crop to the Box", {"rect": [x0, y0, x1, y1]}, note, True)]
+
+    def apply(self, s, params):
+        h, w = s.shape
+        x0, y0, x1, y1 = (int(v) for v in params["rect"])
+        x0, y0, x1, y1 = max(0, x0), max(0, y0), min(w, x1), min(h, y1)
+        if x1 - x0 < 16 or y1 - y0 < 16:
+            raise ValueError("The crop box is too small")
+        s = s._map(lambda a: np.ascontiguousarray(a[:, y0:y1, x0:x1]))
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
+import sys as _sys
+SIGN_FONTS = ([("Elegant script", "Snell Roundhand", False), ("Handwritten", "Bradley Hand", False),
+               ("Classic", "Georgia", True)] if _sys.platform == "darwin" else
+              [("Elegant script", "Segoe Script", False), ("Handwritten", "Ink Free", False),
+               ("Classic", "Georgia", True)])
 SIGN_COLOURS = {"Soft white": (0.95, 0.95, 0.93), "Warm white": (1.0, 0.93, 0.82), "Light grey": (0.78, 0.80, 0.84),
                 "Ice blue": (0.74, 0.86, 1.0)}
 SIGN_CORNERS = ("bottom right", "bottom left", "top right", "top left")
@@ -1756,7 +1825,7 @@ class TameCore(Tool):
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
                             TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
                             StarColours(), PutStarsBack(),
-                            SpotFix(), SignPicture())}
+                            FinalCrop(), SpotFix(), SignPicture())}
 
 
 def thumb_state(tool: Tool, s: State, size=420) -> State:
@@ -1794,14 +1863,14 @@ def busiest_spot(s: State, size=420):
 _POLISH = ["core", "curves", "saturation", "local"]
 _STARS = ["star_stretch", "shrink", "star_color", "stars_back"]
 WORKFLOWS = {
-    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix", "signature"],
-    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix", "signature"],
-    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix", "signature"],
-    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix", "signature"],
-    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix", "signature"],
-    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["spotfix", "signature"],
-    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["spotfix", "signature"],
-    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["spotfix", "signature"],
+    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
+    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
+    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
+    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
+    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
+    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
+    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
+    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["final_crop", "spotfix", "signature"],
 }
 
 WHY = {
@@ -2022,6 +2091,7 @@ PI_EQUIVALENT = {
     "star_color": "PixelMath on the stars image (colour from the R/(G+B) ratio), or Narrowband Normalization's star options",
         "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
     "signature": "Annotation, or a PixelMath-blended signature image",
+    "final_crop": "DynamicCrop",
 }
 
 
