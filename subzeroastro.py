@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.1 beta"
+APP_VERSION = "0.9.2 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -2676,6 +2676,7 @@ def apply_dark_theme(app: QApplication):
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    ui_header.set_app_icon(app)
     apply_dark_theme(app)
 
     if "--selftest" in sys.argv:

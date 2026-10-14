@@ -208,6 +208,8 @@ def run(app, out_dir: Path) -> int:
     check(_mp is not None and _mp.stat().st_size > 100000 and _hm is not None
           and any("User Manual" in x.text() for x in _hm.actions()),
           f"Help > User Manual (PDF) is there and the manual ships with the app ({_mp})")
+    check(_uh.app_icon_path() is not None and not QApplication.windowIcon().isNull(),
+          f"the SubZeroAstro icon ships with the app and is set on the windows ({_uh.app_icon_path()})")
     w.show()
     for k, a in w.mode_actions.items():
         a.setChecked(k == "fast")

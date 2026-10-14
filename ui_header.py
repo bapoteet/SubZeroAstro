@@ -214,6 +214,31 @@ MANUAL_NAME = "SubZeroAstro_User_Manual.pdf"
 MANUAL_URL = "https://github.com/bapoteet/SubZeroAstro/blob/main/docs/" + MANUAL_NAME
 
 
+def app_icon_path():
+    from pathlib import Path
+    here = Path(getattr(_sys, "_MEIPASS", Path(__file__).resolve().parent))
+    for p in (here / "assets" / "icon_256.png", Path(__file__).resolve().parent / "assets" / "icon_256.png"):
+        if p.is_file():
+            return p
+    return None
+
+
+def set_app_icon(app):
+    """The SubZeroAstro icon on every window, the taskbar and the Dock."""
+    p = app_icon_path()
+    if p is None:
+        return False
+    from PySide6.QtGui import QIcon
+    app.setWindowIcon(QIcon(str(p)))
+    if _sys.platform.startswith("win"):
+        try:          # own taskbar button (not Python's) when run from source
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("bapoteet.SubZeroAstro")
+        except Exception:  # noqa: BLE001
+            pass
+    return True
+
+
 def manual_path():
     """The user manual shipped with the app (inside the .exe folder / .app bundle), or in the
     source checkout's docs folder."""

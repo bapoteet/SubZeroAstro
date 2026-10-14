@@ -36,12 +36,16 @@ Go to the repository's **Releases** page (right-hand side on GitHub), download
 unrecognized app, click **More info → Run anyway**. Releases are being set up for
 free code signing by SignPath — see the [Code signing policy](#code-signing-policy).
 
+**Shortcut (Windows):** right-click **SubZeroAstro.exe** › *Show more options* › **Send to › Desktop
+(create shortcut)**, or right-click › **Pin to Start** / **Pin to taskbar**.
+
 **Mac (Apple silicon, M1 or newer):** download **SubZeroAstro-macOS-AppleSilicon.zip**
 from the same release, double-click it, and drag **SubZeroAstro.app** to your Applications folder.
 The app is not notarized by Apple yet, so the first time **right-click (or Control-click) the app ›
 Open › Open**. If macOS still says it "is damaged" or "can't be opened", run this once in Terminal:
 `xattr -dr com.apple.quarantine /Applications/SubZeroAstro.app`. On a Mac, point the Tools fields to
-`ASTAP.app`, `GraXpert.app` and the RC-Astro CLI wherever you installed them.
+`ASTAP.app`, `GraXpert.app` and the RC-Astro CLI wherever you installed them. To keep it in the Dock, open it once,
+then right-click its Dock icon › **Options › Keep in Dock**.
 
 Every change pushed to GitHub is built and tested automatically on Windows and macOS
 (see the **Actions** tab), including a self-test that opens the real window.

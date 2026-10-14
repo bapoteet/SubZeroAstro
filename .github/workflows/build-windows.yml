@@ -58,7 +58,7 @@ jobs:
       - name: Build SubZeroAstro.exe
         run: |
           python build_version.py
-          pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" --version-file version_info.txt --add-data "docs/SubZeroAstro_User_Manual.pdf;docs" subzeroastro.py
+          pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" --version-file version_info.txt --icon assets/SubZeroAstro.ico --add-data "docs/SubZeroAstro_User_Manual.pdf;docs" --add-data "assets/icon_256.png;assets" subzeroastro.py
 
       - name: Self-test (the built .exe)
         shell: pwsh
@@ -185,7 +185,8 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" \
             --osx-bundle-identifier io.github.bapoteet.subzeroastro \
-            --add-data "docs/SubZeroAstro_User_Manual.pdf:docs" subzeroastro.py
+            --icon assets/SubZeroAstro.icns \
+            --add-data "docs/SubZeroAstro_User_Manual.pdf:docs" --add-data "assets/icon_256.png:assets" subzeroastro.py
           VER=$(python -c "import re;print(re.search(r'^APP_VERSION = \"([^\"]+)\"', open('subzeroastro.py').read(), re.M).group(1))")
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VER%% *}" dist/SubZeroAstro.app/Contents/Info.plist || true
           codesign --force --deep --sign - dist/SubZeroAstro.app   # ad-hoc signature (needed on Apple silicon)
