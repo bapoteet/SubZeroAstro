@@ -1083,6 +1083,21 @@ def run(app, out_dir: Path) -> int:
         check(len(fw2.project.steps) == 1 and fw2.state.linear and not [k for k in fw2.state.done
                                                                         if k != "stars_out"],
               "Back to Start returns to the original masters")
+        import finish as F
+        # Save Project As twice into the same folder (Mac report: the second save deleted the project)
+        _pd = session.parent / "Final Astro Pics"
+        _pd.mkdir(exist_ok=True)
+        (_pd / "other_picture.jpg").write_bytes(b"x")         # a folder with other things in it
+        _n = len(fw2.project.steps)
+        _p1 = fw2.project.save_as(_pd)
+        _p2 = _p1.save_as(_pd)
+        _p3 = _p2.save_as(_pd / _p2.dir.name)
+        check(_p1.dir.name.endswith(".szproj") and _p2.dir == _p1.dir == _p3.dir and _p3.dir.is_dir()
+              and len(F.Project(_p3.dir).steps) == _n and (_pd / "other_picture.jpg").exists(),
+              f"saving a project again to the same folder keeps it ({_n} steps in {_p3.dir.name})")
+        _p4 = _p3.save_as(session.parent / "Another Place")
+        check(_p4.dir.is_dir() and _p3.dir.is_dir() and len(_p4.steps) == _n
+              and not list(_pd.glob("*.saving")), "saving a project to a new folder copies it completely")
         # End this Project and Start New Project: every page closes, page 1 is empty and shown
         import ui_header as _uh2
         check("Start New Project" in fw2.btn_new_project.text() and

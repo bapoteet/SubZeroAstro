@@ -2016,12 +2016,32 @@ class Project:
             self._write()
 
     def save_as(self, folder: Path) -> "Project":
+        """Copy the project into a folder of the user's choice (a non-empty folder gets a
+        <target>.szproj subfolder). Saving again to the same place keeps it as it is - every
+        step is already written there - and an older copy is only replaced once the new one is
+        complete, so a failed save never loses anything."""
         folder = Path(folder)
-        if folder.exists() and any(folder.iterdir()):
+        src = self.dir.resolve()
+        if folder.exists() and any(folder.iterdir()) and folder.resolve() != src:
             folder = folder / f"{cp.safe_name(self.manifest.get('target') or 'project')}.szproj"
+        dst = folder.resolve()
+        if dst == src:
+            self._write()
+            return self                                  # already saved here, step by step
+        if src in dst.parents:
+            raise ValueError("Choose a folder outside the project's own folder.")
+        if dst in src.parents:
+            raise ValueError("That folder contains this project; choose another folder.")
+        if not self.dir.exists():
+            raise FileNotFoundError(f"The project's working folder is missing ({self.dir}). Your picture is "
+                                    "still on screen - keep it with Save the Picture….")
+        tmp = folder.with_name(folder.name + ".saving")
+        if tmp.exists():
+            shutil.rmtree(tmp)
+        shutil.copytree(self.dir, tmp)
         if folder.exists():
             shutil.rmtree(folder)
-        shutil.copytree(self.dir, folder)
+        tmp.rename(folder)
         return Project(folder)
 
     def size(self):

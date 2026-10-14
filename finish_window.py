@@ -637,7 +637,15 @@ class FinishWindow(QMainWindow):
         self.progress.setVisible(False)
         self.setEnabled_all(True)
         self.log("ERROR: " + msg)
-        QMessageBox.critical(self, "Finish", msg[:900])
+        head, _, tb = msg.partition("\n\nTraceback")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Finishing Touches")
+        box.setText(head.strip()[:600] or "Something went wrong.")
+        if tb:
+            box.setInformativeText("The technical details are in the log at the bottom of the page.")
+            box.setDetailedText(("Traceback" + tb)[-1500:])
+        box.exec()
 
     def setEnabled_all(self, on):
         for w in (self.flow, self.card, self.tool_box, self.btn_pi, self.hist, self.btn_back):
