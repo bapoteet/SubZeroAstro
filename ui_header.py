@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 APP_NAME = "SubZeroAstro"
 AUTHOR = "Brian A. Poteet"
+APP_VERSION = ""          # set by subzeroastro.py (the one place the version is written)
 
 PAGE_CULL = "Astro Image Quality and Cull"
 PAGE_STACK = "Calibrate and Stack"
@@ -101,7 +102,8 @@ class AppHeader(QWidget):
         self.name.setStyleSheet(f"color:#cfe3ff; font-size:{_PT(20)}pt; font-weight:700; letter-spacing:1px;"
                                 "background:transparent; border:none;")
         v.addWidget(self.name)
-        self.by = QLabel(f"by {AUTHOR}")
+        self.by = QLabel(f"by {AUTHOR}" + (f"  ·  v{APP_VERSION}" if APP_VERSION else ""))
+        self.by.setToolTip(f"SubZeroAstro version {APP_VERSION}" if APP_VERSION else "")
         self.by.setAlignment(Qt.AlignCenter)
         self.by.setStyleSheet(f"color:#8a93a6; font-size:{_PT(7.5)}pt; font-style:italic; margin-top:-3px;"
                               "background:transparent; border:none;")

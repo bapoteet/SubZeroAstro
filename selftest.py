@@ -927,6 +927,8 @@ def run(app, out_dir: Path) -> int:
         check(fw.app_header.page.text() == _uh.PAGE_FINISH and pw.app_header.page.text() == _uh.PAGE_PREPARE
               and state["pw"].parent().app_header.page.text() == _uh.PAGE_STACK,
               "every window shows the banner with its page title")
+        check(all(fb.APP_VERSION in x.app_header.by.text() for x in (fw, pw, state["pw"].parent(), w)),
+              f"every page shows the version in small print ({w.app_header.by.text()})")
         sw_ = state["pw"].parent()
         check(fw.app_header.btn_back is not None and _uh.PAGE_PREPARE in fw.app_header.btn_back.text()
               and pw.app_header.btn_back is not None and _uh.PAGE_STACK in pw.app_header.btn_back.text()

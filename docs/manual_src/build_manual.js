@@ -247,7 +247,7 @@ bullets([
 
 ch(5, "Finding your way around");
 sec("5.1", "The banner and page buttons", ["Banner", "Continue button", "Back button", "Page navigation"]);
-p("Every page has the same banner at the top: **SubZeroAstro**, the author, and the **page title**. On the right is a blue **Continue to …  ➜** button that turns to the next page; on the left a grey **◀ previous page** button goes back. Going back keeps your work: press Continue again and the page you left comes back exactly as it was.");
+p("Every page has the same banner at the top: **SubZeroAstro**, the author and the **version** in small print (e.g. *v0.9.10 beta*), and the **page title**. On the right is a blue **Continue to …  ➜** button that turns to the next page; on the left a grey **◀ previous page** button goes back. Going back keeps your work: press Continue again and the page you left comes back exactly as it was.");
 sec("5.2", "The log and the status bar", ["Log", "Status bar", "Progress bar"]);
 p("The text area at the bottom of each page is the **log**: it tells you what was done, what was found and any warnings, in plain language. The orange bar shows progress and an estimate of the time left.");
 p("When a page has finished its job, its green run button turns **amber** - **✓ Stacked – Run Again?** on page 2, **✓ Done – Run Again?** on page 3 - so you can see at a glance that the page is done. Pressing it again asks first, so nothing is redone by accident. Add new images and it turns green again.");
@@ -451,7 +451,7 @@ table(["Problem", "What to do"], [
   ["Something went wrong mid-run", "Restart: SubZeroAstro offers to resume from its saved progress."],
 ], [3300, 6060]);
 sec("11.2", "Getting help and reporting problems", ["Support", "Reporting problems", "Self-test"]);
-p("Note the version (**Help › About**) and take a screenshot of the page and its log. Problems and ideas can be reported on the GitHub page (**github.com/bapoteet/SubZeroAstro**, *Issues*). Advanced: `SubZeroAstro --selftest` runs the built-in self-test.");
+p("Note the version (in small print under the name at the top of every page, or **Help › About**) and take a screenshot of the page and its log. Problems and ideas can be reported on the GitHub page (**github.com/bapoteet/SubZeroAstro**, *Issues*). Advanced: `SubZeroAstro --selftest` runs the built-in self-test.");
 
 ch(12, "Keyboard shortcuts");
 sec("12.1", "Page 1 – Quality and Cull", ["Keyboard shortcuts", "Shortcuts"]);
