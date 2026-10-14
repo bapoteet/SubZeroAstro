@@ -22,6 +22,10 @@ PAGE_PREPARE = "Astro Image Processing"
 PAGE_FINISH = "Finishing Touches"
 
 
+import sys as _sys
+_MAC = _sys.platform == "darwin"          # macOS draws the same point size smaller than Windows
+_PT = (lambda x: round(x * 1.25, 1)) if _MAC else (lambda x: x)
+
 NEXT_STYLE = ("QPushButton { background:#2f6fd6; color:white; font-weight:700; font-size:10.5pt; "
               "padding:7px 16px; border-radius:6px; border:1px solid #5a92ee; }"
               "QPushButton:hover { background:#3b7ff0; }"
@@ -63,17 +67,17 @@ class AppHeader(QWidget):
         # three centred lines: name / by author (very small) / page title
         self.name = QLabel(APP_NAME)
         self.name.setAlignment(Qt.AlignCenter)
-        self.name.setStyleSheet("color:#cfe3ff; font-size:20pt; font-weight:700; letter-spacing:1px;"
+        self.name.setStyleSheet(f"color:#cfe3ff; font-size:{_PT(20)}pt; font-weight:700; letter-spacing:1px;"
                                 "background:transparent; border:none;")
         v.addWidget(self.name)
         self.by = QLabel(f"by {AUTHOR}")
         self.by.setAlignment(Qt.AlignCenter)
-        self.by.setStyleSheet("color:#8a93a6; font-size:7pt; font-style:italic; margin-top:-3px;"
+        self.by.setStyleSheet(f"color:#8a93a6; font-size:{_PT(7.5)}pt; font-style:italic; margin-top:-3px;"
                               "background:transparent; border:none;")
         v.addWidget(self.by)
         self.page = QLabel(page_title)
         self.page.setAlignment(Qt.AlignCenter)
-        self.page.setStyleSheet("color:#9fc0ec; font-size:11pt; font-weight:600; background:transparent;"
+        self.page.setStyleSheet(f"color:#9fc0ec; font-size:{_PT(11)}pt; font-weight:600; background:transparent;"
                                 "border:none; margin-top:1px;")
         v.addWidget(self.page)
         g.addWidget(mid, 0, 1)
