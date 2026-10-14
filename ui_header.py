@@ -210,6 +210,30 @@ def open_page(owner, attr: str, key, make):
     return w
 
 
+MANUAL_NAME = "SubZeroAstro_User_Manual.pdf"
+MANUAL_URL = "https://github.com/bapoteet/SubZeroAstro/blob/main/docs/" + MANUAL_NAME
+
+
+def manual_path():
+    """The user manual shipped with the app (inside the .exe folder / .app bundle), or in the
+    source checkout's docs folder."""
+    from pathlib import Path
+    here = Path(getattr(_sys, "_MEIPASS", Path(__file__).resolve().parent))
+    for p in (here / "docs" / MANUAL_NAME, here / MANUAL_NAME, Path(_sys.executable).resolve().parent / MANUAL_NAME,
+              Path(__file__).resolve().parent / "docs" / MANUAL_NAME):
+        if p.is_file():
+            return p
+    return None
+
+
+def open_manual():
+    """Open the user manual in the computer's PDF viewer (or online if it isn't bundled)."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+    p = manual_path()
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)) if p else QUrl(MANUAL_URL))
+
+
 def install_header(window, page_title: str, with_menu: bool = False) -> AppHeader:
     """Put the banner at the very top of a QMainWindow, above its menu bar and toolbars.
     Call this BEFORE building menus: Qt deletes a menu bar that is replaced, so the window
@@ -228,6 +252,12 @@ def install_header(window, page_title: str, with_menu: bool = False) -> AppHeade
     window.menuBar = lambda: mb          # menus are added under the banner
     window.app_header = header
     header.btn_back = None
+    try:                                     # F1 opens the user manual on every page
+        from PySide6.QtGui import QKeySequence, QShortcut
+        window._f1 = QShortcut(QKeySequence("F1"), window)
+        window._f1.activated.connect(open_manual)
+    except Exception:  # noqa: BLE001
+        pass
     # "◀ back" goes to whichever SubZeroAstro window opened this one
     prev = window.parentWidget()
     prev = prev.window() if prev is not None else None

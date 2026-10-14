@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.0 beta"
+APP_VERSION = "0.9.1 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -1211,6 +1211,13 @@ class MainWindow(QMainWindow):
         m.addAction(a)
         self.act_splash = a
         m = mb.addMenu("&Help")
+        a = QAction("User Manual (PDF)", self)
+        a.setShortcut("F1")
+        a.setShortcutContext(Qt.WidgetShortcut)    # F1 itself is handled on every page by the banner
+        a.setToolTip("Open the SubZeroAstro user manual")
+        a.triggered.connect(ui_header.open_manual)
+        m.addAction(a)
+        m.addSeparator()
         a = QAction("Keyboard Shortcuts", self)
         a.triggered.connect(self.show_keys)
         m.addAction(a)

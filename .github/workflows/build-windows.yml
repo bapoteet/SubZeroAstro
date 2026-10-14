@@ -58,7 +58,7 @@ jobs:
       - name: Build SubZeroAstro.exe
         run: |
           python build_version.py
-          pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" --version-file version_info.txt subzeroastro.py
+          pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" --version-file version_info.txt --add-data "docs/SubZeroAstro_User_Manual.pdf;docs" subzeroastro.py
 
       - name: Self-test (the built .exe)
         shell: pwsh
@@ -104,6 +104,7 @@ jobs:
         run: |
           Copy-Item README.md "dist\SubZeroAstro\README.md"
           Copy-Item LICENSE "dist\SubZeroAstro\LICENSE.txt"
+          Copy-Item docs\SubZeroAstro_User_Manual.pdf "dist\SubZeroAstro\SubZeroAstro_User_Manual.pdf"
           Compress-Archive -Path "dist\SubZeroAstro" -DestinationPath "SubZeroAstro-Windows.zip"
 
       - name: Upload app
@@ -182,7 +183,8 @@ jobs:
       - name: Build SubZeroAstro.app
         run: |
           pyinstaller --noconfirm --clean --windowed --name "SubZeroAstro" \
-            --osx-bundle-identifier io.github.bapoteet.subzeroastro subzeroastro.py
+            --osx-bundle-identifier io.github.bapoteet.subzeroastro \
+            --add-data "docs/SubZeroAstro_User_Manual.pdf:docs" subzeroastro.py
           VER=$(python -c "import re;print(re.search(r'^APP_VERSION = \"([^\"]+)\"', open('subzeroastro.py').read(), re.M).group(1))")
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VER%% *}" dist/SubZeroAstro.app/Contents/Info.plist || true
           codesign --force --deep --sign - dist/SubZeroAstro.app   # ad-hoc signature (needed on Apple silicon)
@@ -194,7 +196,7 @@ jobs:
 
       - name: Package
         run: |
-          cp README.md LICENSE dist/
+          cp README.md LICENSE docs/SubZeroAstro_User_Manual.pdf dist/
           cd dist && ditto -c -k --sequesterRsrc --keepParent SubZeroAstro.app ../SubZeroAstro-macOS-AppleSilicon.zip
 
       - name: Upload app
@@ -224,4 +226,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
-        run: gh release upload "$TAG" SubZeroAstro-macOS-AppleSilicon.zip --clobber
+        run: gh release upload "$TAG" SubZeroAstro-macOS-AppleSilicon.zip docs/SubZeroAstro_User_Manual.pdf --clobber

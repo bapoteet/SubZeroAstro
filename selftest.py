@@ -202,6 +202,12 @@ def run(app, out_dir: Path) -> int:
     check(getattr(w, "app_header", None) is not None and w.app_header.page.text() == _uh.PAGE_CULL
           and w.app_header.name.text() == "SubZeroAstro" and len(w.menuBar().actions()) >= 5,
           "banner 'SubZeroAstro / Astro Image Quality and Cull' above working menus")
+    _mp = _uh.manual_path()
+    _help = [x.text() for x in w.menuBar().actions() if x.text().replace("&", "") == "Help"]
+    _hm = next((x.menu() for x in w.menuBar().actions() if x.text().replace("&", "") == "Help"), None)
+    check(_mp is not None and _mp.stat().st_size > 100000 and _hm is not None
+          and any("User Manual" in x.text() for x in _hm.actions()),
+          f"Help > User Manual (PDF) is there and the manual ships with the app ({_mp})")
     w.show()
     for k, a in w.mode_actions.items():
         a.setChecked(k == "fast")
