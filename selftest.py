@@ -611,6 +611,10 @@ def run(app, out_dir: Path) -> int:
         check(core.band_lines("ASD2") == ("SII", "OIII") and core.band_lines("ASD1") == ("Ha", "OIII"),
               "Askar D1 (Ha+OIII) and D2 (SII+OIII) are known dual-band filters")
         check(not _bad, f"filter-wheel names like 'Ha 7nm', 'O', 'S', 'Antlia Ha 3nm Pro' are recognised ({_bad})")
+        import tools as _tl
+        check(_tl._json_answer('Update available\n{"products": []}') == {"products": []}
+              and _tl._json_answer("usage: something") is None,
+              "a tool's JSON answer is found even with notices around it; no answer is handled, not a crash")
         import prepare_window as _pwm
         check(_pwm.xt_start_values("nxt", {"dn": 0.0})["dn"] == 0.6 and _pwm.xt_start_values("nxt", {})["dn"] == 0.6
               and _pwm.xt_start_values("nxt", {"dn": 0.8})["dn"] == 0.8,

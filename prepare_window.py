@@ -828,8 +828,12 @@ class PrepareWindow(QMainWindow):
                     self.rc_products.get("devices", []))
                 i = self.device.findData(want)
                 self.device.setCurrentIndex(max(i, 0))
-            except tools.ToolError as e:
-                self.rc_status.setText(f"<span style='color:#e65050'>error: {e}</span>")
+            except Exception as e:  # noqa: BLE001 - an odd tool must never stop this page opening
+                self.rc_products = None
+                msg = str(e) if isinstance(e, tools.ToolError) else f"unexpected answer ({type(e).__name__}: {e})"
+                self.rc_status.setText(f"<span style='color:#e65050'>error: {msg}</span>")
+                self.rc_status.setToolTip(f"{rc}\n\n{msg}")
+                self.log(f"RC-Astro CLI at {rc}: {msg}")
         else:
             self.rc_status.setText("<span style='color:#eba932'>not found — XTerminator steps off</span>")
         for key in XT_KEYS:

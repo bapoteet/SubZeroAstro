@@ -46,6 +46,22 @@ def _command(exe) -> list:
     return [exe]
 
 
+def _json_answer(text):
+    """The JSON document in a tool's output, even with notices printed before or after it."""
+    text = (text or "").strip()
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    i, j = text.find("{"), text.rfind("}")
+    if 0 <= i < j:
+        try:
+            return json.loads(text[i:j + 1])
+        except ValueError:
+            pass
+    return None
+
+
 def _run_capture(cmd, timeout=120):
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
                        creationflags=CREATE_NO_WINDOW, encoding="utf-8", errors="replace")
@@ -283,10 +299,17 @@ class RCAstro:
         self.schema = None
 
     def products(self) -> dict:
-        code, out, err = _run_capture(_command(self.exe) + ["--json"])
+        try:
+            code, out, err = _run_capture(_command(self.exe) + ["--json"])
+        except (OSError, subprocess.SubprocessError) as e:
+            raise ToolError(f"could not start {Path(self.exe).name}: {e}")
         if code != 0:
             raise ToolError((err or out or f"rc-astro exited with {code}").strip()[:400])
-        doc = json.loads(out)
+        doc = _json_answer(out)
+        if not isinstance(doc, dict) or "products" not in doc:
+            said = " ".join((out or err or "nothing").split())[:160]
+            raise ToolError(f"{Path(self.exe).name} did not answer like the RC-Astro CLI (it said: {said}). "
+                            "Use Browse… to pick the rc-astro program from RC-Astro's CLI download.")
         self.cli_version = doc.get("cliVersion")
         self.schema = doc.get("schemaVersion")
         return doc
@@ -295,9 +318,8 @@ class RCAstro:
         code, out, err = _run_capture(_command(self.exe) + [key, "--json"])
         if code == EX_NOPERM and not out.strip():
             raise NotLicensed(f"{key} is not licensed on this computer")
-        try:
-            doc = json.loads(out)
-        except ValueError:
+        doc = _json_answer(out)
+        if not isinstance(doc, dict):
             raise ToolError((err or out or f"rc-astro {key} --json failed ({code})").strip()[:400])
         return ProductSpec(doc)
 
