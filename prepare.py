@@ -149,9 +149,90 @@ def target_sets(masters: list) -> list:
     """Masters that belong together (same target and pixel grid)."""
     sets = {}
     for m in masters:
-        key = (m.target, m.alignref or f"{m.path}", m.shape)
+        # same target and image size belong together, even when stacked in separate runs:
+        # run_prepare lines them up (line_up) if they were not aligned to each other
+        key = (re.sub(r"[^a-z0-9]", "", str(m.target).lower()), m.shape)
         sets.setdefault(key, []).append(m)
     return list(sets.values())
+
+
+def needs_line_up(masters) -> bool:
+    ref = masters[0]
+    return any(not (m.alignref and m.alignref == ref.alignref) for m in masters[1:])
+
+
+_WCS_KEYS = re.compile(r"^(CTYPE\d|CRVAL\d|CRPIX\d|CD\d_\d|CDELT\d|CROTA\d|PC\d_\d|CUNIT\d|PLTSOLVD|"
+                       r"[AB]P?_\d_\d|[AB]P?_ORDER|EQUINOX|RADESYS|LONPOLE|LATPOLE)$")
+
+
+def _binned_lum(m, f=2):
+    lum = m.data.mean(axis=0) if m.data.shape[0] > 1 else m.data[0]
+    h, w = lum.shape
+    return lum[:h // f * f, :w // f * f].reshape(h // f, f, w // f, f).mean(axis=(1, 3)).astype(np.float32)
+
+
+def _valid_rect(valid: np.ndarray):
+    """Largest-ish rectangle with valid pixels all round: shrink the worst border until clean."""
+    h, w = valid.shape
+    y0, y1, x0, x1 = 0, h, 0, w
+    while y1 - y0 > 2 and x1 - x0 > 2:
+        bad = {"top": 1 - valid[y0, x0:x1].mean(), "bottom": 1 - valid[y1 - 1, x0:x1].mean(),
+               "left": 1 - valid[y0:y1, x0].mean(), "right": 1 - valid[y0:y1, x1 - 1].mean()}
+        side = max(bad, key=bad.get)
+        if bad[side] <= 0:
+            break
+        if side == "top":
+            y0 += 1
+        elif side == "bottom":
+            y1 -= 1
+        elif side == "left":
+            x0 += 1
+        else:
+            x1 -= 1
+    return (x0, y0, x1, y1) if y1 - y0 > 2 and x1 - x0 > 2 else None
+
+
+def _intersect(a, b):
+    if a is None:
+        return b
+    if b is None:
+        return a
+    r = (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
+    return r if r[2] > r[0] and r[3] > r[1] else a
+
+
+def line_up(masters, log=None):
+    """Masters of one target that were stacked in separate runs (e.g. Ha on one night,
+    SII and OIII later) are not on the same pixel grid: match their stars to the first
+    master's and resample them onto its grid. Returns the area all of them cover
+    (x0, y0, x1, y1), or None when nothing needed lining up."""
+    lg = log or (lambda t: None)
+    if len(masters) < 2 or not needs_line_up(masters):
+        return None
+    ref = masters[0]
+    ref_pts, _ = st.find_stars(_binned_lum(ref), 2, max_stars=200)
+    overlap = None
+    for m in masters[1:]:
+        if m.alignref and m.alignref == ref.alignref:
+            continue
+        pts, _ = st.find_stars(_binned_lum(m), 2, max_stars=200)
+        try:
+            T, n_in, rms, *_rest = st.match_frames(ref_pts, pts, tol=4.0)
+        except ValueError as e:
+            lg(f"Could not line up {m.name} with {ref.name} ({e}) — it is used as it is")
+            continue
+        planes = st.warp_planes(list(m.data), T, ref.shape)
+        valid = np.isfinite(planes[0])
+        m.data = np.stack([np.nan_to_num(p, nan=0.0) for p in planes]).astype(np.float32)
+        overlap = _intersect(overlap, _valid_rect(valid))
+        m.alignref = ref.alignref or str(ref.path)
+        m.autocrop = ref.autocrop
+        m.cards = [c for c in m.cards if not _WCS_KEYS.match(str(c[0]))]   # its old plate solution no longer fits
+        m.solved = False
+        m.steps.append(("align", f"Lined up with the {ref.filter} master ({n_in} stars matched, "
+                                 f"{rms:.2f} px)"))
+        lg(f"Lined up {m.name} with {ref.name}: {n_in} stars matched, accuracy {rms:.2f} px")
+    return overlap
 
 
 # ==========================================================================
@@ -798,6 +879,15 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
         if start:
             cps.restore(start, masters, stars_images)
             lg("Resuming from saved progress — already done: " + ", ".join(t["title"] for t in cps.steps))
+    overlap = None
+    if start == 0 and needs_line_up(masters):
+        pr("Lining up the masters", 0.0)
+        overlap = line_up(masters, lg)
+        if overlap is not None and not any(step == "crop" for step, _s, _e in plan):
+            for m in masters:
+                crop(m, overlap)
+            lg(f"Trimmed to the area all masters cover: {overlap}")
+            overlap = None
     if opts.solve and not opts.astap:
         lg("Plate solve skipped — set the ASTAP folder to enable it")
     for key in ("bxt", "nxt", "sxt"):
@@ -814,6 +904,8 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
         before = len(masters[0].steps)
         if step == "crop":
             pr("Cropping", s0)
+            if overlap is not None:                  # stay inside the area all lined-up masters cover
+                extra = _intersect(tuple(int(v) for v in extra), overlap)
             for m in masters:
                 crop(m, extra)
             lg(f"Cropped {n} master(s) to {extra}")

@@ -447,11 +447,14 @@ def open_finish(parent, results):
     import finish_window
     first_target = results[0].get("target")
     files = [f for f in files if not first_target or f.name.startswith(first_target)] or files
-    win = finish_window.FinishWindow(parent, parent.settings if hasattr(parent, "settings") else None, files)
-    win.setAttribute(Qt.WA_DeleteOnClose, True)
-    __import__("ui_header").present(win, parent)
-    if parent is not None:
-        parent.finish_win = win
+    settings = parent.settings if hasattr(parent, "settings") else None
+    if parent is None:
+        win = finish_window.FinishWindow(None, settings, files)
+        win.setAttribute(Qt.WA_DeleteOnClose, True)
+        __import__("ui_header").present(win)
+    else:
+        win = __import__("ui_header").open_page(parent, "finish_win", tuple(str(f) for f in files),
+                                                lambda: finish_window.FinishWindow(parent, settings, files))
     return win
 
 
@@ -874,9 +877,14 @@ class PrepareWindow(QMainWindow):
         for s in self.sets:
             m0 = s[0]
             filters = ", ".join(m.filter for m in s)
+            lineup = len(s) > 1 and P.needs_line_up(s)
             it = QListWidgetItem(f"{m0.target}   [{filters}]\n{m0.shape[1]} × {m0.shape[0]}"
-                                 + ("  ·  solved" if all(m.solved for m in s) else ""))
-            it.setToolTip("\n".join(str(m.path) for m in s))
+                                 + ("  ·  solved" if all(m.solved for m in s) else "")
+                                 + ("  ·  will be lined up" if lineup else ""))
+            it.setToolTip("\n".join(str(m.path) for m in s)
+                          + ("\n\nThese masters were stacked in separate runs, so they are not on the same pixel "
+                             "grid yet. They are lined up on the first one's stars before processing."
+                             if lineup else ""))
             self.set_list.addItem(it)
         self.log(f"Loaded {len(new)} master(s): " + ", ".join(m.name for m in new))
         self.set_list.setCurrentRow(len(self.sets) - 1)

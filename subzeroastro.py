@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.15 beta"
+APP_VERSION = "0.8.16 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -2245,21 +2245,15 @@ class MainWindow(QMainWindow):
             kept = [f for f in kept if f.loaded]
         import stack_window
         self.ready_bar.hide()
-        self.stack_win = stack_window.StackWindow(self, kept, self.settings)
-        self.stack_win.setAttribute(Qt.WA_DeleteOnClose, True)
-        ui_header.present(self.stack_win, self)
+        ui_header.open_page(self, "stack_win", tuple(sorted(str(f.path) for f in kept)), lambda: stack_window.StackWindow(self, kept, self.settings))
 
     def open_prepare(self):
         import prepare_window
-        self.prep_win = prepare_window.PrepareWindow(self, self.settings)
-        self.prep_win.setAttribute(Qt.WA_DeleteOnClose, True)
-        ui_header.present(self.prep_win, self)
+        ui_header.open_page(self, "prep_win", "menu", lambda: prepare_window.PrepareWindow(self, self.settings))
 
     def open_finish(self):
         import finish_window
-        self.finish_win = finish_window.FinishWindow(self, self.settings)
-        self.finish_win.setAttribute(Qt.WA_DeleteOnClose, True)
-        ui_header.present(self.finish_win, self)
+        ui_header.open_page(self, "finish_win", "menu", lambda: finish_window.FinishWindow(self, self.settings))
 
     def start_over(self):
         """Clear the session and open a new folder."""

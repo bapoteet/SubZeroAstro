@@ -146,6 +146,66 @@ def present(window, like=None, ms: int = 320):
         window.raise_()
 
 
+def alive(w) -> bool:
+    """The window still exists (not closed and deleted)."""
+    if w is None:
+        return False
+    try:
+        import shiboken6
+        return shiboken6.isValid(w)
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def busy(w) -> bool:
+    for attr in ("worker", "job"):
+        j = getattr(w, attr, None)
+        try:
+            if j is not None and j.isRunning():
+                return True
+        except RuntimeError:
+            pass
+    return False
+
+
+def leave(window, ms: int = 260):
+    """Fade a page out and hide it (it stays alive, so Next can bring it back as it was)."""
+    try:
+        from PySide6.QtCore import QEasingCurve, QPropertyAnimation
+        anim = QPropertyAnimation(window, b"windowOpacity", window)
+        anim.setDuration(ms)
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.InCubic)
+
+        def done():
+            window.hide()
+            window.setWindowOpacity(1.0)
+        anim.finished.connect(done)
+        window._page_fade = anim
+        anim.start()
+    except Exception:  # noqa: BLE001
+        window.hide()
+
+
+def open_page(owner, attr: str, key, make):
+    """Show the next page. If you went Back from it and its input is unchanged (or it is still
+    working), the same page comes back exactly as you left it; otherwise a fresh one opens."""
+    from PySide6.QtCore import Qt
+    old = getattr(owner, attr, None)
+    if alive(old):
+        if getattr(old, "_page_key", None) == key or busy(old):
+            present(old, owner)
+            return old
+        old.close()
+    w = make()
+    w._page_key = key
+    w.setAttribute(Qt.WA_DeleteOnClose, True)
+    setattr(owner, attr, w)
+    present(w, owner)
+    return w
+
+
 def install_header(window, page_title: str, with_menu: bool = False) -> AppHeader:
     """Put the banner at the very top of a QMainWindow, above its menu bar and toolbars.
     Call this BEFORE building menus: Qt deletes a menu bar that is replaced, so the window
@@ -170,6 +230,12 @@ def install_header(window, page_title: str, with_menu: bool = False) -> AppHeade
     prev_header = getattr(prev, "app_header", None) if prev is not None else None
     if prev_header is not None:
         def go_back():
-            present(prev)
+            # Windows keeps a page in front of the page that opened it, so going back means
+            # stepping this page aside (it stays alive for Next) to reveal the one beneath
+            if prev.isMinimized():
+                prev.showNormal()
+            prev.show()
+            prev.activateWindow()
+            leave(window)
         header.add_back(prev_header.page.text(), go_back)
     return header

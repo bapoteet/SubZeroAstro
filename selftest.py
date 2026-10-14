@@ -576,6 +576,25 @@ def run(app, out_dir: Path) -> int:
               and _tod("C:/out", "IC1805").name == "IC1805"
               and _tod("C:/out/IC1805", "IC1805").parent.name == "out",
               "custom output folder gets a per-target subfolder")
+        # masters of one target stacked in separate runs (e.g. Ha one night, SII + OIII later)
+        import prepare as _P2
+        _r = np.random.default_rng(5)
+        _yy, _xx = np.mgrid[:300, :400]
+        _st = [(_r.uniform(15, 385), _r.uniform(15, 285), _r.uniform(800, 9000)) for _ in range(160)]
+
+        def _img(dx, dy):
+            a = np.full((300, 400), 900.0) + _r.normal(0, 8, (300, 400))
+            for x, y, f in _st:
+                a += f * np.exp(-((_yy - y - dy) ** 2 + (_xx - x - dx) ** 2) / (2 * 1.4 ** 2))
+            return a.astype(np.float32)[None]
+        _ms = [_P2.Master(Path(f"{n}.fits"), d, [], {}, "NGC 7000", n, ref, None)
+               for n, d, ref in (("Ha", _img(0, 0), "runA"), ("SII", _img(9.4, -6.2), "runB"),
+                                 ("OIII", _img(9.4, -6.2), "runB"))]
+        _sets = _P2.target_sets(_ms)
+        _ov = _P2.line_up(_ms)
+        check(len(_sets) == 1 and _ov is not None and _ms[1].alignref == "runA"
+              and float(np.abs(_ms[1].data[0, 20:-20, 20:-20] - _ms[0].data[0, 20:-20, 20:-20]).max()) < 2500,
+              f"Ha + SII/OIII stacked in separate runs become one set and are lined up ({_ov})")
         import prepare_window as _pwm
         check(_pwm.xt_start_values("nxt", {"dn": 0.0})["dn"] == 0.6 and _pwm.xt_start_values("nxt", {})["dn"] == 0.6
               and _pwm.xt_start_values("nxt", {"dn": 0.8})["dn"] == 0.8,
@@ -709,8 +728,16 @@ def run(app, out_dir: Path) -> int:
         check(pw.app_header.right.indexOf(pw.btn_finish) >= 0 and sw_.app_header.right.indexOf(sw_.btn_prepare) >= 0,
               "next-step buttons sit at the top right")
         pw.app_header.btn_back.click()
+        t_end = time.time() + 1.5
+        while time.time() < t_end and pw.isVisible():
+            QApplication.processEvents()
+            time.sleep(0.02)
+        check(sw_.isVisible() and not pw.isVisible(),
+              "◀ back steps this page aside and shows the previous page")
+        sw_.open_prepare()
         QApplication.processEvents()
-        check(sw_.isVisible(), "◀ back brings the previous window forward")
+        check(sw_.prep_win is pw and pw.isVisible(),
+              "Next brings the same page back as it was (input unchanged)")
         fw.raise_()
         QApplication.processEvents()
         shot("15_finish_start.png", fw)

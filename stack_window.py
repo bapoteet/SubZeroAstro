@@ -825,9 +825,9 @@ class StackWindow(QMainWindow):
 
     def open_prepare(self):
         import prepare_window
-        self.prep_win = prepare_window.PrepareWindow(self, self.settings, self.master_files())
-        self.prep_win.setAttribute(Qt.WA_DeleteOnClose, True)
-        __import__("ui_header").present(self.prep_win, self)
+        files = self.master_files()
+        __import__("ui_header").open_page(self, "prep_win", tuple(str(f) for f in files),
+                                          lambda: prepare_window.PrepareWindow(self, self.settings, files))
 
     def closeEvent(self, ev):
         if self.worker and self.worker.isRunning():
