@@ -598,7 +598,10 @@ def run(app, out_dir: Path) -> int:
         _names = {"Ha 7nm": "Ha", "Antlia Ha 3nm Pro": "Ha", "Hα": "Ha", "OIII 6.5nm": "OIII", "O": "OIII",
                   "S": "SII", "SII 3nm": "SII", "S-II": "SII", "ZWO R": "R", "Lum": "L", "LUlt": "L-Ultimate",
                   "UV/IR": "UV/IR"}
+        _names.update({"ASD1": "Askar D1", "Askar Colour Magic D2": "Askar D2", "H": "Ha"})
         _bad = {k: core.normalize_filter(k) for k, v in _names.items() if core.normalize_filter(k) != v}
+        check(core.band_lines("ASD2") == ("SII", "OIII") and core.band_lines("ASD1") == ("Ha", "OIII"),
+              "Askar D1 (Ha+OIII) and D2 (SII+OIII) are known dual-band filters")
         check(not _bad, f"filter-wheel names like 'Ha 7nm', 'O', 'S', 'Antlia Ha 3nm Pro' are recognised ({_bad})")
         import prepare_window as _pwm
         check(_pwm.xt_start_values("nxt", {"dn": 0.0})["dn"] == 0.6 and _pwm.xt_start_values("nxt", {})["dn"] == 0.6

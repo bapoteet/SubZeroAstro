@@ -439,10 +439,16 @@ _FILTER_MAP = {
     "ALPT": "ALP-T", "ANTLIAALPT": "ALP-T",
     "NBZ": "NBZ", "IDASNBZ": "NBZ", "NBX": "NBX",
     "DUALBAND": "Dual-band", "DUOBAND": "Duo-band",
+    # Askar Colour Magic duo-narrowband: D1 = Ha + OIII, D2 = SII + OIII (usually shot as a pair)
+    **{k + "D1": "Askar D1" for k in ("AS", "ASKAR", "COLORMAGIC", "COLOURMAGIC", "ASKARCOLORMAGIC",
+                                      "ASKARCOLOURMAGIC", "CM", "SUPER", "ASKARSUPER", "")},
+    **{k + "D2": "Askar D2" for k in ("AS", "ASKAR", "COLORMAGIC", "COLOURMAGIC", "ASKARCOLORMAGIC",
+                                      "ASKARCOLOURMAGIC", "CM", "SUPER", "ASKARSUPER", "")},
 }
 
-DUAL_BAND = {"L-Ultimate", "L-eXtreme", "L-eNhance", "ALP-T", "NBZ", "NBX", "Dual-band", "Duo-band", "L-Synergy"}
-SII_OIII_BAND = {"L-Synergy"}            # passes SII + OIII (the others pass Ha + OIII)
+DUAL_BAND = {"L-Ultimate", "L-eXtreme", "L-eNhance", "ALP-T", "NBZ", "NBX", "Dual-band", "Duo-band", "L-Synergy",
+             "Askar D1", "Askar D2"}
+SII_OIII_BAND = {"L-Synergy", "Askar D2"}   # pass SII + OIII (the others pass Ha + OIII)
 
 
 def is_dual_band(filter_name) -> bool:
@@ -450,7 +456,8 @@ def is_dual_band(filter_name) -> bool:
 
 
 _NAME_FILTER = re.compile(r"(?i)(?<![a-z])(l[-_ ]?ult(?:imate)?|l[-_ ]?ext(?:reme)?|l[-_ ]?enh(?:ance)?|"
-                          r"l[-_ ]?syn(?:ergy)?|alp[-_ ]?t|nbz|nbx|l[-_ ]?pro)(?![a-z])")
+                          r"l[-_ ]?syn(?:ergy)?|alp[-_ ]?t|nbz|nbx|l[-_ ]?pro|as[-_ ]?d[12]|askar[-_ ]?d[12]|"
+                          r"colou?r[-_ ]?magic[-_ ]?d[12])(?![a-z0-9])")
 
 
 def filter_from_name(text) -> str | None:

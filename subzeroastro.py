@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.8.17 beta"
+APP_VERSION = "0.8.18 beta"
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
 ICON_W, ICON_H = 120, 84
@@ -585,7 +585,8 @@ class Toast(QLabel):
         self.timer.start(int(seconds * 1000))
 
 
-COMMON_FILTERS = ["L-Ultimate", "L-eXtreme", "L-eNhance", "L-Pro", "ALP-T", "NBZ", "UV/IR cut",
+COMMON_FILTERS = ["L-Ultimate", "L-eXtreme", "L-eNhance", "L-Synergy", "Askar D1", "Askar D2", "L-Pro", "ALP-T",
+                  "NBZ", "UV/IR cut",
                   "L", "R", "G", "B", "Ha", "OIII", "SII", "No filter"]
 
 

@@ -110,7 +110,7 @@ class AppHeader(QWidget):
         return b
 
 
-def present(window, like=None, ms: int = 320):
+def present(window, like=None, ms: int = 700):
     """Bring a page on screen like turning a page: same place and size as the page it was
     opened from, fading in. Never fails - a window that cannot fade just appears."""
     try:
@@ -136,7 +136,7 @@ def present(window, like=None, ms: int = 320):
         anim.setDuration(ms)
         anim.setStartValue(0.0)
         anim.setEndValue(1.0)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.setEasingCurve(QEasingCurve.InOutSine)
         anim.finished.connect(lambda: window.setWindowOpacity(1.0))
         window._page_fade = anim
         anim.start()
@@ -168,7 +168,7 @@ def busy(w) -> bool:
     return False
 
 
-def leave(window, ms: int = 260):
+def leave(window, ms: int = 550):
     """Fade a page out and hide it (it stays alive, so Next can bring it back as it was)."""
     try:
         from PySide6.QtCore import QEasingCurve, QPropertyAnimation
@@ -176,7 +176,7 @@ def leave(window, ms: int = 260):
         anim.setDuration(ms)
         anim.setStartValue(1.0)
         anim.setEndValue(0.0)
-        anim.setEasingCurve(QEasingCurve.InCubic)
+        anim.setEasingCurve(QEasingCurve.InOutSine)
 
         def done():
             window.hide()
