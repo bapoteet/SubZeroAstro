@@ -68,7 +68,7 @@ def make_session(folder: Path):
 
 def run(app, out_dir: Path) -> int:
     from PySide6.QtCore import Qt, QTimer
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QLabel
     import subzeroastro as fb
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -666,6 +666,13 @@ def run(app, out_dir: Path) -> int:
         check(getattr(pw.btn_start, "_done", False) and "Run Again" in pw.btn_start.text()
               and getattr(state["win"].btn_start, "_done", False),
               "after a run the page's run button turns amber ('Run Again?') on both pages")
+        check("Ready for Processing Finishing Touches" in pw.progress.format(),
+              f"page 3 says 'Ready for Processing Finishing Touches' when done ({pw.progress.format()})")
+        import prepare_window as _pwm
+        _rd = _pwm.ReadyDialog(pw, res)
+        check("complete" in _rd.windowTitle().lower() and "Finishing Touches" in _rd.findChild(QLabel).text(),
+              "page 3 completion message says the page is complete and what comes next")
+        _rd.deleteLater()
         from prepare import target_out_dir as _tod
         check(_tod("C:/out/NGC891", "IC1805").name == "IC1805"
               and _tod("C:/out", "IC1805").name == "IC1805"

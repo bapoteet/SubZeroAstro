@@ -4,7 +4,7 @@ prepare_window.py - the "Prepare for PixInsight" window (Stage 4).
 Pick masters (preloaded after stacking), set a crop on the preview, choose the
 steps (plate solve with ASTAP, GraXpert, BlurXTerminator / NoiseXTerminator /
 StarXTerminator with controls generated from your installed RC-Astro CLI),
-then run. Ends with a "ready for final processing" summary and a tailored
+then run. Ends with a "Ready for Processing Finishing Touches" summary and a tailored
 PixInsight plan.
 """
 
@@ -31,6 +31,7 @@ import prepare as P
 import tools
 
 XT_KEYS = ("bxt", "nxt", "sxt")
+READY_TEXT = "✓ Ready for Processing Finishing Touches"
 # Starting values the first time (users change them; the choice is remembered)
 XT_START = {"bxt": {"enabled": True, "values": {"ss": 0.25, "sn": 0.50}},
             "nxt": {"enabled": False, "values": {"dn": 0.60}},
@@ -387,12 +388,15 @@ class PrepareWorker(QThread):
 class ReadyDialog(QDialog):
     def __init__(self, parent, results):
         super().__init__(parent)
-        self.setWindowTitle("Ready for final processing")
+        self.setWindowTitle("Astro Image Processing – Complete")
         self.resize(820, 700)
         lay = QVBoxLayout(self)
-        head = QLabel("<h2>Your images now appear to be ready for final processing in PixInsight</h2>"
-                      "Below is a recommended order of PixInsight processes and scripts — steps already "
-                      "done here are ticked. The same plan is saved next to your prepared files.")
+        head = QLabel("<h2 style='color:#d69e2e'>✓ Astro Image Processing is complete</h2>"
+                      "<p style='font-size:11pt'><b>Your images are Ready for Processing Finishing Touches</b> — "
+                      "click <b>Continue to Finishing Touches</b> below (or the blue button at the top right).</p>"
+                      "<p>Prefer to finish in PixInsight? Below is a recommended order of PixInsight processes and "
+                      "scripts — steps already done here are ticked. The same plan is saved next to your "
+                      "prepared files.</p>")
         head.setWordWrap(True)
         lay.addWidget(head)
         view = QTextBrowser()
@@ -1193,7 +1197,8 @@ class PrepareWindow(QMainWindow):
             self.hist_combo.setCurrentIndex(self.hist_combo.count() - 1)
         if res:
             __import__("ui_header").mark_done(self.btn_start, "✓  Done – Run Again?")
-            self.progress.setFormat("Ready for final processing in PixInsight")
+            self.progress.setValue(1000)
+            self.progress.setFormat(READY_TEXT)
             if getattr(self, "show_dialog", True):
                 ReadyDialog(self, res).exec()
 
