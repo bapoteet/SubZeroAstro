@@ -124,6 +124,7 @@ jobs:
 
       - name: Publish self-test results to the selftest-results branch
         if: always()
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -207,6 +208,7 @@ jobs:
 
       - name: Publish self-test results to the selftest-results-mac branch
         if: always()
+        continue-on-error: true           # two builds at once may race for the branch - never block a release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
