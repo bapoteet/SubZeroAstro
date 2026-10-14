@@ -42,6 +42,8 @@ def _command(exe) -> list:
     """How to start a tool. A .py path runs with this Python (used by the tests)."""
     exe = str(exe)
     if exe.lower().endswith(".py"):
+        if getattr(sys, "frozen", False):     # the packaged app's 'Python' is the app itself
+            raise ToolError(f"{Path(exe).name} is a Python script, not a program - use Browse… to pick the tool")
         return [sys.executable, exe]
     return [exe]
 

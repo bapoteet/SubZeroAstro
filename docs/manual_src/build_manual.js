@@ -11,7 +11,9 @@ const {
 
 const IMG = path.join(__dirname, "img");
 const PAGES = fs.existsSync(process.argv[2] || "") ? JSON.parse(fs.readFileSync(process.argv[2])) : {};
-const VERSION = "0.9.0 beta";
+// the version is read from the app itself, so the manual always matches the release it ships with
+const VERSION = (fs.readFileSync(path.join(__dirname, "..", "..", "subzeroastro.py"), "utf8")
+  .match(/^APP_VERSION = "([^"]+)"/m) || [null, "?"])[1];
 const BLUE = "1F4E79", ACCENT = "2F6FD6", GREY = "595959";
 
 // ------------------------------------------------------------------ content model
@@ -158,7 +160,7 @@ table(["", "Minimum", "Recommended"], [
 ], [2100, 3630, 3630]);
 tip("Images on a network drive (NAS) work fine. SubZeroAstro reads them carefully (3 files at a time) and remembers the measurements, so re-opening a session is quick.");
 sec("2.2", "Companion programs (optional but recommended)", ["ASTAP", "GraXpert", "RC-Astro CLI", "BlurXTerminator", "NoiseXTerminator", "StarXTerminator", "PixInsight"]);
-p("SubZeroAstro works on its own, but it can call these free or commercial programs for the best results. Install them **before** the first setup (Chapter 4); SubZeroAstro finds them automatically in their usual places.");
+p("SubZeroAstro works on its own, but it can call these free or commercial programs for the best results. Install them **before** the first setup (Chapter 4); SubZeroAstro finds them automatically in their usual places. Each time it starts, page 1 checks for them quietly in the background and shows an amber note if one is missing or not licensed (4.1).");
 table(["Program", "Used for", "Where to get it", "Without it"], [
   ["**ASTAP** + a star database (D50 suits most setups)", "Plate solving (page 3)", "hnsky.org/astap.htm (free)", "Plate solving is skipped (PixInsight can do it later)"],
   ["**GraXpert**", "AI gradient removal (page 3)", "graxpert.com (free)", "A built-in gradient remover is used"],
@@ -197,12 +199,28 @@ p("Delete the app folder (Windows) or drag SubZeroAstro from Applications to the
 
 ch(4, "First-time setup");
 sec("4.1", "Tell SubZeroAstro where your tools are", ["Tool locations", "ASTAP", "GraXpert", "RC-Astro CLI", "Device (GPU)"]);
-p("Open page 3 (**Astro Image Processing** - from the menu *Stack › Astro Image Processing…*). The **Your tools** box at the top shows each program with a green **✓ found** when it was detected. If one is missing, click **Browse…** next to it and pick the program:");
+p("When SubZeroAstro starts, it checks for ASTAP, GraXpert and the RC-Astro CLI in the background. If one is missing - or RC-Astro is installed but a tool is not licensed - a slim **amber banner** appears at the top of page 1, saying what you would miss (for example *plate solving is skipped*). Nothing is wrong: you can still cull and stack. The banner has two buttons:");
+bullets([
+  "**Set Up…** - opens the **Your Tools** window (also in **Settings › Your Tools (ASTAP, GraXpert, RC-Astro)…**).",
+  "**Don't Remind Me** - hides the banner until something else changes. Use it if you have chosen not to use one of the programs.",
+]);
+img("1a_tools_banner.png", "The amber banner on page 1 when helper programs are missing (example)");
+p("The **Your Tools** window lists each program with its status, a **Download Page** button for anything missing, and **Browse…** to point at a program installed somewhere unusual. Click **Check Again** after installing something.");
+img("1b_your_tools.png", "Settings › Your Tools: status, Browse… and Download Page for each helper program");
+p("The same programs are also shown in the **Your tools** box at the top of page 3 (**Astro Image Processing**), with a green **✓ found** when detected. If one is missing, click **Browse…** next to it and pick the program:");
 table(["Tool", "Typical location on Windows", "Typical location on a Mac"], [
   ["ASTAP", "`C:\\Program Files\\astap\\astap.exe`", "`/Applications/ASTAP.app` (or `astap_cli`)"],
   ["GraXpert", "`C:\\Users\\<you>\\AppData\\Local\\Programs\\GraXpert\\GraXpert.exe`", "`/Applications/GraXpert.app`"],
   ["RC-Astro CLI", "`C:\\Program Files\\RC-Astro\\CLI\\rc-astro.exe`", "where the RC-Astro installer put `rc-astro`"],
 ], [1700, 4200, 3460]);
+p("**Activating RC-Astro licences.** You do not need a terminal: click **RC-Astro Licences…** (next to the RC-Astro CLI row on page 3, or in the Your Tools window). The window shows which tools are licensed on this computer. To activate:");
+steps([
+  "Click **Open My RC-Astro Account** and sign in on rc-astro.com.",
+  "Click **Get Activation Code** on the account page, then click it again to copy the code.",
+  "Paste the code into the box and click **Activate**. **One code activates every RC-Astro tool you own.**",
+]);
+p("The tools turn green and page 3 is updated straight away. If activation does not work, **Do It in a Terminal Window** runs RC-Astro's own `rc-astro license` command, where you paste the code and press Enter. **Check for Updates** and **Download & Install Update** keep the RC-Astro CLI itself up to date.");
+img("11a_rc_licences.png", "The RC-Astro Licences window (example: StarXTerminator not yet activated)");
 p("For the RC-Astro CLI the status line lists **BlurXTerminator ✓ · StarXTerminator ✓ · NoiseXTerminator ✓** for every product licensed on this computer. Below the XTerminator settings, **RC-Astro device** chooses the processor: pick your dedicated graphics card (e.g. *NVIDIA RTX…*) - it is much faster than integrated graphics.");
 img("11_prepare_window.png", "Page 3 with the tools box at the top (example data)");
 sec("4.2", "Choose where results are saved", ["Save locations", "Calibration masters folder", "Master lights folder"]);
@@ -222,6 +240,7 @@ bullets([
 sec("4.4", "Settings worth knowing", ["Settings", "Intro animation", "Saved progress", "Star measurement"]);
 bullets([
   "**Settings › Star measurement** - *Fast* (default, about 3-4× quicker on a network drive), *Full frame* or *Off*.",
+  "**Settings › Your Tools (ASTAP, GraXpert, RC-Astro)…** - see, locate and download the helper programs, and activate RC-Astro licences (4.1).",
   "**Settings › Saved Progress…** - where crash-recovery copies are kept, how much space they use and how long they are kept (30 days by default).",
   "**Settings › Show Intro Animation at Startup** - turn the start-up animation on or off. *Help › Play the Intro Animation* plays it any time.",
 ]);
@@ -231,6 +250,7 @@ sec("5.1", "The banner and page buttons", ["Banner", "Continue button", "Back bu
 p("Every page has the same banner at the top: **SubZeroAstro**, the author, and the **page title**. On the right is a blue **Continue to …  ➜** button that turns to the next page; on the left a grey **◀ previous page** button goes back. Going back keeps your work: press Continue again and the page you left comes back exactly as it was.");
 sec("5.2", "The log and the status bar", ["Log", "Status bar", "Progress bar"]);
 p("The text area at the bottom of each page is the **log**: it tells you what was done, what was found and any warnings, in plain language. The orange bar shows progress and an estimate of the time left.");
+p("When a page has finished its job, its green run button turns **amber** - **✓ Stacked – Run Again?** on page 2, **✓ Done – Run Again?** on page 3 - so you can see at a glance that the page is done. Pressing it again asks first, so nothing is redone by accident. Add new images and it turns green again.");
 sec("5.3", "Saved progress and undo", ["Undo", "Crash recovery", "Resume"]);
 bullets([
   "**Page 1**: your folders and flags are saved as you go. After a crash SubZeroAstro offers to reopen the session. **Ctrl+Z** undoes rejects, flags and auto-cull.",
@@ -299,7 +319,7 @@ bullets([
   "**Line up all filters of a target** (on) - all masters of a target share one pixel grid, ready to combine (LRGB, SHO).",
 ]);
 sec("7.4", "Running the stack", ["Check & Stack", "Continue With the Rest"]);
-p("Press **▶ Check & Stack**. Anything missing is listed first, with **Stack Anyway** or **Add Calibration Frames First…**. The log shows each step. If a run is interrupted, the next run offers **Continue With the Rest**. Stacking again never overwrites a master - new versions are saved as `_2`, `_3`…");
+p("Press **▶ Check & Stack**. Anything missing is listed first, with **Stack Anyway** or **Add Calibration Frames First…**. The log shows each step. If a run is interrupted, the next run offers **Continue With the Rest**. When it finishes, the button turns amber: **✓ Stacked – Run Again?**. Stacking again never overwrites a master - new versions are saved as `_2`, `_3`…");
 sec("7.5", "Results", ["Open Master Lights Folder", "Stack log"]);
 p("Masters are saved in your master lights folder, one subfolder per target, with a `_stacklog.txt` listing every frame used. **Open Master Lights Folder** shows them. Click **Continue to Image Processing ➜** to carry on.");
 
@@ -334,7 +354,9 @@ bullets([
   "**Start Fresh** - forget the saved steps and start from the original masters.",
 ]);
 img("14_step_history.png", "Step history under the preview (example data)");
-p("When it finishes, click **Continue to Finishing Touches ➜**, or **Stop Here – Continue in PixInsight**.");
+p("When it finishes, the bar at the bottom reads **✓ Ready for Processing Finishing Touches**, the run button turns amber (**✓ Done – Run Again?**) and the **Astro Image Processing – Complete** window opens. It says what comes next and, for PixInsight users, lists a recommended order of PixInsight processes (also saved next to your files).");
+img("13_ready_for_pixinsight.png", "The Astro Image Processing – Complete window");
+p("Click **Continue to Finishing Touches ➜**, or **Stop Here – Continue in PixInsight**.");
 
 ch(9, "Page 4 – Finishing Touches");
 img("15_finish_start.png", "Finishing Touches: the workflow (left), the recommended next step and the picture (example data)");
@@ -417,7 +439,10 @@ table(["Problem", "What to do"], [
   ["Filters of one target in separate rows on page 3", "Check that the target names match (OBJECT). Masters stacked in separate runs are lined up automatically."],
   ["No *Combine Colour Channels* on page 4", "The masters were not loaded together, or a filter name was not recognised - the log lists the filters it found."],
   ["Plate solve failed", "Tick **Blind solve**; check that ASTAP has a star database installed."],
-  ["Tools show *not found*", "Click **Browse…** and point at the program (4.1)."],
+  ["Tools show *not found*", "Click **Browse…** and point at the program, or use **Settings › Your Tools…** (4.1)."],
+  ["Amber banner on page 1", "A helper program is missing or not licensed. **Set Up…** fixes it; **Don't Remind Me** if you don't use it (4.1)."],
+  ["An XTerminator says *not licensed*", "Click **RC-Astro Licences…** on page 3 and activate with the code from your rc-astro.com account (4.1)."],
+  ["Frames skipped: *could not match the star field*", "Usually clouds, trailing or a badly out-of-focus frame. Frames saved mirror-image (some capture programs do this) are recognised and lined up automatically."],
   ["XTerminators very slow", "Choose your graphics card under **RC-Astro device** (4.1)."],
   ["Slow on a network drive", "Use *Star measurement: Fast*; hide the image (Ctrl+I); results are cached for next time."],
   ["Something went wrong mid-run", "Restart: SubZeroAstro offers to resume from its saved progress."],

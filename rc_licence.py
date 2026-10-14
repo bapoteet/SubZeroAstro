@@ -208,7 +208,12 @@ class LicenceDialog(QDialog):
         self.before = lic
 
     def in_terminal(self):
-        if not tools.open_in_terminal(tools._command(self.rc.exe) + ["license"]):
+        try:
+            cmd = tools._command(self.rc.exe) + ["license"]
+        except tools.ToolError as e:
+            self.out.appendPlainText(str(e))
+            return
+        if not tools.open_in_terminal(cmd):
             QMessageBox.warning(self, "RC-Astro Licences",
                                 "Could not open a terminal window. Open one yourself and type:\n\n"
                                 f"\"{self.rc.exe}\" license")
@@ -232,7 +237,12 @@ class LicenceDialog(QDialog):
                 "Let the installer finish, then come back and click 'Check Again'. "
                 "Don't run XTerminator steps while it installs.\n\nContinue?") != QMessageBox.Yes:
             return
-        if self.rc.install_update():
+        try:
+            started = self.rc.install_update()
+        except tools.ToolError as e:
+            self.out.appendPlainText(str(e))
+            return
+        if started:
             self.changed = True
             self.out.appendPlainText("The RC-Astro updater is running in a terminal window.")
         else:
