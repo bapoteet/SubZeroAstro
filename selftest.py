@@ -87,6 +87,13 @@ def run(app, out_dir: Path) -> int:
         if not cond:
             failures.append(what)
 
+    def fits_small(win, name, w_max=1280, h_max=680):
+        """A page must fit a small laptop screen (1366x768 or 1920x1080 at 150 %, minus the taskbar)."""
+        hint = win.minimumSizeHint()
+        mw, mh = max(hint.width(), win.minimumWidth()), max(hint.height(), win.minimumHeight())
+        check(mw <= w_max and mh <= h_max, f"{name} fits a small laptop screen (needs at least {mw}x{mh}, "
+                                           f"limit {w_max}x{h_max})")
+
     def finish(code):
         log(f"\nRESULT: {'ALL CHECKS PASSED' if code == 0 else f'{len(failures)} CHECK(S) FAILED'}")
         (out_dir / "selftest_result.txt").write_text("\n".join(log_lines) + "\n", encoding="utf-8")
@@ -331,6 +338,20 @@ def run(app, out_dir: Path) -> int:
             w.settings.setValue(k, v)
         w.settings.setValue(_tc.BANNER_OFF, _old_off)
         bn.hide()
+        fits_small(w, "page 1 (Quality and Cull)")
+        _g = w.geometry()
+        w.setGeometry(_g.x() - 500, _g.y() - 400, 4000, 3000)
+        import ui_header as _uh1
+        _uh1.fit_to_screen(w)
+        _av = (w.screen() or QApplication.primaryScreen()).availableGeometry()
+        check(_av.contains(w.geometry()), f"a page never hangs off the screen "
+                                          f"(window {w.geometry().getRect()}, screen {_av.getRect()})")
+        w.setGeometry(_g)
+        _sb = w.statusBar()
+        check(_sb.isVisible() and _av.contains(_sb.mapToGlobal(_sb.rect().bottomLeft())),
+              "page 1 status line (frame counts) is on screen")
+        check("good" in w.kept_label.text() and "poor" in w.kept_label.text(),
+              "good / marginal / poor counts shown in the Kept frames box")
         from PySide6.QtWidgets import QMenu as _QMenu
         check(any("Your Tools" in a.text() for mm in w.findChildren(_QMenu) for a in mm.actions()),
               "Settings menu has 'Your Tools…'")
@@ -898,6 +919,9 @@ def run(app, out_dir: Path) -> int:
         check(nxt is not None and nxt.key == "combine", f"first recommendation is to combine the filters "
                                                         f"({nxt.key if nxt else None})")
         state["fw"] = fw
+        fits_small(state["pw"].parent(), "page 2 (Calibrate and Stack)")
+        fits_small(pw, "page 3 (Astro Image Processing)")
+        fits_small(fw, "page 4 (Finishing Touches)")
         import ui_header as _uh
         check(fw.app_header.page.text() == _uh.PAGE_FINISH and pw.app_header.page.text() == _uh.PAGE_PREPARE
               and state["pw"].parent().app_header.page.text() == _uh.PAGE_STACK,

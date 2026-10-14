@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
                                QGraphicsView, QGridLayout, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QListView,
                                QListWidget, QListWidgetItem, QMainWindow,
-                               QMessageBox, QProgressBar, QPushButton, QSpinBox, QSplitter,
+                               QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter,
                                QStyle, QTableWidget, QTableWidgetItem,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
@@ -992,7 +992,14 @@ class MainWindow(QMainWindow):
         self.splitter = QSplitter(Qt.Horizontal)
         self.splitter.addWidget(side)
         self.splitter.addWidget(self.vsplit)
-        self.splitter.addWidget(insp)
+        insp_scroll = QScrollArea()          # a tall panel scrolls instead of pushing the page off a small screen
+        insp_scroll.setWidget(insp)
+        insp_scroll.setWidgetResizable(True)
+        insp_scroll.setFrameShape(QFrame.NoFrame)
+        insp_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        insp_scroll.setMinimumWidth(254)
+        insp_scroll.setMaximumWidth(436)
+        self.splitter.addWidget(insp_scroll)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
@@ -2471,6 +2478,12 @@ class MainWindow(QMainWindow):
         if len(filters) > 1:
             txt += "<br><span style='color:#9a9aa6'>" + ", ".join(
                 f"{fl}: {sum(1 for f in kept if (f.info.get('filter') or 'No filter') == fl)}" for fl in filters) + "</span>"
+        live = [f for f in self.frames.values() if not f.rejected]
+        badges = {b: sum(1 for f in live if f.badge == b) for b in ("green", "amber", "red")}
+        if any(badges.values()):
+            txt += (f"<br><span style='color:#46c85f'>●</span> {badges['green']} good &nbsp; "
+                    f"<span style='color:#eba932'>●</span> {badges['amber']} marginal &nbsp; "
+                    f"<span style='color:#e64646'>●</span> {badges['red']} poor")
         self.kept_label.setText(txt)
         self.btn_next.setEnabled(bool(kept))
 
@@ -2725,6 +2738,7 @@ def main():
 
     def show_main():
         w.show()
+        ui_header.fit_to_screen(w)
         w.raise_()
         w.activateWindow()
         if len(sys.argv) <= 1:

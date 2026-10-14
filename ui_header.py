@@ -145,6 +145,32 @@ class AppHeader(QWidget):
         return b
 
 
+def fit_to_screen(window):
+    """Keep a window wholly on its screen: never taller or wider than the free area (menu bar,
+    Dock and taskbar excluded) and never hanging off an edge - otherwise the bottom of the
+    page (status line, run buttons) disappears below the screen on laptops."""
+    try:
+        from PySide6.QtGui import QGuiApplication
+        if window.isMaximized() or window.isFullScreen():
+            return
+        scr = window.screen() or QGuiApplication.primaryScreen()
+        av = scr.availableGeometry()
+        g, fg = window.geometry(), window.frameGeometry()
+        side = max(fg.width() - g.width(), 0)
+        top = max(fg.height() - g.height(), 32 if not window.isVisible() else 0)   # title bar
+        w = min(g.width(), av.width() - side)
+        h = min(g.height(), av.height() - top - side // 2)
+        w = max(w, window.minimumWidth())
+        h = max(h, window.minimumHeight())
+        x = min(max(g.x(), av.left() + side // 2), av.right() - w - side // 2 + 1)
+        y = min(max(g.y(), av.top() + top), av.bottom() - h - side // 2 + 1)
+        y = max(y, av.top() + top)
+        if (x, y, w, h) != (g.x(), g.y(), g.width(), g.height()):
+            window.setGeometry(x, y, w, h)
+    except Exception:  # noqa: BLE001 - never stop a page opening
+        pass
+
+
 def present(window, like=None, ms: int = 700):
     """Bring a page on screen like turning a page: same place and size as the page it was
     opened from, fading in. Never fails - a window that cannot fade just appears."""
@@ -165,6 +191,7 @@ def present(window, like=None, ms: int = 700):
                 window.showNormal()
             window.setWindowOpacity(0.0)
             window.show()
+        fit_to_screen(window)
         window.raise_()
         window.activateWindow()
         anim = QPropertyAnimation(window, b"windowOpacity", window)
