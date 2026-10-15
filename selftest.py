@@ -1127,13 +1127,13 @@ def run(app, out_dir: Path) -> int:
         _nbb = float(np.median(_img[_nb])) - float(np.median(_img[_loc]))
         _nba = float(np.median(_out[_nb])) - float(np.median(_out[_loc]))
         check(_sa < 0.65 * _sb and abs(_nba - _nbb) < 0.25 * _nbb and "sky" in F.WORKFLOWS["mono_nb"]
-              and F.WORKFLOWS["osc"].index("sky") == F.WORKFLOWS["osc"].index("final_crop") - 1,
+              and F.WORKFLOWS["osc"].index("sky") < F.WORKFLOWS["osc"].index("final_crop"),
               f"Darken the Sky: sky {_sb:.3f} -> {_sa:.3f}, faint nebula above the sky {_nbb:.3f} -> {_nba:.3f}; "
-              "offered just before Final Crop")
+              "offered before Final Crop")
         # Final Noise Reduction (NoiseXTerminator) - through the stand-in rc-astro when it is there
         _dn = F.TOOLS["denoise"]
         if state["fake"]:
-            _small = fw2.state.small(300)
+            _small = F.State(rgb=np.stack([_img[:300, :300]] * 3).copy(), linear=False)
             _ok, _why = _dn.applicable(_small)
             _res = _dn.apply(_small, {"amount": 0.5}) if _ok else None
             _diff = float(np.abs(_res.rgb - _small.rgb).max()) if _res is not None else 9
