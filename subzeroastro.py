@@ -613,7 +613,9 @@ def folder_picker(parent, title, start):
     for v in dlg.findChildren(QListView) + dlg.findChildren(QTreeView):
         if isinstance(v.model(), (QFileSystemModel,)) or v.objectName() in ("listView", "treeView"):
             v.setSelectionMode(QAbstractItemView.ExtendedSelection)
-    dlg.resize(820, 520)
+    dlg.resize(860, 540)
+    for sp in dlg.findChildren(QSplitter):          # room for the place names in the sidebar
+        sp.setSizes([200, 660])
     return dlg
 
 

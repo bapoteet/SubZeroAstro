@@ -263,9 +263,10 @@ p("The purple **Stop Here – Continue in PixInsight** button (pages 2, 3 and 4)
 
 ch(6, "Page 1 – Astro Image Quality and Cull");
 img("1_main_window_fwhm.png", "Page 1: frame list (left), the selected frame, the session chart and the measurements (example data)");
-sec("6.1", "Loading your sub-frames", ["Load Data", "Include subfolders", "Filter used", "Network drive (NAS)"]);
+sec("6.1", "Loading your sub-frames", ["Load Data", "Add Folders", "Several folders at once", "Include subfolders", "Filter used", "Network drive (NAS)"]);
 steps([
-  "Click **Load Data** (Ctrl+O). Add one or more folders (several nights, several drives) or individual files. Tick **Include subfolders** if your nights are in subfolders.",
+  "Click **Load Data** (Ctrl+O), then **Add Folders…**. You can pick **several folders at once**: click one, then **Shift**-click to add a range, or **Ctrl**-click (**Cmd**-click on a Mac) to add others one by one. Click **Add Folders…** again for folders in other places (other nights, other drives), or **Add Files…** for individual files.",
+  "**Include subfolders** is ticked by default, so nights kept in subfolders are found too (FLAT, DARK, BIAS, CALIB and OFFSET folders are skipped). Untick it to load only the files directly in each folder; your choice is remembered.",
   "If your capture software does not record the filter (e.g. ASIAIR with a manual filter drawer), choose it under **Filter used**.",
   "Press **Start Processing**. Frames appear at once and are measured in the background.",
 ]);
