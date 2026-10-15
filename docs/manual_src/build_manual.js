@@ -377,7 +377,7 @@ bullets([
   "**Back to Start** returns to the original masters.",
   "Every step is saved. Opening the same masters again offers to **carry on where you left off**.",
 ]);
-sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
+sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
 p("Which steps appear depends on your data. In typical order:");
 table(["Step", "What it does", "PixInsight equivalent"], [
   ["Add Hydrogen Glow", "Adds Ha to the red of an RGB set, without its stars", "Continuum subtraction + PixelMath"],
@@ -396,6 +396,7 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Star Colours", "Natural star colours (estimated from your data) or clean white stars - recommended for narrowband", "Star colour correction"],
   ["Put Stars Back", "Blends the stars back at the strength you pick", "PixelMath screen blend"],
   ["Darken the Sky Background ◇", "Darker (or lighter) sky without dimming the nebula, faint dust or stars; also evens out a brighter corner or side", "ABE/DBE model + PixelMath"],
+  ["Final Noise Reduction ◇", "A last, light NoiseXTerminator pass on the finished picture (needs the RC-Astro CLI)", "NoiseXTerminator"],
   ["Final Crop ◇", "A last clean-up crop; finds ragged or off-colour edges for you", "DynamicCrop"],
   ["Spot Fix ◇", "Click dust donuts, satellite remnants or hot pixels to patch them", "CloneStamp"],
   ["Sign Your Picture ◇", "Your signature in a corner, in one of three fonts", "Annotation"],
@@ -406,6 +407,7 @@ p("Stars and nebula look best when processed separately. **Take Stars Out** hide
 sec("9.5", "Darker sky, Final Crop, Spot Fix and your signature", ["Darken the Sky Background", "Grey sky", "Final Crop", "Spot Fix", "Sign Your Picture", "Signature fonts"]);
 bullets([
   "**Darken the Sky Background** is for a sky that looks grey or washed out. Pick *Slightly darker*, *Darker*, *Much darker* or *Lighter* (each shows the sky's brightness before and after), then fine-tune with **Sky darkness**. It works like PixInsight's background extraction: SubZeroAstro maps the sky glow across the picture (a nebula cannot push that map up) and takes part of it away. Everything that shines above the sky - nebula, faint dust, stars - keeps exactly the brightness it had **above the sky**, so faint filaments stay visible and stars are not dimmed. A brighter corner or side loses more, so the sky also evens out. Darker skies show grain more: a lighter setting often looks more natural.",
+  "**Final Noise Reduction** runs NoiseXTerminator once more on the finished picture - most useful right after a darker sky, which shows grain more. The choices (*Light*, *Medium*, *Strong*) are shown at full size on the busiest part of the picture so you can judge the grain; **Strength** fine-tunes it. (BlurXTerminator is not offered here on purpose: it is made for unstretched data and already runs on page 3. For more crispness at the end, use **Bring Out Hidden Structure**.)",
   "**Final Crop** shows a yellow box on the whole picture, already placed where it found ragged or off-colour edges. Drag it or its sides (**Found Edges** / **Whole Picture** reset it) and press **Crop to the Box**.",
   "**Spot Fix**: click each blemish (the mouse wheel sets the size, right-click removes the last mark), then **Fix the marked spots**.",
   "**Sign Your Picture**: type your name once (it is remembered), pick a font - *Elegant script*, *Handwritten* or *Classic* - the corner and colour, and fine-tune size, opacity and distance from the edge. Do this last: the signature becomes part of the picture.",

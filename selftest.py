@@ -1130,6 +1130,20 @@ def run(app, out_dir: Path) -> int:
               and F.WORKFLOWS["osc"].index("sky") == F.WORKFLOWS["osc"].index("final_crop") - 1,
               f"Darken the Sky: sky {_sb:.3f} -> {_sa:.3f}, faint nebula above the sky {_nbb:.3f} -> {_nba:.3f}; "
               "offered just before Final Crop")
+        # Final Noise Reduction (NoiseXTerminator) - through the stand-in rc-astro when it is there
+        _dn = F.TOOLS["denoise"]
+        if state["fake"]:
+            _small = fw2.state.small(300)
+            _ok, _why = _dn.applicable(_small)
+            _res = _dn.apply(_small, {"amount": 0.5}) if _ok else None
+            _diff = float(np.abs(_res.rgb - _small.rgb).max()) if _res is not None else 9
+            check(_ok and _res is not None and _diff < 0.01 and "denoise" in F.WORKFLOWS["osc"]
+                  and F.WORKFLOWS["osc"].index("denoise") == F.WORKFLOWS["osc"].index("sky") + 1,
+                  f"Final Noise Reduction runs NoiseXTerminator and keeps the picture the right way up "
+                  f"(largest change {_diff:.4f}); offered after Darken the Sky ({_why})")
+        else:
+            check(_dn.runner is None or _dn.applicable(fw2.state)[0], "Final Noise Reduction says what it needs "
+                                                                     "when NoiseXTerminator is missing")
         # Save Project As twice into the same folder (Mac report: the second save deleted the project)
         _pd = session.parent / "Final Astro Pics"
         _pd.mkdir(exist_ok=True)

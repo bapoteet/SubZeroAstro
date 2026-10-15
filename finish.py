@@ -1316,6 +1316,57 @@ class DarkenSky(Tool):
 
 
 # --------------------------------------------------------------------------
+class FinalNoise(Tool):
+    key = "denoise"
+    title = "Final Noise Reduction (NoiseXTerminator)"
+    tip = ("A last, light NoiseXTerminator pass on the finished picture: smooths the grain in the sky and "
+           "faint areas (more visible once the sky is darker) while keeping detail.")
+    optional = True
+    spatial = True                   # choices are 1:1 crops - grain only shows at full size
+    runner = None                    # set by the window: callable(img (C,h,w) 0..1) -> denoised (full strength)
+    _cache: dict = {}
+
+    def possible(self, s):
+        return self.runner is not None
+
+    def applicable(self, s):
+        if s.rgb is None:
+            return False, "Combine the colour channels first"
+        if self.runner is None:
+            return False, "Needs NoiseXTerminator (the RC-Astro CLI, licensed) - see Settings > Your Tools"
+        return True, ""
+
+    def variants(self, s):
+        return [Variant("Light", {"amount": 0.3}, "a gentle touch - keeps a natural texture", False),
+                Variant("Medium", {"amount": 0.5}, "the usual final pass", True),
+                Variant("Strong", {"amount": 0.75}, "for very grainy pictures", False)]
+
+    def sliders(self, s, params):
+        return [Slider("amount", "Strength", 0.0, 1.0, params["amount"],
+                       "How much of NoiseXTerminator's smoothing is used")]
+
+    def _denoised(self, img):
+        """NoiseXTerminator at full strength - run once per image, then blended for each strength."""
+        sub = img[:, ::max(1, img.shape[1] // 64), ::max(1, img.shape[2] // 64)]
+        key = (img.shape, float(sub.sum()), float((sub * sub).sum()))
+        if key not in FinalNoise._cache:
+            if len(FinalNoise._cache) > 4:
+                FinalNoise._cache.pop(next(iter(FinalNoise._cache)))
+            FinalNoise._cache[key] = self.runner(img)
+        return FinalNoise._cache[key]
+
+    def apply(self, s, params):
+        s = s.copy()
+        a = float(params["amount"])
+        if a > 0:
+            den = self._denoised(s.rgb)
+            s.rgb = np.clip(s.rgb + a * (den - s.rgb), 0, 1).astype(np.float32)
+        if self.key not in s.done:
+            s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
 import sys as _sys
 SIGN_FONTS = ([("Elegant script", "Snell Roundhand", False), ("Handwritten", "Bradley Hand", False),
                ("Classic", "Georgia", True)] if _sys.platform == "darwin" else
@@ -1947,7 +1998,7 @@ class TameCore(Tool):
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
                             TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
                             StarColours(), PutStarsBack(),
-                            DarkenSky(), FinalCrop(), SpotFix(), SignPicture())}
+                            DarkenSky(), FinalNoise(), FinalCrop(), SpotFix(), SignPicture())}
 
 
 def thumb_state(tool: Tool, s: State, size=420) -> State:
@@ -1985,14 +2036,14 @@ def busiest_spot(s: State, size=420):
 _POLISH = ["core", "curves", "saturation", "local"]
 _STARS = ["star_stretch", "shrink", "star_color", "stars_back"]
 WORKFLOWS = {
-    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
-    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
-    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
-    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
-    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
-    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
-    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
-    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["sky", "final_crop", "spotfix", "signature"],
+    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
 }
 
 WHY = {
@@ -2234,6 +2285,7 @@ PI_EQUIVALENT = {
         "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
     "signature": "Annotation, or a PixelMath-blended signature image",
     "final_crop": "DynamicCrop",
+    "denoise": "NoiseXTerminator - a light pass (denoise about 0.3-0.5) on the stretched image",
     "sky": "AutomaticBackgroundExtractor or DynamicBackgroundExtraction to model the sky glow, then PixelMath "
            "$T - k*model (k about 0.5) so only part of the glow is taken away",
 }

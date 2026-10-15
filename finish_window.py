@@ -174,6 +174,47 @@ def make_star_runner(settings):
     return run
 
 
+def make_noise_runner(settings):
+    """callable(img (C,h,w) 0..1) -> NoiseXTerminator at full strength, or None if NXT isn't available."""
+    path = settings.value("prep/rcastro", "") or tools.find_rcastro()
+    if not path:
+        return None
+    try:
+        rc = tools.RCAstro(path)
+        prods = rc.products()
+        nxt = next((p for p in prods.get("products", []) if p.get("key") == "nxt"), None)
+        if nxt is None or not (nxt.get("license") or {}).get("valid", True):
+            return None
+    except Exception:  # noqa: BLE001
+        return None
+    device = settings.value("prep/device", "") or tools.preferred_device(prods.get("devices", []))
+
+    def run(img):
+        import fits_core as core
+        import prepare as P
+        spec = rc.spec("nxt")
+        vals = {}
+        if spec.param("dn"):
+            vals["dn"] = float(spec.param("dn").get("max", 1.0))
+        args = spec.args(vals)
+        work = Path(tempfile.mkdtemp(prefix="sznxt_"))
+        src = work / "in.fits"
+        core.write_fits(src, np.clip(img[0] if img.shape[0] == 1 else img, 0, 1).astype(np.float32),
+                        [("IMAGETYP", "Master Light", ""), ("PIXRANGE", 65535, "values x this = ADU (0..1 range)")],
+                        bitpix=-32)
+        written = rc.run("nxt", src, work / "out.fits", args, device=device)
+        like = img * 65535.0
+        main = next((w for w in written if "star" not in Path(w).stem.lower()), str(work / "out.fits"))
+        out = P._read_result(main, like) / 65535.0
+        how = P.orientation_of(out, img)          # rc-astro may hand it back upside down
+        if how != "same":
+            out = P.turn_back(how, out, None)[0]
+        import shutil
+        shutil.rmtree(work, ignore_errors=True)
+        return np.clip(out, 0, 1).astype(np.float32)
+    return run
+
+
 # --------------------------------------------------------------------------
 # Export dialog
 # --------------------------------------------------------------------------
@@ -346,6 +387,7 @@ class FinishWindow(QMainWindow):
         self.job = None
         self.synchronous = False           # self-test: run jobs inline
         F.TOOLS["stars_out"].runner = make_star_runner(settings)
+        F.TOOLS["denoise"].runner = make_noise_runner(settings)
         import ui_header
         ui_header.install_header(self, ui_header.PAGE_FINISH, with_menu=False)
         self.picture_saved = False
