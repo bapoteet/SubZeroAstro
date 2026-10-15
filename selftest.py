@@ -1108,6 +1108,28 @@ def run(app, out_dir: Path) -> int:
                                                                         if k != "stars_out"],
               "Back to Start returns to the original masters")
         import finish as F
+        # Darken the Sky Background: sky darker, nebula / faint dust / stars keep their brightness above it
+        _r = np.random.default_rng(7)
+        _H, _W = 600, 900
+        _yy, _xx = np.mgrid[:_H, :_W].astype(np.float32)
+        _glow = 0.17 + 0.05 * ((_xx / _W) ** 2)                                  # sky with a gradient
+        _neb = 0.05 * np.exp(-((_xx - 330) ** 2 + (_yy - 300) ** 2) / (2 * 110 ** 2))   # broad faint nebula
+        _img = (_glow + _neb + _r.normal(0, 0.015, (_H, _W))).astype(np.float32)
+        for _k in range(120):
+            _x0, _y0 = int(_r.uniform(10, _W - 10)), int(_r.uniform(10, _H - 10))
+            _img[_y0 - 1:_y0 + 2, _x0 - 1:_x0 + 2] += 0.5
+        _st = F.State(rgb=np.stack([_img] * 3), linear=False)
+        _out = F.TOOLS["sky"].apply(_st, {"amount": 0.5}).rgb[1]
+        _sky = (slice(20, 120), slice(650, 880))
+        _nb = (slice(280, 320), slice(310, 350))
+        _loc = (slice(5, 45), slice(310, 350))                 # the sky right above the nebula
+        _sb, _sa = float(np.median(_img[_sky])), float(np.median(_out[_sky]))
+        _nbb = float(np.median(_img[_nb])) - float(np.median(_img[_loc]))
+        _nba = float(np.median(_out[_nb])) - float(np.median(_out[_loc]))
+        check(_sa < 0.65 * _sb and abs(_nba - _nbb) < 0.25 * _nbb and "sky" in F.WORKFLOWS["mono_nb"]
+              and F.WORKFLOWS["osc"].index("sky") == F.WORKFLOWS["osc"].index("final_crop") - 1,
+              f"Darken the Sky: sky {_sb:.3f} -> {_sa:.3f}, faint nebula above the sky {_nbb:.3f} -> {_nba:.3f}; "
+              "offered just before Final Crop")
         # Save Project As twice into the same folder (Mac report: the second save deleted the project)
         _pd = session.parent / "Final Astro Pics"
         _pd.mkdir(exist_ok=True)

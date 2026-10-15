@@ -1194,6 +1194,128 @@ class FinalCrop(Tool):
 
 
 # --------------------------------------------------------------------------
+def sky_level(y: np.ndarray):
+    """Brightness and noise of the true sky: the darkest quarter of the picture in blocks, so a
+    nebula that fills most of the frame does not count as 'sky'. (small plane in, floats out)"""
+    h, w = y.shape
+    b = max(8, min(h, w) // 16)
+    hh, ww = h // b * b, w // b * b
+    blocks = y[:hh, :ww].reshape(hh // b, b, ww // b, b)
+    med = np.median(blocks, axis=(1, 3))
+    dark = med <= np.percentile(med, 25)
+    px = blocks.transpose(0, 2, 1, 3)[dark].ravel()
+    sky = float(np.median(px))
+    noise = float(np.median(np.abs(px - sky))) * 1.4826 + 1e-6
+    return sky, noise, dark, b
+
+
+def sky_glow_map(x: np.ndarray, grid: int = 16) -> np.ndarray:
+    """A smooth map of the sky glow under the picture (one colour plane), made the way PixInsight's
+    ABE / DBE do it: sample the faint end of each area (stars removed), then fit a gently curved
+    surface to those samples, throwing out every sample that sticks up above it - that is nebula,
+    not sky - and fit again. A nebula can never pull the surface up, so its glow is kept."""
+    small, _f = _small_plane(x, 600)
+    starless = -_min_filter(-_min_filter(small, 2), 2)
+    h, w = small.shape
+    b = max(8, max(h, w) // grid)
+    gh, gw = max(3, h // b), max(3, w // b)
+    hh, ww = gh * b, gw * b
+    blocks = starless[:hh, :ww].reshape(gh, b, gw, b).transpose(0, 2, 1, 3).reshape(gh, gw, -1)
+    g = np.percentile(blocks, 20, axis=2).astype(np.float64).ravel()
+    yy, xx = np.mgrid[:gh, :gw]
+    u = ((xx + 0.5) / gw * 2 - 1).ravel()
+    v = ((yy + 0.5) / gh * 2 - 1).ravel()
+
+    def terms(u, v):
+        return np.stack([np.ones_like(u), u, v, u * u, u * v, v * v, u * u * u, u * u * v, u * v * v,
+                         v * v * v], axis=-1)
+    A = terms(u, v)
+    keep = g <= np.percentile(g, 60)                      # start from the darker samples
+    for _ in range(8):
+        coef, *_r = np.linalg.lstsq(A[keep], g[keep], rcond=None)
+        res = g - A @ coef
+        sd = float(np.median(np.abs(res[keep]))) * 1.4826 + 1e-6
+        new = res < 1.0 * sd                              # samples above the surface = nebula
+        if new.sum() < 12 or (new == keep).all():
+            break
+        keep = new
+    H, W = x.shape
+    sh, sw = max(2, H // 8), max(2, W // 8)              # smooth: work it out small, then enlarge
+    uu = ((np.arange(sw) + 0.5) / sw * 2 - 1)[None, :]
+    vv = ((np.arange(sh) + 0.5) / sh * 2 - 1)[:, None]
+    surf = terms(np.broadcast_to(uu, (sh, sw)).ravel(), np.broadcast_to(vv, (sh, sw)).ravel()) @ coef
+    return _resize(np.clip(surf.reshape(sh, sw), 0, None).astype(np.float32), H, W)
+
+
+def _toe(v: np.ndarray, t: float) -> np.ndarray:
+    """Values near black roll off softly instead of clipping (slope 1 above t)."""
+    t = max(t, 1e-4)
+    return np.where(v >= t, v, t * np.exp((v - t) / t)).astype(np.float32)
+
+
+class DarkenSky(Tool):
+    key = "sky"
+    title = "Darken the Sky Background"
+    tip = ("Makes the sky darker (or lighter) without dimming the nebula, faint dust or the stars: "
+           "SubZeroAstro maps the sky glow across the picture and takes part of it away. Everything "
+           "that shines above the sky keeps exactly the brightness it had above it - and brighter "
+           "corners lose more, so the sky also evens out.")
+    optional = True
+
+    def applicable(self, s):
+        if s.rgb is None:
+            return False, "Combine the colour channels first"
+        if s.linear:
+            return False, "Brighten the image first"
+        return True, ""
+
+    def _sky_now(self, s):
+        small, _f = _small_plane(_lum(s.rgb), 700)
+        return sky_level(small)[0]
+
+    def is_optional(self, s):
+        return self._sky_now(s) < 0.13            # recommended only when the sky looks grey
+
+    def why(self, s):
+        sky = self._sky_now(s)
+        return (f"The sky background is at {sky * 100:.0f}% brightness - a little grey. This takes part of "
+                "the sky glow away, keeping the faint dust and stars just as bright above the sky."
+                if sky >= 0.13 else self.tip)
+
+    def variants(self, s):
+        sky = self._sky_now(s)
+        crushed = sky < 0.03
+
+        def note(a):
+            return f"sky {sky * 100:.0f}% -> about {max(sky * (1 - a), 0.01) * 100:.0f}%"
+        return [Variant("Slightly darker", {"amount": 0.3}, note(0.3), False),
+                Variant("Darker", {"amount": 0.5}, note(0.5), not crushed),
+                Variant("Much darker", {"amount": 0.7}, note(0.7), False),
+                Variant("Lighter", {"amount": -0.3},
+                        note(-0.3) + (" - the sky looks crushed to black" if crushed else ""), crushed)]
+
+    def sliders(self, s, params):
+        return [Slider("amount", "Sky darkness", -0.5, 0.9, params["amount"],
+                       "Right = darker sky, left = lighter. What shines above the sky keeps its brightness "
+                       "above it.")]
+
+    def apply(self, s, params):
+        s = s.copy()
+        a = float(params["amount"])
+        out = np.empty_like(s.rgb)
+        for c in range(s.rgb.shape[0]):
+            x = s.rgb[c]
+            glow = sky_glow_map(x)
+            _sky, noise, _d, _b = sky_level(x[::2, ::2])          # per-pixel noise (not averaged)
+            v = x - a * glow
+            out[c] = _toe(v, 2.5 * noise) if a > 0 else v
+        s.rgb = np.clip(out, 0, 1).astype(np.float32)
+        if self.key not in s.done:
+            s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
 import sys as _sys
 SIGN_FONTS = ([("Elegant script", "Snell Roundhand", False), ("Handwritten", "Bradley Hand", False),
                ("Classic", "Georgia", True)] if _sys.platform == "darwin" else
@@ -1825,7 +1947,7 @@ class TameCore(Tool):
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
                             TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
                             StarColours(), PutStarsBack(),
-                            FinalCrop(), SpotFix(), SignPicture())}
+                            DarkenSky(), FinalCrop(), SpotFix(), SignPicture())}
 
 
 def thumb_state(tool: Tool, s: State, size=420) -> State:
@@ -1863,14 +1985,14 @@ def busiest_spot(s: State, size=420):
 _POLISH = ["core", "curves", "saturation", "local"]
 _STARS = ["star_stretch", "shrink", "star_color", "stars_back"]
 WORKFLOWS = {
-    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
-    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
-    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
-    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
-    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
-    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
-    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["final_crop", "spotfix", "signature"],
-    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["final_crop", "spotfix", "signature"],
+    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
+    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
+    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
+    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
+    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
+    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
+    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "final_crop", "spotfix", "signature"],
+    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["sky", "final_crop", "spotfix", "signature"],
 }
 
 WHY = {
@@ -2112,6 +2234,8 @@ PI_EQUIVALENT = {
         "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
     "signature": "Annotation, or a PixelMath-blended signature image",
     "final_crop": "DynamicCrop",
+    "sky": "AutomaticBackgroundExtractor or DynamicBackgroundExtraction to model the sky glow, then PixelMath "
+           "$T - k*model (k about 0.5) so only part of the glow is taken away",
 }
 
 
