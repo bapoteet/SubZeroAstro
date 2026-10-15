@@ -293,6 +293,7 @@ class CalItem:
     data: np.ndarray | None = None      # built / loaded master (raw ADU; flats not yet normalised)
     saved: list = field(default_factory=list)
     hot: tuple | None = None            # hot pixel coordinates (darks)
+    sky: bool = False                   # a sky flat made from light frames (never saved to the library)
 
     @property
     def ref(self) -> ImgInfo:
@@ -311,6 +312,10 @@ class CalItem:
         return len(self.infos)
 
     def label(self) -> str:
+        if self.sky:
+            n_t = len({target_name(i.target) for i in self.infos})
+            return (f"Sky flat · {self.filter}  (made from {len(self.infos)} light frames, "
+                    f"{n_t} target{'s' if n_t != 1 else ''})")
         bits = [KIND_LABEL[self.kind]]
         if self.kind in ("dark", "darkflat") and self.exptime is not None:
             bits.append(f"{self.exptime:g} s")
@@ -512,7 +517,24 @@ def _rig_ok(item: CalItem, rig: str):
     return item.rig is None or item.rig.lower() == rig.lower()
 
 
-def plan_group(g: LightGroup, items: list[CalItem]) -> CalPlan:
+SKY_FLAT_MIN = 12                       # light frames needed for a sky flat
+
+
+def sky_flat_frames(g: "LightGroup", pool) -> list:
+    """Light frames (ImgInfo) that can go into a sky flat for this group: same camera, filter, rig and
+    sensor area - from every target and night that qualifies (different fields make it better)."""
+    L = g.ref
+    out = []
+    for i in pool or []:
+        if (_same_cam(i.camera, L.camera) and i.filter == L.filter and i.w == L.w and i.h == L.h
+                and (i.x0 or 0) == (L.x0 or 0) and (i.y0 or 0) == (L.y0 or 0) and i.binning == L.binning
+                and bool(i.bayer) == bool(L.bayer) and not i.smart and i.planes == 1
+                and getattr(i, "_rig", g.rig) == g.rig):
+            out.append(i)
+    return out
+
+
+def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
     L = g.ref
     p = CalPlan()
     cam_items = [c for c in items if _same_cam(c.camera, L.camera) and geometry_ok(c, L)]
@@ -594,8 +616,27 @@ def plan_group(g: LightGroup, items: list[CalItem]) -> CalPlan:
                                                "them and the correction will be too strong (dark rings / "
                                                "bright centre)."))
     else:
-        p.warnings.append(("flat", f"No flats for filter {L.filter} on {g.rig} — vignetting and dust "
-                                   "shadows will not be corrected."))
+        sky = sky_flat_frames(g, sky_pool) if sky_pool is not None and not L.smart and L.planes == 1 else []
+        if len(sky) >= SKY_FLAT_MIN:
+            p.flat = CalItem("flat", sky, False, origin="sky", sky=True)
+            if p.dark is not None and p.dark_mode == "exact":
+                p.flat_dark = p.dark
+            else:
+                p.flat_bias = p.bias
+            targets = sorted({target_name(i.target) for i in sky})
+            p.notes.append(f"No flats for filter {L.filter} on {g.rig} - a SKY FLAT will be made from {len(sky)} "
+                           f"of your light frames ({len(targets)} target{'s' if len(targets) != 1 else ''}): "
+                           "their stars are hidden and each frame's light-pollution tilt is taken out, leaving "
+                           "the vignetting and dust shadows. Real flats are still better.")
+            if len(targets) == 1:
+                p.notes.append("All these frames are of one target: if its nebula fills most of the picture, "
+                               "part of it could be taken for vignetting. Lights of other targets (same filter "
+                               "and rig) make a better sky flat.")
+        else:
+            p.warnings.append(("flat", f"No flats for filter {L.filter} on {g.rig} — vignetting and dust "
+                                       "shadows will not be corrected."
+                               + (f" (A sky flat needs at least {SKY_FLAT_MIN} light frames with this filter - "
+                                  f"there are {len(sky)}.)" if sky_pool is not None and 0 < len(sky) else "")))
     if L.smart or L.planes > 1:
         # smart telescopes calibrate on board (or the input is already a stack): missing
         # calibration is normal here, so don't stop the user with warnings
@@ -719,6 +760,9 @@ def build_master(item: CalItem, helper_bias: CalItem | None = None, helper_dark:
     if helper is not None:
         hd = build_master(helper, kappa=kappa, cancel=cancel)
         sub = crop_to(hd, helper, item.ref)
+    if item.sky:
+        item.data = build_sky_flat(item, sub, progress, cancel)
+        return item.data
     scales = []
     for k, s in enumerate(sources):
         if cancel and cancel():
@@ -737,6 +781,188 @@ def build_master(item: CalItem, helper_bias: CalItem | None = None, helper_dark:
 
     item.data, _ = integrate_sources(sources, kappa, pre, progress, cancel, label)
     return item.data
+
+
+# --------------------------------------------------------------------------
+# Sky flats: a flat made from the light frames themselves
+# --------------------------------------------------------------------------
+def _box(a: np.ndarray, r: int) -> np.ndarray:
+    if r < 1:
+        return a.astype(np.float32)
+    p = np.pad(a, ((r + 1, r), (r + 1, r)), mode="edge").astype(np.float64)
+    c = p.cumsum(0).cumsum(1)
+    k = 2 * r + 1
+    return ((c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k]) / (k * k)).astype(np.float32)
+
+
+def _smooth(a: np.ndarray, sigma: float) -> np.ndarray:
+    r = max(1, int(round(sigma * 0.95)))
+    for _ in range(3):
+        a = _box(a, r)
+    return a
+
+
+def _minf(a: np.ndarray, r: int) -> np.ndarray:
+    h, w = a.shape
+    p = np.pad(a, ((0, 0), (r, r)), mode="edge")
+    b = np.min(np.stack([p[:, i:i + w] for i in range(2 * r + 1)]), axis=0)
+    p = np.pad(b, ((r, r), (0, 0)), mode="edge")
+    return np.min(np.stack([p[i:i + h, :] for i in range(2 * r + 1)]), axis=0)
+
+
+def _bin(a: np.ndarray, k: int) -> np.ndarray:
+    h, w = a.shape[0] // k * k, a.shape[1] // k * k
+    return a[:h, :w].reshape(h // k, k, w // k, k).mean(axis=(1, 3)).astype(np.float32)
+
+
+def _upsample(a: np.ndarray, h: int, w: int) -> np.ndarray:
+    ih, iw = a.shape
+    ys = np.clip((np.arange(h) + 0.5) * ih / h - 0.5, 0, ih - 1)
+    xs = np.clip((np.arange(w) + 0.5) * iw / w - 0.5, 0, iw - 1)
+    y0, x0 = np.floor(ys).astype(int), np.floor(xs).astype(int)
+    y1, x1 = np.minimum(y0 + 1, ih - 1), np.minimum(x0 + 1, iw - 1)
+    wy, wx = (ys - y0)[:, None].astype(np.float32), (xs - x0)[None, :].astype(np.float32)
+    top = a[y0][:, x0] * (1 - wx) + a[y0][:, x1] * wx
+    bot = a[y1][:, x0] * (1 - wx) + a[y1][:, x1] * wx
+    return (top * (1 - wy) + bot * wy).astype(np.float32)
+
+
+def _tilt_coef(p: np.ndarray):
+    """A plane a + b*u + c*v (u, v from -1 to 1 across the frame) fitted robustly to a NaN-masked
+    frame. Returns (b/a, c/a): the tilt as a fraction of the level."""
+    h, w = p.shape
+    yy, xx = np.mgrid[:h, :w]
+    u, v = (xx / max(w - 1, 1) * 2 - 1), (yy / max(h - 1, 1) * 2 - 1)
+    ok = np.isfinite(p)
+    st = max(1, int(np.sqrt(ok.sum() / 20000)))
+    sel = np.zeros_like(ok)
+    sel[::st, ::st] = True
+    sel &= ok
+    if sel.sum() < 30:
+        return 0.0, 0.0
+    A = np.stack([np.ones(int(sel.sum())), u[sel], v[sel]], 1)
+    z = p[sel]
+    keep = np.ones(z.size, bool)
+    for _ in range(3):
+        coef, *_r = np.linalg.lstsq(A[keep], z[keep], rcond=None)
+        res = z - A @ coef
+        sd = float(np.median(np.abs(res[keep]))) * 1.4826 + 1e-9
+        keep = np.abs(res) < 3 * sd
+    a = max(float(coef[0]), 1e-9)
+    return float(coef[1]) / a, float(coef[2]) / a
+
+
+def _tilt_plane(shape, b, c):
+    h, w = shape
+    u = (np.arange(w) / max(w - 1, 1) * 2 - 1)[None, :]
+    v = (np.arange(h) / max(h - 1, 1) * 2 - 1)[:, None]
+    return (1.0 + b * u + c * v).astype(np.float32)
+
+
+def _sky_frame(b: np.ndarray):
+    """One binned light frame ready for the sky flat: scaled to median 1, its stars hidden (NaN) and
+    its light-pollution tilt divided out. Returns (frame, pixel noise) or None. Only star-sized bright
+    things are hidden ('top-hat'): anything bigger - vignetting, donuts - is what the flat must keep."""
+    med = float(np.median(b))
+    if not np.isfinite(med) or med <= 0:
+        return None
+    p = (b / med).astype(np.float32)
+    dif = (p[:, 1:] - p[:, :-1]).ravel()
+    noise = float(np.median(np.abs(dif - np.median(dif)))) * 1.4826 / np.sqrt(2) + 1e-6
+    sm = _smooth(p, 0.8)
+    opened = -_minf(-_minf(sm, 2), 2)
+    stars = (sm - opened) > 4.0 * noise * 0.35
+    stars = -_minf(-stars.astype(np.float32), 2) > 0.5
+    p[stars] = np.nan
+    return p, noise, _tilt_coef(p)
+
+
+def _fill_holes(a: np.ndarray) -> np.ndarray:
+    """Fill NaN gaps smoothly from their surroundings (wider and wider, until none are left)."""
+    ok = np.isfinite(a)
+    if ok.all():
+        return a
+    out = a.copy()
+    val = np.where(ok, a, 0).astype(np.float32)
+    wgt = ok.astype(np.float32)
+    for sig in (2, 4, 8, 16, 32, 64):
+        num, den = _smooth(val, sig), _smooth(wgt, sig)
+        fill = ~np.isfinite(out) & (den > 0.02)
+        out[fill] = num[fill] / den[fill]
+        if np.isfinite(out).all():
+            break
+    out[~np.isfinite(out)] = 1.0
+    return out
+
+
+def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None, cancel=None,
+                   max_frames: int = 40) -> np.ndarray:
+    """A flat made from light frames (best from several targets and nights): each frame is scaled to
+    the same brightness, its stars are hidden and its own light-pollution tilt taken out; the lower half
+    of every pixel's values (a nebula only ever adds light) then shows what the optics and dust do to an
+    even sky - a flat. Raw-sized, median ~1."""
+    infos = list(item.infos)
+    if len(infos) > max_frames:
+        infos = [infos[i] for i in np.linspace(0, len(infos) - 1, max_frames).astype(int)]
+    ref = item.ref
+    H, W = ref.h, ref.w
+    bayer = bool(ref.bayer)
+    phases = list(_cfa_phases()) if bayer else [None]
+    k = 2 if bayer else 4
+    stacks = {ph: [] for ph in phases}
+    noises = {ph: [] for ph in phases}
+    tilts = {ph: [] for ph in phases}
+    for n, inf in enumerate(infos):
+        if cancel and cancel():
+            raise Cancelled()
+        raw = ImageSource(inf.path).read().astype(np.float32)
+        if raw.ndim == 3:
+            raw = raw[0]
+        if raw.shape != (H, W):
+            continue
+        if sub is not None and sub.shape == raw.shape:
+            raw = raw - sub
+        for ph in phases:
+            plane = raw if ph is None else raw[ph[0]::2, ph[1]::2]
+            f = _sky_frame(_bin(plane, k))
+            if f is not None:
+                stacks[ph].append(f[0])
+                noises[ph].append(f[1])
+                tilts[ph].append(f[2])
+        if progress:
+            progress(f"Building a sky flat from your lights: {n + 1}/{len(infos)}", (n + 1) / len(infos) * 0.9)
+    out = np.ones((H, W), np.float32)
+    import warnings
+    for ph in phases:
+        if len(stacks[ph]) < 3:
+            raise ValueError("Too few usable light frames for a sky flat")
+        # light pollution tilts each frame differently; the optics (off-centre vignetting) tilt every
+        # frame the same way - so only each frame's difference from the average tilt is taken out
+        tb = np.array(tilts[ph])
+        mb, mc = float(np.median(tb[:, 0])), float(np.median(tb[:, 1]))
+        for i_f, (b_, c_) in enumerate(tb):
+            stacks[ph][i_f] = stacks[ph][i_f] / _tilt_plane(stacks[ph][i_f].shape, b_ - mb, c_ - mc)
+        arr = np.stack(stacks[ph])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            mid = np.nanmedian(arr, axis=0)
+            # the lower half of each pixel's values: a nebula on one of the targets, or a star that
+            # slipped through, only ever makes a pixel brighter - so it lands in the upper half
+            low = np.nanmean(np.where(arr <= mid[None], arr, np.nan), axis=0)
+        med = low + 0.798 * float(np.mean(noises[ph]))       # mean of a lower half sits 0.8 sigma low
+        valid = np.isfinite(arr).sum(axis=0)
+        med[valid < max(3, int(0.2 * len(arr)))] = np.nan
+        med = _fill_holes(med)
+        med = _smooth(med, 1.0)
+        med = med / max(float(np.median(med)), 1e-6)
+        if ph is None:
+            out = _upsample(med, H, W)
+        else:
+            ph_h, ph_w = out[ph[0]::2, ph[1]::2].shape
+            out[ph[0]::2, ph[1]::2] = _upsample(med, ph_h, ph_w)
+    if progress:
+        progress("Sky flat ready", 1.0)
+    return np.clip(out, 0.2, 5.0).astype(np.float32)
 
 
 def hot_pixels(dark: np.ndarray, bias: np.ndarray | None, limit=0.002):

@@ -112,6 +112,53 @@ def run(app, out_dir: Path) -> int:
     bad = make_session(session)
     log(f"Created 16 synthetic frames in {time.time() - t0:.1f}s at {session}")
 
+    # --- sky flat: no flats for a filter -> a flat made from the light frames ---------------
+    import stacking as _stk
+    _sfd = session.parent / "skyflat"
+    _sfd.mkdir(exist_ok=True)
+    _rs = np.random.default_rng(4)
+    _sh, _sw = 300, 400
+    _yy, _xx = np.mgrid[:_sh, :_sw].astype(np.float32)
+    _true = 1 - 0.3 * (np.hypot(_xx - 210, _yy - 145) / 250) ** 2
+    _true *= 1 - 0.06 * np.clip((1 - np.hypot(_xx - 100, _yy - 90) / 22) / 0.2, 0, 1)
+    _true = (_true / np.median(_true)).astype(np.float32)
+    _lfs = []
+    for _i in range(16):
+        _sky = 800 * _rs.uniform(0.8, 1.2)
+        _ang, _gr = _rs.uniform(0, 6.28), _rs.uniform(0, 0.08)
+        _sc = _sky * (1 + _gr * 2 * ((_xx / _sw - 0.5) * np.cos(_ang) + (_yy / _sh - 0.5) * np.sin(_ang)))
+        for _k in range(60):
+            _sx, _sy = int(_rs.uniform(3, _sw - 3)), int(_rs.uniform(3, _sh - 3))
+            _sc[_sy - 1:_sy + 2, _sx - 1:_sx + 2] += _rs.uniform(300, 9000)
+        _raw = _sc * _true + 300 + _rs.normal(0, 30, (_sh, _sw))
+        _fp = _sfd / f"L_{_i:02d}.fits"
+        core.write_fits(_fp, np.clip(_raw, 0, 65535).astype(np.uint16),
+                        {"IMAGETYP": "Light Frame", "FILTER": "L", "EXPTIME": 60.0, "OBJECT": f"Field{_i % 4}",
+                         "INSTRUME": "Test Camera"}, bitpix=16)
+        _lfs.append(_stk.LightFrame(_stk.read_info(_fp)) if hasattr(_stk.LightFrame, "__dataclass_fields__")
+                    else type("LF", (), {"info": _stk.read_info(_fp)})())
+    _grp = _stk.LightGroup("Field0", "L", "Test Camera", "TestRig", _lfs)
+    _pool = []
+    for _lf in _lfs:
+        _lf.info._rig = "TestRig"
+        _pool.append(_lf.info)
+    _pl = _stk.plan_group(_grp, [], sky_pool=_pool)
+    check(_pl.flat is not None and _pl.flat.sky and not any(k == "flat" for k, _ in _pl.warnings)
+          and "SKY FLAT" in " ".join(_pl.notes) and "Sky flat" in _pl.flat.label(),
+          "no flats for a filter: page 2 plans a sky flat from the light frames")
+    _built = _stk.build_sky_flat(_pl.flat, np.full((_sh, _sw), 300.0, np.float32))
+    _vt = _true[10:30, 10:30].mean() / _true[135:155, 200:220].mean()
+    _vb = _built[10:30, 10:30].mean() / _built[135:155, 200:220].mean()
+    _din = np.hypot(_xx - 100, _yy - 90) < 18
+    _dout = (np.hypot(_xx - 100, _yy - 90) > 30) & (np.hypot(_xx - 100, _yy - 90) < 38)
+    _dt = 1 - _true[_din].mean() / _true[_dout].mean()
+    _db = 1 - _built[_din].mean() / _built[_dout].mean()
+    check(abs(_vb - _vt) < 0.04 and _db > 0.6 * _dt,
+          f"sky flat captures the vignetting (corner {_vt:.3f} -> {_vb:.3f}) and the dust donut "
+          f"({_dt:.3f} -> {_db:.3f}) with the stars and light-pollution tilt taken out")
+    check(_stk.plan_group(_grp, [], sky_pool=_pool[:5]).flat is None,
+          "too few light frames: no sky flat, the usual 'no flats' warning")
+
     # --- smart telescopes: header recognition (synthetic files, real header layouts) ----
     import numpy as _np
     import stacking as _st

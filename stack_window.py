@@ -133,7 +133,7 @@ class StackWorker(QThread):
                     built.add(id(item))
                     if not item.master:
                         self.log.emit(f"Built {item.label()}")
-                        if opts.save_cal_masters and opts.cal_root:
+                        if opts.save_cal_masters and opts.cal_root and not item.sky:
                             files = st.save_calibration_master(item, opts.cal_root, g.rig, opts.formats)
                             self.saved_cal += files
                             try:
@@ -397,6 +397,13 @@ class StackWindow(QMainWindow):
                                      "(e.g. L, R, G, B or Ha, OIII, SII), ready to combine without re-aligning")
         self.align_common.setChecked(self.settings.value("stack/align_common", True, type=bool))
         obox.addWidget(self.align_common)
+        self.sky_flats = QCheckBox("Sky flats when flats are missing")
+        self.sky_flats.setToolTip("No flats for a filter? Make a flat from your light frames instead (best when "
+                                  "you shot several targets with that filter): stars hidden, light-pollution "
+                                  "tilt removed, leaving vignetting and dust shadows. Real flats are better.")
+        self.sky_flats.setChecked(self.settings.value("stack/sky_flats", True, type=bool))
+        self.sky_flats.toggled.connect(lambda on: (self.settings.setValue("stack/sky_flats", on), self.refresh_all()))
+        obox.addWidget(self.sky_flats)
         obox.addSpacing(16)
         obox.addWidget(QLabel("Save as:"))
         obox.addWidget(self.fmt_fits)
@@ -485,8 +492,15 @@ class StackWindow(QMainWindow):
             added = st.group_calibration(self.added_infos)
             self.items = lib + added
             self.groups = st.group_lights(self.lights, self.rigs)
+            pool = None
+            if getattr(self, "sky_flats", None) is None or self.sky_flats.isChecked():
+                pool = []
+                for g in self.groups:
+                    for lf in g.frames:
+                        lf.info._rig = g.rig
+                        pool.append(lf.info)
             for g in self.groups:
-                g.plan = st.plan_group(g, self.items)
+                g.plan = st.plan_group(g, self.items, sky_pool=pool)
         finally:
             QApplication.restoreOverrideCursor()
         self.fill_table()
