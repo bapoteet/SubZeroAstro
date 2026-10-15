@@ -397,7 +397,7 @@ class StackWindow(QMainWindow):
                                      "(e.g. L, R, G, B or Ha, OIII, SII), ready to combine without re-aligning")
         self.align_common.setChecked(self.settings.value("stack/align_common", True, type=bool))
         obox.addWidget(self.align_common)
-        self.sky_flats = QCheckBox("Sky flats when flats are missing")
+        self.sky_flats = QCheckBox("SkyFlats (Mote Buster) when flats are missing")
         self.sky_flats.setToolTip("No flats for a filter? Make a flat from your light frames instead (best when "
                                   "you shot several targets with that filter): stars hidden, light-pollution "
                                   "tilt removed, leaving vignetting and dust shadows. Real flats are better.")

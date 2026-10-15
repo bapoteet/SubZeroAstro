@@ -314,7 +314,7 @@ class CalItem:
     def label(self) -> str:
         if self.sky:
             n_t = len({target_name(i.target) for i in self.infos})
-            return (f"Sky flat · {self.filter}  (made from {len(self.infos)} light frames, "
+            return (f"SkyFlat (Mote Buster) · {self.filter}  (made from {len(self.infos)} light frames, "
                     f"{n_t} target{'s' if n_t != 1 else ''})")
         bits = [KIND_LABEL[self.kind]]
         if self.kind in ("dark", "darkflat") and self.exptime is not None:
@@ -624,18 +624,18 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
             else:
                 p.flat_bias = p.bias
             targets = sorted({target_name(i.target) for i in sky})
-            p.notes.append(f"No flats for filter {L.filter} on {g.rig} - a SKY FLAT will be made from {len(sky)} "
+            p.notes.append(f"No flats for filter {L.filter} on {g.rig} - a SkyFlat (Mote Buster) will be made from {len(sky)} "
                            f"of your light frames ({len(targets)} target{'s' if len(targets) != 1 else ''}): "
                            "their stars are hidden and each frame's light-pollution tilt is taken out, leaving "
                            "the vignetting and dust shadows. Real flats are still better.")
             if len(targets) == 1:
                 p.notes.append("All these frames are of one target: if its nebula fills most of the picture, "
                                "part of it could be taken for vignetting. Lights of other targets (same filter "
-                               "and rig) make a better sky flat.")
+                               "and rig) make a better SkyFlat.")
         else:
             p.warnings.append(("flat", f"No flats for filter {L.filter} on {g.rig} — vignetting and dust "
                                        "shadows will not be corrected."
-                               + (f" (A sky flat needs at least {SKY_FLAT_MIN} light frames with this filter - "
+                               + (f" (A SkyFlat needs at least {SKY_FLAT_MIN} light frames with this filter - "
                                   f"there are {len(sky)}.)" if sky_pool is not None and 0 < len(sky) else "")))
     if L.smart or L.planes > 1:
         # smart telescopes calibrate on board (or the input is already a stack): missing
@@ -930,7 +930,7 @@ def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None
                 noises[ph].append(f[1])
                 tilts[ph].append(f[2])
         if progress:
-            progress(f"Building a sky flat from your lights: {n + 1}/{len(infos)}", (n + 1) / len(infos) * 0.9)
+            progress(f"SkyFlat (Mote Buster) - building a flat from your lights: {n + 1}/{len(infos)}", (n + 1) / len(infos) * 0.9)
     out = np.ones((H, W), np.float32)
     import warnings
     for ph in phases:
@@ -961,7 +961,7 @@ def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None
             ph_h, ph_w = out[ph[0]::2, ph[1]::2].shape
             out[ph[0]::2, ph[1]::2] = _upsample(med, ph_h, ph_w)
     if progress:
-        progress("Sky flat ready", 1.0)
+        progress("SkyFlat ready", 1.0)
     return np.clip(out, 0.2, 5.0).astype(np.float32)
 
 

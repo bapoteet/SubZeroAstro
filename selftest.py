@@ -144,7 +144,7 @@ def run(app, out_dir: Path) -> int:
         _pool.append(_lf.info)
     _pl = _stk.plan_group(_grp, [], sky_pool=_pool)
     check(_pl.flat is not None and _pl.flat.sky and not any(k == "flat" for k, _ in _pl.warnings)
-          and "SKY FLAT" in " ".join(_pl.notes) and "Sky flat" in _pl.flat.label(),
+          and "SkyFlat (Mote Buster)" in " ".join(_pl.notes) and "SkyFlat (Mote Buster)" in _pl.flat.label(),
           "no flats for a filter: page 2 plans a sky flat from the light frames")
     _built = _stk.build_sky_flat(_pl.flat, np.full((_sh, _sw), 300.0, np.float32))
     _vt = _true[10:30, 10:30].mean() / _true[135:155, 200:220].mean()
