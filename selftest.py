@@ -1041,7 +1041,8 @@ def run(app, out_dir: Path) -> int:
                 QApplication.processEvents()
                 check(fw.tool is not None and fw.tool.key == "dust" and fw.view.on_click is not None
                       and "donut" in fw.choice_note.text().lower(),
-                      f"Fix Dust Donuts opens with clickable circles ({fw.choice_note.text()[:70]})")
+                      f"Mote Buster opens with clickable circles ({fw.choice_note.text()[:70]})")
+                check(fw.tool.title.startswith("Mote Buster"), "the dust donut tool is called Mote Buster")
                 fw._add_spot(fw.state.shape[1] * 0.5, fw.state.shape[0] * 0.5, 40.0)
                 fw.run_preview()
                 check(len(fw.spots) >= 1 and len(fw.spot_items) == len(fw.spots),
@@ -1189,7 +1190,7 @@ def run(app, out_dir: Path) -> int:
               and F.WORKFLOWS["osc"].index("sky") < F.WORKFLOWS["osc"].index("final_crop"),
               f"Darken the Sky: sky {_sb:.3f} -> {_sa:.3f}, faint nebula above the sky {_nbb:.3f} -> {_nba:.3f}; "
               "offered before Final Crop")
-        # Fix Dust Donuts: found in the sky, divided out with a synthetic flat
+        # Mote Buster (Fix Dust Donuts): found in the sky, divided out with a synthetic flat
         _r2 = np.random.default_rng(9)
         _H2, _W2 = 700, 1000
         _y2, _x2 = np.mgrid[:_H2, :_W2].astype(np.float32)
@@ -1208,7 +1209,7 @@ def run(app, out_dir: Path) -> int:
         _ok_pos = bool(_found) and abs(_found[0][0] - 700) < 15 and abs(_found[0][1] - 350) < 15
         check(len(_found) == 1 and _ok_pos and abs(_ea) < 0.01 and "dust" in F.WORKFLOWS["osc"]
               and F.WORKFLOWS["osc"].index("dust") < F.WORKFLOWS["osc"].index("stretch"),
-              f"Fix Dust Donuts finds the donut ({[[round(v) for v in d] for d in _found]}) and divides it out "
+              f"Mote Buster finds the donut ({[[round(v) for v in d] for d in _found]}) and divides it out "
               f"(shadow {_eb:+.3f} -> {_ea:+.3f}); offered while the picture is unstretched")
         # Final Noise Reduction (NoiseXTerminator) - through the stand-in rc-astro when it is there
         _dn = F.TOOLS["denoise"]

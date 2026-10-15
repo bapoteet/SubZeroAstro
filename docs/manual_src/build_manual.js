@@ -379,7 +379,7 @@ bullets([
   "**Back to Start** returns to the original masters.",
   "Every step is saved. Opening the same masters again offers to **carry on where you left off**.",
 ]);
-sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Fix Dust Donuts", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
+sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Mote Buster", "Fix Dust Donuts", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
 p("Which steps appear depends on your data. In typical order:");
 table(["Step", "What it does", "PixInsight equivalent"], [
   ["Add Hydrogen Glow", "Adds Ha to the red of an RGB set, without its stars", "Continuum subtraction + PixelMath"],
@@ -387,7 +387,7 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Choose a Colour Palette", "Dual-band colour cameras: separates Ha and OIII (or SII and OIII) and offers HOO, Gold & blue, Foraxx…", "PixelMath palettes"],
   ["Balance Colours", "Neutral sky and natural star colour", "BackgroundNeutralization / colour calibration"],
   ["Remove Green Cast", "Removes the green tint (or turns Hubble colours gold and blue)", "SCNR"],
-  ["Fix Dust Donuts ◇", "Finds the round shadows of dust and divides them out with a synthetic flat - the detail underneath comes back", "A new flat, or DBE with division"],
+  ["Mote Buster ◇", "Fix Dust Donuts: finds the round shadows of dust and divides them out with a synthetic flat - the detail underneath comes back", "A new flat, or DBE with division"],
   ["Take Stars Out", "Hides the stars so the nebula can be brightened strongly (instant if page 3 already separated them)", "StarXTerminator"],
   ["Brighten the Image", "The stretch - five strengths, three methods", "STF / HistogramTransformation / GHS"],
   ["Tame Bright Core ◇", "Recovers detail in a burnt-out galaxy core or bright nebula", "HDRMultiscaleTransform with a mask"],
@@ -405,10 +405,10 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Sign Your Picture ◇", "Your signature in a corner, in one of three fonts", "Annotation"],
 ], [2500, 4460, 2400]);
 p("◇ = optional: offered in the list but not pushed by *Recommended next*.");
-sec("9.4", "Dust donuts", ["Fix Dust Donuts", "Dust donuts", "Dust motes", "Synthetic flat"]);
-p("Dust on a filter or on the camera window casts round shadows - **dust donuts** (rings with a reflector, discs with a refractor). A good flat removes them; when the flat is missing or no longer matches, **Fix Dust Donuts** helps. A dust shadow does not wipe anything out: it lets through the same fraction of light everywhere inside it, nebula included. So SubZeroAstro measures each donut's shadow ring by ring - in 16 directions against the sky just outside it, levelled for any gradient - builds a **synthetic flat** just for that donut and divides it out, the way a uniformity (flood-field) correction works. The detail underneath comes back instead of being painted over.");
+sec("9.4", "Mote Buster: dust donuts", ["Mote Buster", "Fix Dust Donuts", "Dust donuts", "Dust motes", "Synthetic flat"]);
+p("Dust on a filter or on the camera window casts round shadows - **dust donuts** (rings with a reflector, discs with a refractor). A good flat removes them; when the flat is missing or no longer matches, **Mote Buster – Fix Dust Donuts** helps. A dust shadow does not wipe anything out: it lets through the same fraction of light everywhere inside it, nebula included. So SubZeroAstro measures each donut's shadow ring by ring - in 16 directions against the sky just outside it, levelled for any gradient - builds a **synthetic flat** just for that donut and divides it out, the way a uniformity (flood-field) correction works. The detail underneath comes back instead of being painted over.");
 bullets([
-  "Open **Fix Dust Donuts** while the picture is still unstretched (it comes before *Take Stars Out*). The donuts it finds in the sky are already circled in yellow.",
+  "Open **Mote Buster** while the picture is still unstretched (it comes before *Take Stars Out*). The donuts it finds in the sky are already circled in yellow.",
   "Donuts on bright nebulosity are not searched automatically (a gap between filaments could look like one) - **click** those yourself. The mouse wheel sets the circle size (just cover the donut); right-click removes the last circle. Clicks need not be exact: each circle is centred on its donut automatically.",
   "Check the preview, then **Apply**. For small specks (hot pixels, satellite remnants) use **Spot Fix** instead.",
 ]);

@@ -1502,7 +1502,7 @@ def find_donuts(y: np.ndarray, max_n: int = 12) -> list:
 
 class DustDonuts(Tool):
     key = "dust"
-    title = "Fix Dust Donuts"
+    title = "Mote Buster – Fix Dust Donuts"
     tip = ("Dust on the filter or camera window casts round shadows ('donuts') that dim everything inside "
            "them by the same fraction. SubZeroAstro finds them, measures each shadow ring by ring and divides "
            "it out with a synthetic flat made just for that donut - so the nebula underneath comes back "
