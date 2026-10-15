@@ -377,7 +377,7 @@ bullets([
   "**Back to Start** returns to the original masters.",
   "Every step is saved. Opening the same masters again offers to **carry on where you left off**.",
 ]);
-sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
+sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Fix Dust Donuts", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
 p("Which steps appear depends on your data. In typical order:");
 table(["Step", "What it does", "PixInsight equivalent"], [
   ["Add Hydrogen Glow", "Adds Ha to the red of an RGB set, without its stars", "Continuum subtraction + PixelMath"],
@@ -385,6 +385,7 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Choose a Colour Palette", "Dual-band colour cameras: separates Ha and OIII (or SII and OIII) and offers HOO, Gold & blue, Foraxx…", "PixelMath palettes"],
   ["Balance Colours", "Neutral sky and natural star colour", "BackgroundNeutralization / colour calibration"],
   ["Remove Green Cast", "Removes the green tint (or turns Hubble colours gold and blue)", "SCNR"],
+  ["Fix Dust Donuts ◇", "Finds the round shadows of dust and divides them out with a synthetic flat - the detail underneath comes back", "A new flat, or DBE with division"],
   ["Take Stars Out", "Hides the stars so the nebula can be brightened strongly (instant if page 3 already separated them)", "StarXTerminator"],
   ["Brighten the Image", "The stretch - five strengths, three methods", "STF / HistogramTransformation / GHS"],
   ["Tame Bright Core ◇", "Recovers detail in a burnt-out galaxy core or bright nebula", "HDRMultiscaleTransform with a mask"],
@@ -402,9 +403,16 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Sign Your Picture ◇", "Your signature in a corner, in one of three fonts", "Annotation"],
 ], [2500, 4460, 2400]);
 p("◇ = optional: offered in the list but not pushed by *Recommended next*.");
-sec("9.4", "Stars: take out, brighten, colour, put back", ["Stars workflow", "Starless"]);
+sec("9.4", "Dust donuts", ["Fix Dust Donuts", "Dust donuts", "Dust motes", "Synthetic flat"]);
+p("Dust on a filter or on the camera window casts round shadows - **dust donuts** (rings with a reflector, discs with a refractor). A good flat removes them; when the flat is missing or no longer matches, **Fix Dust Donuts** helps. A dust shadow does not wipe anything out: it lets through the same fraction of light everywhere inside it, nebula included. So SubZeroAstro measures each donut's shadow ring by ring - in 16 directions against the sky just outside it, levelled for any gradient - builds a **synthetic flat** just for that donut and divides it out, the way a uniformity (flood-field) correction works. The detail underneath comes back instead of being painted over.");
+bullets([
+  "Open **Fix Dust Donuts** while the picture is still unstretched (it comes before *Take Stars Out*). The donuts it finds in the sky are already circled in yellow.",
+  "Donuts on bright nebulosity are not searched automatically (a gap between filaments could look like one) - **click** those yourself. The mouse wheel sets the circle size (just cover the donut); right-click removes the last circle. Clicks need not be exact: each circle is centred on its donut automatically.",
+  "Check the preview, then **Apply**. For small specks (hot pixels, satellite remnants) use **Spot Fix** instead.",
+]);
+sec("9.5", "Stars: take out, brighten, colour, put back", ["Stars workflow", "Starless"]);
 p("Stars and nebula look best when processed separately. **Take Stars Out** hides the stars (the picture shows the nebula alone); the nebula steps follow; then **Brighten Stars Separately**, **Shrink Stars** and **Star Colours** work on the stars (their previews show the stars); **Put Stars Back** recombines them. If you **Skip** Take Stars Out, the stars simply stay in the picture.");
-sec("9.5", "Darker sky, Final Crop, Spot Fix and your signature", ["Darken the Sky Background", "Grey sky", "Final Crop", "Spot Fix", "Sign Your Picture", "Signature fonts"]);
+sec("9.6", "Darker sky, Final Crop, Spot Fix and your signature", ["Darken the Sky Background", "Grey sky", "Final Crop", "Spot Fix", "Sign Your Picture", "Signature fonts"]);
 bullets([
   "**Darken the Sky Background** is for a sky that looks grey or washed out. Pick *Slightly darker*, *Darker*, *Much darker* or *Lighter* (each shows the sky's brightness before and after), then fine-tune with **Sky darkness**. It works like PixInsight's background extraction: SubZeroAstro maps the sky glow across the picture (a nebula cannot push that map up) and takes part of it away. Everything that shines above the sky - nebula, faint dust, stars - keeps exactly the brightness it had **above the sky**, so faint filaments stay visible and stars are not dimmed. A brighter corner or side loses more, so the sky also evens out. Darker skies show grain more: a lighter setting often looks more natural.",
   "**Final Noise Reduction** runs NoiseXTerminator once more on the finished picture - most useful right after a darker sky, which shows grain more. The choices (*Light*, *Medium*, *Strong*) are shown at full size on the busiest part of the picture so you can judge the grain; **Strength** fine-tunes it. (BlurXTerminator is not offered here on purpose: it is made for unstretched data and already runs on page 3. For more crispness at the end, use **Bring Out Hidden Structure**.)",
@@ -413,14 +421,14 @@ bullets([
   "**Sign Your Picture**: type your name once (it is remembered), pick a font - *Elegant script*, *Handwritten* or *Classic* - the corner and colour, and fine-tune size, opacity and distance from the edge. Do this last: the signature becomes part of the picture.",
 ]);
 img("21_finish_signature.png", "Sign Your Picture: signature text, corner, colour and three fonts (example data)");
-sec("9.6", "Saving and sharing", ["Save the Picture", "Save Project As", "Open Project", "Share to AstroBin", "AstroBin"]);
+sec("9.7", "Saving and sharing", ["Save the Picture", "Save Project As", "Open Project", "Share to AstroBin", "AstroBin"]);
 bullets([
   "**Save the Picture…** - TIFF (16-bit), JPG, PNG, XISF or FITS. Each target remembers its own folder.",
   "**Save Project As… / Open Project…** - keep every step in a folder of your choice and carry on later.",
   "**Share to AstroBin…** - saves an upload-ready JPG (and optional TIFF) plus an **acquisition CSV** with every night's subs, exposure, gain, temperature and FWHM, then opens AstroBin's upload page. Upload the picture, and on the *Acquisition* step choose **Import CSV**.",
   "**Stop Here – Continue in PixInsight** - see 5.4.",
 ]);
-sec("9.7", "Starting your next target", ["End this Project and Start New Project", "New project", "Next target"]);
+sec("9.8", "Starting your next target", ["End this Project and Start New Project", "New project", "Next target"]);
 p("When a picture is finished, click the teal **↺ End this Project and Start New Project** button at the top right of Finishing Touches. SubZeroAstro asks first - and if you have not saved the picture yet, offers **Save the Picture First…**. Then every page and image closes, the helper programs are checked again, and you are back on **page 1 (Quality and Cull)** with the **Load Data** window open, ready for the next target's light frames: cull, stack, process and finish, from the beginning.");
 tip("Nothing on your disk is deleted. Your masters, finished pictures and every Finishing Touches step stay where they are: open the same masters on Finishing Touches later and the project carries on where you stopped.", "Your work is safe");
 

@@ -988,6 +988,18 @@ def run(app, out_dir: Path) -> int:
             t = F.next_step(fw.state)
             if t is None:
                 break
+            if t.key == "stretch" and not state.get("dust_ui"):
+                state["dust_ui"] = True
+                fw.open_tool("dust")
+                QApplication.processEvents()
+                check(fw.tool is not None and fw.tool.key == "dust" and fw.view.on_click is not None
+                      and "donut" in fw.choice_note.text().lower(),
+                      f"Fix Dust Donuts opens with clickable circles ({fw.choice_note.text()[:70]})")
+                fw._add_spot(fw.state.shape[1] * 0.5, fw.state.shape[0] * 0.5, 40.0)
+                fw.run_preview()
+                check(len(fw.spots) >= 1 and len(fw.spot_items) == len(fw.spots),
+                      "a circle can be added for a donut SubZeroAstro did not find")
+                fw.close_tool()
             fw.open_tool(t.key)
             if t.key == "stretch":
                 shot("17_finish_brighten_choices.png", fw)
@@ -1130,6 +1142,27 @@ def run(app, out_dir: Path) -> int:
               and F.WORKFLOWS["osc"].index("sky") < F.WORKFLOWS["osc"].index("final_crop"),
               f"Darken the Sky: sky {_sb:.3f} -> {_sa:.3f}, faint nebula above the sky {_nbb:.3f} -> {_nba:.3f}; "
               "offered before Final Crop")
+        # Fix Dust Donuts: found in the sky, divided out with a synthetic flat
+        _r2 = np.random.default_rng(9)
+        _H2, _W2 = 700, 1000
+        _y2, _x2 = np.mgrid[:_H2, :_W2].astype(np.float32)
+        _clean = 0.02 + 0.004 * _x2 / _W2
+        for _k in range(250):
+            _sx, _sy = int(_r2.uniform(5, _W2 - 5)), int(_r2.uniform(5, _H2 - 5))
+            _clean[_sy - 1:_sy + 2, _sx - 1:_sx + 2] += _r2.uniform(0.02, 0.3)
+        _rr = np.hypot(_x2 - 700, _y2 - 350) / 60
+        _dimg = (_clean * (1 - 0.06 * np.clip((1 - _rr) / 0.15, 0, 1)) + _r2.normal(0, 0.0012, (_H2, _W2))).astype(np.float32)
+        _dst = F.State(rgb=np.stack([_dimg] * 3), linear=True)
+        _found = F.TOOLS["dust"].found_spots(_dst)
+        _fixed = F.TOOLS["dust"].apply(_dst, {"spots": _found}).rgb[0] if _found else _dimg
+        _m = _rr < 0.9
+        _eb = float(np.median((_dimg[_m] - _clean[_m]) / _clean[_m]))
+        _ea = float(np.median((_fixed[_m] - _clean[_m]) / _clean[_m]))
+        _ok_pos = bool(_found) and abs(_found[0][0] - 700) < 15 and abs(_found[0][1] - 350) < 15
+        check(len(_found) == 1 and _ok_pos and abs(_ea) < 0.01 and "dust" in F.WORKFLOWS["osc"]
+              and F.WORKFLOWS["osc"].index("dust") < F.WORKFLOWS["osc"].index("stretch"),
+              f"Fix Dust Donuts finds the donut ({[[round(v) for v in d] for d in _found]}) and divides it out "
+              f"(shadow {_eb:+.3f} -> {_ea:+.3f}); offered while the picture is unstretched")
         # Final Noise Reduction (NoiseXTerminator) - through the stand-in rc-astro when it is there
         _dn = F.TOOLS["denoise"]
         if state["fake"]:

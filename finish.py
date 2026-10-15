@@ -1316,6 +1316,242 @@ class DarkenSky(Tool):
 
 
 # --------------------------------------------------------------------------
+# Dust donuts: round shadows that dim everything inside a ring by the same fraction
+# --------------------------------------------------------------------------
+def _opening(a: np.ndarray, r: int) -> np.ndarray:
+    """Remove bright points smaller than r (stars) - erosion then dilation."""
+    return -_min_filter(-_min_filter(a, r), r)
+
+
+def donut_profile(plane: np.ndarray, x: float, y: float, r: float, sectors: int = 16, bins: int = 28):
+    """How much light a donut at (x, y) of radius r lets through, ring by ring: (rho, through) with
+    rho in units of r and through = 1 outside the shadow. Measured in every direction against the sky
+    just outside the circle *in that direction*, then the median over directions - so a nebula or a
+    gradient crossing the donut does not fool it. Also returns how many directions agree."""
+    h, w = plane.shape
+    R = int(r * 1.75) + 4
+    x0, x1, y0, y1 = max(0, int(x) - R), min(w, int(x) + R + 1), max(0, int(y) - R), min(h, int(y) + R + 1)
+    crop = plane[y0:y1, x0:x1].astype(np.float32)
+    if crop.size < 64:
+        return None
+    st = max(1, int(r / 40))
+    small = crop[::st, ::st]
+    small = _blur(_opening(small, 2), max(1.0, r / st / 25))
+    yy, xx = np.mgrid[:small.shape[0], :small.shape[1]]
+    yy, xx = yy * st + y0, xx * st + x0
+    rho = np.hypot(yy - y, xx - x) / r
+    th = ((np.arctan2(yy - y, xx - x) + np.pi) / (2 * np.pi) * sectors).astype(int) % sectors
+    edges = np.linspace(0, 1.25, bins + 1)
+    ref_ring = (rho >= 1.3) & (rho <= 1.7)
+    prof = np.full((sectors, bins), np.nan)
+    for k in range(sectors):
+        sel = th == k
+        ref = small[sel & ref_ring]
+        if ref.size < 3:
+            continue
+        rv = float(np.median(ref))
+        if rv <= 0:
+            continue
+        for i in range(bins):
+            v = small[sel & (rho >= edges[i]) & (rho < edges[i + 1])]
+            if v.size:
+                prof[k, i] = float(np.median(v)) / rv
+    ok_rows = ~np.all(np.isnan(prof), axis=1)
+    if ok_rows.sum() < sectors // 2:
+        return None
+    with np.errstate(all="ignore"):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            through = np.nanmedian(prof[ok_rows], axis=0)
+            dark_rows = np.nanmedian(prof[ok_rows][:, :max(1, int(bins * 0.76))], axis=1)
+    through = np.where(np.isnan(through), 1.0, through)
+    mid = 0.5 * (edges[1:] + edges[:-1])
+    dark_dirs = int(np.sum(dark_rows < 1.0))
+    return mid, through, dark_dirs, int(ok_rows.sum())
+
+
+def donut_flat(shape, x, y, r, mid, through):
+    """The synthetic flat for one donut: 1 everywhere except the shadow (smooth, never above 1)."""
+    t = np.convolve(np.pad(through, 2, mode="edge"), np.ones(5) / 5, mode="valid")     # gentle smoothing
+    t = np.clip(t, 0.3, 1.0)
+    taper = np.clip((1.18 - mid) / 0.18, 0, 1)                    # back to exactly 1 at the edge
+    t = 1.0 - (1.0 - t) * taper
+    h, w = shape
+    R = int(r * 1.3) + 2
+    x0, x1, y0, y1 = max(0, int(x) - R), min(w, int(x) + R + 1), max(0, int(y) - R), min(h, int(y) + R + 1)
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    rho = np.hypot(yy - y, xx - x) / r
+    patch = np.interp(rho, mid, t, left=t[0], right=1.0).astype(np.float32)
+    return (y0, y1, x0, x1), patch
+
+
+def _sector_depths(plane, x, y, r, sectors=16):
+    """Per direction: how much darker the inside (rho < 0.9) is than the sky just outside - after a
+    tilted plane fitted to that outside sky is taken away, so a gradient across the donut (the edge of
+    a nebula, light pollution) does not make the directions disagree."""
+    h, w = plane.shape
+    R = int(r * 1.75) + 3
+    x0, x1, y0, y1 = max(0, int(x) - R), min(w, int(x) + R + 1), max(0, int(y) - R), min(h, int(y) + R + 1)
+    crop = np.log(np.maximum(plane[y0:y1, x0:x1], 1e-6))
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    rho = np.hypot(yy - y, xx - x) / r
+    th = ((np.arctan2(yy - y, xx - x) + np.pi) / (2 * np.pi) * sectors).astype(int) % sectors
+    ring = (rho >= 1.3) & (rho <= 1.7)
+    if ring.sum() < 20:
+        return np.array([])
+    A = np.stack([np.ones(int(ring.sum())), (xx[ring] - x) / r, (yy[ring] - y) / r], 1)
+    coef, *_ = np.linalg.lstsq(A, crop[ring], rcond=None)
+    res = crop - (coef[0] + coef[1] * (xx - x) / r + coef[2] * (yy - y) / r)
+    out = []
+    for k in range(sectors):
+        sel = th == k
+        a, b = res[sel & (rho < 0.9)], res[sel & ring]
+        if a.size > 2 and b.size > 2:
+            out.append(1.0 - float(np.exp(np.median(a) - np.median(b))))
+    return np.array(out)
+
+
+def centre_donut(plane, x, y, r):
+    """Nudge a circle (found, or clicked by hand) onto the donut's real centre: the spot where the
+    shadow is deepest and most even in every direction. Returns (x, y)."""
+    best, bx, by = -1e9, x, y
+    for step in (0.12, 0.05):
+        cx0, cy0 = bx, by
+        for dy in (-2, -1, 0, 1, 2):
+            for dx in (-2, -1, 0, 1, 2):
+                cx, cy = cx0 + dx * step * r, cy0 + dy * step * r
+                d = _sector_depths(plane, cx, cy, r)
+                if d.size < 12:
+                    continue
+                med = float(np.median(d))
+                sc = med - 1.5 * float(np.median(np.abs(d - med))) * 1.4826
+                if sc > best:
+                    best, bx, by = sc, cx, cy
+    return bx, by
+
+
+def find_donuts(y: np.ndarray, max_n: int = 12) -> list:
+    """Dust donuts in an unstretched (linear) luminance plane: [[x, y, r], ...] full-size.
+    Candidates come from round 'disc' and 'ring' shaped dips at several sizes; one is kept only when
+    every direction around it agrees on how much darker the inside is (a dark gap in a nebula does
+    not), then its true outer edge is measured."""
+    small, f = _small_plane(y, 700)
+    base = _opening(small, 2)
+    sky, noise, _d, _b = sky_level(small)
+    lg = np.log(np.maximum(base, sky * 0.2) + noise).astype(np.float32)
+    h, w = small.shape
+    dif = (small[:, 1:] - small[:, :-1]).ravel()                  # pixel-to-pixel noise (gradients cancel)
+    pix_noise = float(np.median(np.abs(dif - np.median(dif)))) * 1.4826 / np.sqrt(2) / max(sky, 1e-9)
+
+    def mean_sq(a):                                   # mean over a (2a+1)^2 square, and its area
+        a = max(1, int(round(a)))
+        return _box_blur(lg, a), float((2 * a + 1) ** 2)
+
+    def band(a_in, a_out):
+        mo, ao = mean_sq(a_out)
+        mi, ai = mean_sq(a_in)
+        return (mo * ao - mi * ai) / max(ao - ai, 1.0)
+    found = []
+    taken = np.zeros((h, w), dtype=bool)
+    for R in (45, 32, 22, 15, 10, 6.5):              # outer radius in small-plane pixels (squares ~ circles)
+        if R * 3.4 > min(h, w):
+            continue
+        outer = band(1.05 * R, 1.45 * R)
+        disc = mean_sq(0.72 * R)[0] - outer
+        ring = band(0.4 * R, 0.85 * R) - outer
+        resp = np.minimum(disc, ring)
+        sd = float(np.median(np.abs(resp - np.median(resp)))) * 1.4826 + 1e-9
+        e = int(R * 1.5) + 2
+        cand = (resp < -4.0 * sd) & (resp <= _min_filter(resp, max(1, int(R * 0.7))) + 1e-12) & ~taken
+        cand[:e], cand[-e:], cand[:, :e], cand[:, -e:] = False, False, False, False    # whole circle inside
+        ys, xs = np.nonzero(cand)
+        for i in np.argsort(resp[ys, xs])[:30]:
+            cy, cx = int(ys[i]), int(xs[i])
+            if taken[cy, cx]:
+                continue
+            yl, yh, xl, xh = max(0, int(cy - 1.7 * R)), int(cy + 1.7 * R) + 1, max(0, int(cx - 1.7 * R)), int(cx + 1.7 * R) + 1
+            if float(np.median(base[yl:yh, xl:xh])) > sky * 1.25 + 3 * noise:
+                continue                       # inside bright nebulosity: too easy to mistake - click those
+            d = _sector_depths(base, cx, cy, R)
+            if d.size < 12:
+                continue
+            med = float(np.median(d))
+            spread = float(np.median(np.abs(d - med))) * 1.4826
+            chance = 1.25 * pix_noise / np.sqrt(np.pi * (0.9 * R) ** 2)      # noise of the inside median
+            if med < max(0.015, 6 * chance) or med > 0.6 or np.mean(d > 0) < 0.94 or spread > 0.35 * med:
+                continue
+            # the true outer edge: where the shadow has faded, measured outwards from the centre
+            res = donut_profile(small, cx, cy, R * 1.5)
+            r_out = R
+            if res is not None:
+                mid, thr, _dk, _tt = res
+                dep = 1 - thr
+                inside = np.nonzero(dep > 0.2 * max(dep.max(), 1e-6))[0]
+                if inside.size:
+                    r_out = float(np.clip(mid[inside[-1]] * R * 1.5 * 1.08, 0.7 * R, 1.4 * R))
+            ex, ey = centre_donut(base, cx, cy, R)
+            found.append([ex * f, ey * f, r_out * f, med])
+            yy, xx = np.ogrid[:h, :w]
+            taken |= (yy - cy) ** 2 + (xx - cx) ** 2 <= (r_out * 1.5) ** 2
+            if len(found) >= max_n:
+                break
+    found.sort(key=lambda d: -d[3])
+    return [[float(a), float(b), float(c)] for a, b, c, _dep in found[:max_n]]
+
+
+class DustDonuts(Tool):
+    key = "dust"
+    title = "Fix Dust Donuts"
+    tip = ("Dust on the filter or camera window casts round shadows ('donuts') that dim everything inside "
+           "them by the same fraction. SubZeroAstro finds them, measures each shadow ring by ring and divides "
+           "it out with a synthetic flat made just for that donut - so the nebula underneath comes back "
+           "instead of being painted over. Flats are still the best cure.")
+    pick = False
+    optional = True
+    editor = "spots"                 # circles on the picture: click to add, right-click to remove
+    spot_range = (8.0, 700.0)
+    spot_start = 60.0
+
+    def applicable(self, s):
+        if s.rgb is None:
+            return False, "Combine the colour channels first"
+        if not s.linear:
+            return False, "Works on the unstretched picture - use Go Back to before Brighten the Image"
+        return True, ""
+
+    def found_spots(self, s):
+        return find_donuts(_lum(s.rgb))
+
+    def variants(self, s):
+        return [Variant("Fix the marked donuts", {"spots": []},
+                        "Found donuts are circled. Click to add one (mouse wheel = circle size), right-click "
+                        "removes the last; the circle should just cover the donut", True)]
+
+    def apply(self, s, params):
+        s = s.copy()
+        img = s.rgb.copy()
+        small, f = _small_plane(_lum(img), 900)
+        base = _opening(small, 2)
+        spots = []
+        for x, y, r in params.get("spots", []):        # clicks need not be exact: centre each one
+            ex, ey = centre_donut(base, x / f, y / f, r / f)
+            spots.append((ex * f, ey * f, r))
+        for x, y, r in spots:
+            for c in range(img.shape[0]):
+                res = donut_profile(img[c], x, y, r)
+                if res is None:
+                    continue
+                mid, thr, _dark, _tot = res
+                (y0, y1, x0, x1), flat = donut_flat(img[c].shape, x, y, r, mid, thr)
+                img[c, y0:y1, x0:x1] = img[c, y0:y1, x0:x1] / flat
+        s.rgb = img.astype(np.float32)
+        if self.key not in s.done:
+            s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
 class FinalNoise(Tool):
     key = "denoise"
     title = "Final Noise Reduction (NoiseXTerminator)"
@@ -1790,6 +2026,9 @@ class HaGlow(Tool):
 # --------------------------------------------------------------------------
 class SpotFix(Tool):
     key = "spotfix"
+    editor = "spots"
+    spot_range = (3.0, 80.0)
+    spot_start = 10.0
     title = "Spot Fix"
     tip = ("Click on a dust donut, a satellite remnant or a hot pixel and it is patched from its "
            "surroundings. (PixInsight: CloneStamp)")
@@ -1998,7 +2237,7 @@ class TameCore(Tool):
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
                             TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
                             StarColours(), PutStarsBack(),
-                            DarkenSky(), FinalNoise(), FinalCrop(), SpotFix(), SignPicture())}
+                            DustDonuts(), DarkenSky(), FinalNoise(), FinalCrop(), SpotFix(), SignPicture())}
 
 
 def thumb_state(tool: Tool, s: State, size=420) -> State:
@@ -2036,14 +2275,14 @@ def busiest_spot(s: State, size=420):
 _POLISH = ["core", "curves", "saturation", "local"]
 _STARS = ["star_stretch", "shrink", "star_color", "stars_back"]
 WORKFLOWS = {
-    "osc": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "osc_dual": ["palette", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "osc_sho": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "smart": ["balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "mono_nb": ["combine", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "mono": ["stars_out", "stretch", "core", "curves", "local"] + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "osc": ["balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "osc_dual": ["palette", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "osc_sho": ["combine", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "smart": ["balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "mono_nb": ["combine", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "mono": ["dust", "stars_out", "stretch", "core", "curves", "local"] + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
 }
 
 WHY = {
@@ -2285,6 +2524,8 @@ PI_EQUIVALENT = {
         "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
     "signature": "Annotation, or a PixelMath-blended signature image",
     "final_crop": "DynamicCrop",
+    "dust": "A new flat is the real cure; otherwise DynamicBackgroundExtraction with samples around the donut "
+            "(division), or a synthetic flat built in PixelMath",
     "denoise": "NoiseXTerminator - a light pass (denoise about 0.3-0.5) on the stretched image",
     "sky": "AutomaticBackgroundExtractor or DynamicBackgroundExtraction to model the sky glow, then PixelMath "
            "$T - k*model (k about 0.5) so only part of the glow is taken away",

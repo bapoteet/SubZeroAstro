@@ -920,11 +920,24 @@ class FinishWindow(QMainWindow):
             self.method.setCurrentIndex(self.method.findData(self.tool.recommended_method(self.state)))
             self.method.blockSignals(False)
             self.chk_tool_linked.setVisible(self.state.is_color)
-        if key == "spotfix":
+        if getattr(self.tool, "editor", None) == "spots":
             self.spots = []
+            self.spot_r = float(getattr(self.tool, "spot_start", 10.0))
             self.show_current()
             self.view.on_click = self._spot_click
             self.view.on_wheel = self._spot_wheel
+            if hasattr(self.tool, "found_spots"):
+                try:
+                    found = self.tool.found_spots(self.state)
+                except Exception as e:  # noqa: BLE001 - finding is a help, never a blocker
+                    found = []
+                    self.log(f"{self.tool.title}: could not search automatically ({e})")
+                for x, y, r in found:
+                    self._add_spot(x, y, r)
+                self.choice_note.setText(
+                    (f"Found {len(found)} donut(s) - circled in yellow. " if found else
+                     "No donuts found automatically (ones on bright nebulosity are left to you). ") +
+                    "Click to add one (mouse wheel = circle size), right-click removes the last.")
         self.render_choices()
         if key == "final_crop":
             self._set_crop_box("found")
@@ -1129,7 +1142,7 @@ class FinishWindow(QMainWindow):
         t, v = self.tool, self.selected()
         if t is None or v is None:
             return {}
-        if t.key == "spotfix":
+        if getattr(t, "editor", None) == "spots":
             return {"spots": [list(q) for q in self.spots]}
         if t.key == "final_crop":
             return {"rect": [int(x) for x in self.view.crop()]}
@@ -1156,7 +1169,7 @@ class FinishWindow(QMainWindow):
 
     def run_preview(self):
         t, s = self.tool, self.state
-        if t is None or s is None or (not self.variants and t.key != "spotfix"):
+        if t is None or s is None or (not self.variants and getattr(t, "editor", None) != "spots"):
             return                      # choices not ready yet
         if t.key == "final_crop":       # the box on the picture is the preview
             return
@@ -1173,7 +1186,7 @@ class FinishWindow(QMainWindow):
                 ps = s.crop(900, F.busiest_spot(s, 900))
             else:
                 ps = s.small(PREVIEW_SIDE)
-            if t.key == "spotfix":
+            if getattr(t, "editor", None) == "spots":
                 f = max(s.shape) / max(ps.shape)
                 return F.state_display(t.apply(ps, {"spots": [[x / f, y / f, r / f] for x, y, r in params["spots"]]}))
             return t.preview(ps, params)
@@ -1184,7 +1197,7 @@ class FinishWindow(QMainWindow):
                 if it.scene() is None:
                     self.view.scene().addItem(it)
             v = self.selected()
-            name = "your marked spots" if t.key == "spotfix" else f"“{v.label}”" + (" (fine-tuned)" if tuned else "")
+            name = "your marked circles" if getattr(t, "editor", None) == "spots" else f"“{v.label}”" + (" (fine-tuned)" if tuned else "")
             where = " — full-size view of a small area" if t.spatial else ""
             self.preview_hint.setText(f"Preview of {name}{where} — not applied yet. Apply to keep it, "
                                       "Cancel to go back.")
@@ -1200,6 +1213,16 @@ class FinishWindow(QMainWindow):
         self.preview_job.start()
 
     # ------------------------------------------------------------ Spot Fix clicks
+    def _add_spot(self, x_full, y_full, r_full):
+        """A circle at full-size coordinates (drawn on the shown, possibly smaller, picture)."""
+        f = getattr(self, "disp_factor", 1.0)
+        self.spots.append([float(x_full), float(y_full), float(r_full)])
+        x, y, r = x_full / f, y_full / f, r_full / f
+        it = QGraphicsEllipseItem(x - r, y - r, 2 * r, 2 * r)
+        it.setPen(QPen(QColor(255, 200, 60), 0))
+        self.view.scene().addItem(it)
+        self.spot_items.append(it)
+
     def _spot_click(self, x, y, button):
         f = getattr(self, "disp_factor", 1.0)
         if button == Qt.RightButton:
@@ -1208,19 +1231,15 @@ class FinishWindow(QMainWindow):
                 it = self.spot_items.pop()
                 self.view.scene().removeItem(it)
         else:
-            self.spots.append([x * f, y * f, self.spot_r])
-            r = self.spot_r / f
-            it = QGraphicsEllipseItem(x - r, y - r, 2 * r, 2 * r)
-            it.setPen(QPen(QColor(255, 200, 60), 0))
-            self.view.scene().addItem(it)
-            self.spot_items.append(it)
-        self.choice_note.setText(f"{len(self.spots)} spot(s) marked. Circle size {self.spot_r:.0f} px (mouse wheel). "
+            self._add_spot(x * f, y * f, self.spot_r)
+        self.choice_note.setText(f"{len(self.spots)} circle(s) marked. Circle size {self.spot_r:.0f} px (mouse wheel). "
                                  "Right-click removes the last one.")
         self.schedule_preview()
 
     def _spot_wheel(self, steps):
-        self.spot_r = float(min(80, max(3, self.spot_r * (1.15 ** steps))))
-        self.choice_note.setText(f"Circle size {self.spot_r:.0f} px - click a blemish to fix it.")
+        lo, hi = getattr(self.tool, "spot_range", (3.0, 80.0))
+        self.spot_r = float(min(hi, max(lo, self.spot_r * (1.15 ** steps))))
+        self.choice_note.setText(f"Circle size {self.spot_r:.0f} px - click to mark one.")
 
     def apply_choice(self):
         t, s = self.tool, self.state
@@ -1232,11 +1251,13 @@ class FinishWindow(QMainWindow):
             if not self.synchronous:
                 QMessageBox.information(self, t.title, "Type your signature in the box first.")
             return
-        if t.key == "spotfix" and not params.get("spots"):
-            QMessageBox.information(self, t.title, "Click the blemishes on the image first.")
+        spots_tool = getattr(t, "editor", None) == "spots"
+        if spots_tool and not params.get("spots"):
+            if not self.synchronous:
+                QMessageBox.information(self, t.title, "Click on the picture to mark them first.")
             return
-        tuned = (self.fine_box.isChecked() and bool(self.fine_values)) or t.key == "spotfix"
-        label = (f"{len(params['spots'])} spot(s)" if t.key == "spotfix"
+        tuned = (self.fine_box.isChecked() and bool(self.fine_values)) or spots_tool
+        label = (f"{len(params['spots'])} spot(s)" if spots_tool
                  else v.label + (" (fine-tuned)" if tuned else ""))
 
         def work():
