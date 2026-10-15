@@ -934,11 +934,12 @@ class FinishWindow(QMainWindow):
                     self.log(f"{self.tool.title}: could not search automatically ({e})")
                 for x, y, r in found:
                     self._add_spot(x, y, r)
-                self.choice_note.setText(
-                    (f"Found {len(found)} donut(s) - circled in yellow. " if found else
-                     "No donuts found automatically (ones on bright nebulosity are left to you). ") +
-                    "Click to add one (mouse wheel = circle size), right-click removes the last.")
+                spot_note = ((f"Found {len(found)} donut(s) - circled in yellow. " if found else
+                              "No donuts found automatically (ones on bright nebulosity are left to you). ") +
+                             "Click to add one (mouse wheel = circle size), right-click removes the last.")
         self.render_choices()
+        if getattr(self.tool, "editor", None) == "spots" and hasattr(self.tool, "found_spots"):
+            self.choice_note.setText(spot_note)
         if key == "final_crop":
             self._set_crop_box("found")
 
