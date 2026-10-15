@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.11 beta"
+APP_VERSION = "0.9.12 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -591,6 +591,42 @@ COMMON_FILTERS = ["L-Ultimate", "L-eXtreme", "L-eNhance", "L-Synergy", "Askar D1
                   "L", "R", "G", "B", "Ha", "OIII", "SII", "No filter"]
 
 
+def folder_picker(parent, title, start):
+    """A folder chooser that takes SEVERAL folders at once: click one, then Shift-click for a
+    range or Ctrl-click (Cmd-click on a Mac) for more. The system's own folder window can only
+    return one folder, so this uses Qt's - with your usual places in the sidebar."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtWidgets import QFileSystemModel, QTreeView
+    dlg = QFileDialog(parent, title, str(start))
+    dlg.setFileMode(QFileDialog.FileMode.Directory)
+    dlg.setOption(QFileDialog.Option.ShowDirsOnly, True)
+    dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+    dlg.setLabelText(QFileDialog.DialogLabel.Accept, "Add Folders")
+    dlg.setLabelText(QFileDialog.DialogLabel.FileName, "Folders:")
+    places = [Path.home(), Path.home() / "Desktop", Path.home() / "Documents", Path.home() / "Pictures"]
+    if sys.platform == "darwin":
+        places += sorted(Path("/Volumes").glob("*"))          # external drives and NAS shares
+    elif os.name == "nt":
+        import string
+        places += [Path(f"{d}:/") for d in string.ascii_uppercase if Path(f"{d}:/").exists()]
+    dlg.setSidebarUrls([QUrl.fromLocalFile(str(p)) for p in places if p.exists()])
+    for v in dlg.findChildren(QListView) + dlg.findChildren(QTreeView):
+        if isinstance(v.model(), (QFileSystemModel,)) or v.objectName() in ("listView", "treeView"):
+            v.setSelectionMode(QAbstractItemView.ExtendedSelection)
+    dlg.resize(820, 520)
+    return dlg
+
+
+def picked_folders(dlg):
+    """The folders chosen in folder_picker (never the folder that is merely open)."""
+    out = []
+    for f in dlg.selectedFiles():
+        p = Path(f)
+        if p.is_dir() and p not in out:
+            out.append(p)
+    return out
+
+
 class LoadDataDialog(QDialog):
     """Build a list of folders and files to process. Nothing is measured until
     Start Processing is pressed."""
@@ -616,7 +652,9 @@ class LoadDataDialog(QDialog):
 
         row = QHBoxLayout()
         b_folder = QToolButton()
-        b_folder.setText("Add Folder…")
+        b_folder.setText("Add Folders…")
+        b_folder.setToolTip("Pick one or more folders: click one, then Shift-click for a range or "
+                            + ("Cmd" if sys.platform == "darwin" else "Ctrl") + "-click to add others")
         b_folder.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         b_folder.setIcon(self.style().standardIcon(QStyle.SP_DirOpenIcon))
         b_folder.clicked.connect(self.add_folder_dialog)
@@ -679,10 +717,18 @@ class LoadDataDialog(QDialog):
         return self.settings.value("last_folder", str(Path.home()))
 
     def add_folder_dialog(self):
-        d = QFileDialog.getExistingDirectory(self, "Add a folder of FITS files", self.last_folder())
-        if d:
-            self.settings.setValue("last_folder", str(Path(d).parent))
-            self.add_source(("folder", Path(d), self.chk_sub.isChecked()))
+        dlg = folder_picker(self, "Add folders of FITS files (Shift- or " +
+                            ("Cmd" if sys.platform == "darwin" else "Ctrl") + "-click to pick several)",
+                            self.last_folder())
+        if dlg.exec():
+            self.add_folders(picked_folders(dlg))
+
+    def add_folders(self, folders):
+        folders = [Path(d) for d in folders]
+        if folders:
+            self.settings.setValue("last_folder", str(folders[0].parent))
+        for d in folders:
+            self.add_source(("folder", d, self.chk_sub.isChecked()))
 
     def add_files_dialog(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Add FITS files", self.last_folder(),
@@ -1272,7 +1318,7 @@ class MainWindow(QMainWindow):
             s = self.settings.value(key)
             if s is not None:
                 w.restoreState(s)
-        self.chk_sub.setChecked(self.settings.value("subfolders", False, type=bool))
+        self.chk_sub.setChecked(self.settings.value("load/subfolders", True, type=bool))   # on unless turned off
         self.act_advance.setChecked(self.settings.value("advance", True, type=bool))
         mode = self.settings.value("measure_mode", "fast")
         self.mode_actions.get(mode, self.mode_actions["fast"]).setChecked(True)
@@ -1290,7 +1336,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("splitter", self.splitter.saveState())
         self.settings.setValue("vsplit", self.vsplit.saveState())
-        self.settings.setValue("subfolders", self.chk_sub.isChecked())
+        self.settings.setValue("load/subfolders", self.chk_sub.isChecked())
         self.settings.setValue("advance", self.act_advance.isChecked())
         self.settings.setValue("measure_mode", self.measure_mode())
         self.settings.setValue("chart_metric", self.chart_metric.currentData())

@@ -221,6 +221,12 @@ def run(app, out_dir: Path) -> int:
     w.show()
     for k, a in w.mode_actions.items():
         a.setChecked(k == "fast")
+    _sub_old = w.settings.value("load/subfolders")
+    w.settings.remove("load/subfolders")                  # a new user
+    w._restore_settings()
+    check(w.chk_sub.isChecked(), "'Include subfolders' is on by default")
+    if _sub_old is not None:
+        w.settings.setValue("load/subfolders", _sub_old)
     w.chk_sub.setChecked(False)
     state = {"t": time.time()}
 
@@ -457,6 +463,24 @@ def run(app, out_dir: Path) -> int:
         dlg.add_source(("folder", second, False))
         dlg.add_source(("folder", second, False))           # duplicate is ignored
         check(len(dlg.sources()) == 2, "Load Data lists 2 folders (duplicate ignored)")
+        _pk = fb.folder_picker(dlg, "test", session.parent)
+        from PySide6.QtWidgets import QAbstractItemView as _QAIV, QListView as _QLV, QTreeView as _QTV
+        _views = _pk.findChildren(_QLV) + _pk.findChildren(_QTV)
+        _multi = [v for v in _views if v.selectionMode() == _QAIV.ExtendedSelection]
+        check(len(_multi) >= 2, f"Add Folders… lets you pick several folders at once (Shift/Ctrl-click) "
+                                f"({len(_multi)} of {len(_views)} views)")
+        _pk.selectFile(f'"{session.name}" "{second.name}"')
+        _pk.show()
+        shot("7b_folder_picker.png", _pk)
+        _got = fb.picked_folders(_pk)
+        check(sorted(p.name for p in _got) == sorted([session.name, second.name]),
+              f"several picked folders come back together ({[p.name for p in _got]})")
+        _pk.deleteLater()
+        _d2 = fb.LoadDataDialog(w, w.settings, True)
+        _d2.add_folders([session, second])
+        check(len(_d2.sources()) == 2 and all(s[2] for s in _d2.sources()),
+              "picking two folders adds both, with their subfolders")
+        _d2.deleteLater()
         dlg.filter_combo.setCurrentText("LUlt")
         check(dlg.filter_override() == "L-Ultimate", "Load Data: filter name typed as 'LUlt' becomes L-Ultimate")
         dlg.filter_combo.setCurrentIndex(0)
