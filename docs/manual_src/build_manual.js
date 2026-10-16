@@ -253,7 +253,8 @@ p("The text area at the bottom of each page is the **log**: it tells you what wa
 p("When a page has finished its job, its green run button turns **amber** - **✓ Stacked – Run Again?** on page 2, **✓ Done – Run Again?** on page 3 - so you can see at a glance that the page is done. Pressing it again asks first, so nothing is redone by accident. Add new images and it turns green again.");
 sec("5.3", "Saved progress and undo", ["Undo", "Crash recovery", "Resume"]);
 bullets([
-  "**Page 1**: your folders and flags are saved as you go. After a crash SubZeroAstro offers to reopen the session. **Ctrl+Z** undoes rejects, flags and auto-cull.",
+  "**Page 1**: your folders and flags are saved as you go. **Ctrl+Z** undoes rejects, flags and auto-cull.",
+  "**Pick up where you left off**: when you start SubZeroAstro again - after quitting normally or after a crash - it offers **Pick Up Where I Left Off**: your frames and flags come back and it goes straight to the page you were on (Calibrate and Stack, Image Processing with the same masters, or Finishing Touches, where your steps resume). **Start Fresh** begins a new project; after *End this Project and Start New Project* nothing is offered.",
   "**Page 2**: each master is noted as soon as it is saved; an interrupted run offers **Continue With the Rest**.",
   "**Page 3**: the image is saved after every step; **Go Back & Redo This Step** and **Start Fresh** are under the preview.",
   "**Page 4**: every step is saved: **Undo** (Ctrl+Z), **Go Back to Here**, **Back to Start**, and reopening the same masters later resumes the project.",
