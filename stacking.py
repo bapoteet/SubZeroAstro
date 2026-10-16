@@ -1124,11 +1124,11 @@ def calibration_check(light: ImgInfo, cal: "Calibrator") -> list:
     out = [f"Calibration check: light background {raw_med:.0f} ADU - {what} {sub_med:.0f} ADU = {sky:.1f} ADU of sky "
            f"(pixel noise {noise:.1f} ADU)"]
     spread, mnoise = master_unevenness(cal.sub)
-    if raw_med > 100 and sub_med < 0.3 * raw_med:
-        out.append(f"WARNING: the {what} master ({sub_med:.0f} ADU) is far below the camera offset in the lights "
-                   f"({raw_med:.0f} ADU) - it is on a different scale or from other camera settings (gain / offset). "
-                   "The offset stays in the image and the flat will over-correct the edges (bright borders). "
-                   f"Use a {what} taken with the same gain and offset as the lights.")
+    if raw_med > 100 and sub_med < 1.0:
+        out.append(f"WARNING: the {what} master is practically zero ({sub_med:.3f}) while the lights are at "
+                   f"{raw_med:.0f} ADU - it is on a different scale (0..1) or empty, so the camera offset stays in "
+                   "the image and the flat will over-correct the edges (bright borders). "
+                   f"Save the {what} in camera units, or use another one.")
     elif sub_med > raw_med + max(5.0, 0.5 * noise):
         out.append(f"WARNING: the {what} master is BRIGHTER than the lights ({sub_med:.0f} vs {raw_med:.0f} ADU), "
                    "which a real one never is - subtracting it leaves the picture below zero with false bright and "

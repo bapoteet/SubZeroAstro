@@ -176,7 +176,7 @@ def run(app, out_dir: Path) -> int:
           and not any("uneven" in x for x in _g),
           "a dark that light leaked into (brighter than the lights, uneven like a picture) is reported plainly")
     check(_g and "Calibration check" in _g[0] and not any("WARNING" in x for x in _g)
-          and any("WARNING" in x and "different scale" in x for x in _b),
+          and any("WARNING" in x and "practically zero" in x for x in _b),
           f"page 2 checks the dark subtraction and warns when a master is on the wrong scale ({_b[-1][:60]}…)")
     import xisf as _xs
     _xp = session.parent / "float_dark_nobounds.xisf"
