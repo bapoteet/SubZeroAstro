@@ -1090,34 +1090,59 @@ class Calibrator:
         return x
 
 
+def _pixel_noise(a: np.ndarray) -> float:
+    d = (a[:, 1:] - a[:, :-1]).ravel()
+    return float(np.median(np.abs(d - np.median(d)))) * 1.4826 / np.sqrt(2) + 1e-6
+
+
+def master_unevenness(m: np.ndarray):
+    """(large-scale spread, pixel noise) of a dark or bias master. A real dark or bias is flat apart
+    from noise (and some amp glow at the edge); one with a picture in it - brighter in the middle like
+    vignetting - had light leaking in."""
+    st_ = max(1, min(m.shape) // 500)                    # ~500 px on the short side
+    s = m[::st_, ::st_].astype(np.float32)
+    k = max(2, min(s.shape) // 24)                       # ~24 blocks on the short side
+    g = _smooth(_bin(s, k), 1.5)
+    return float(np.percentile(g, 95) - np.percentile(g, 5)), _pixel_noise(s)
+
+
 def calibration_check(light: ImgInfo, cal: "Calibrator") -> list:
     """Log lines checking the dark / bias subtraction on one light frame. With narrowband
-    filters there may be only a few ADU of sky above the camera offset, so a dark or bias on the
-    wrong scale, or from another gain / offset, leaves a 'pedestal' that the flat then turns into
-    bright edges and corners. Says so plainly when the numbers don't add up."""
+    filters there may be only a few ADU of sky above the camera offset, so a dark or bias that does
+    not match the lights (other scale, gain / offset, temperature, or light leaking in) leaves a
+    'pedestal' or a pattern that the flat and the stretch then turn into bright bands and borders.
+    Says so plainly when the numbers don't add up."""
     raw = ImageSource(light.path).read()
     raw = (raw[0] if raw.ndim == 3 else raw)[::8, ::8].astype(np.float32)
     sub = cal.sub[::8, ::8].astype(np.float32)
     if sub.shape != raw.shape:
         return []
     raw_med, sub_med = float(np.median(raw)), float(np.median(sub))
-    left = raw - sub
-    sky = float(np.median(left))
-    noise = float(np.median(np.abs(left - sky))) * 1.4826 + 1e-6
+    sky = float(np.median(raw - sub))
+    noise = _pixel_noise(raw)
     what = "dark" if cal.hot is not None else "bias"
     out = [f"Calibration check: light background {raw_med:.0f} ADU - {what} {sub_med:.0f} ADU = {sky:.1f} ADU of sky "
-           f"(noise {noise:.1f} ADU)"]
+           f"(pixel noise {noise:.1f} ADU)"]
+    spread, mnoise = master_unevenness(cal.sub)
     if raw_med > 100 and sub_med < 0.3 * raw_med:
         out.append(f"WARNING: the {what} master ({sub_med:.0f} ADU) is far below the camera offset in the lights "
                    f"({raw_med:.0f} ADU) - it is on a different scale or from other camera settings (gain / offset). "
                    "The offset stays in the image and the flat will over-correct the edges (bright borders). "
-                   "Use a dark / bias taken with the same gain and offset as the lights.")
-    elif sky < -3 * noise:
-        out.append(f"WARNING: the {what} master is brighter than the lights ({sub_med:.0f} vs {raw_med:.0f} ADU) - "
-                   "check that it has the same gain, offset, temperature and exposure as the lights.")
+                   f"Use a {what} taken with the same gain and offset as the lights.")
+    elif sub_med > raw_med + max(5.0, 0.5 * noise):
+        out.append(f"WARNING: the {what} master is BRIGHTER than the lights ({sub_med:.0f} vs {raw_med:.0f} ADU), "
+                   "which a real one never is - subtracting it leaves the picture below zero with false bright and "
+                   f"dark areas. Check that the {what} has the same gain, offset, temperature and exposure as the "
+                   "lights, and that no light got in while taking it.")
     elif sky < 0.5 * noise and raw_med > 100:
         out.append("Note: very little sky signal above the camera offset (typical for narrowband) - the result "
                    "depends strongly on matching darks, bias and flats.")
+    if spread > max(30.0, 6 * mnoise):
+        out.append(f"WARNING: the {what} master is uneven like a picture (it varies by {spread:.0f} ADU across the "
+                   f"frame; a real {what} is flat to within a few ADU) - light probably leaked in while it was taken "
+                   "(lens cap, filter wheel, focuser or room light). Its pattern ends up in your picture as bright "
+                   f"and dark areas. Take new {what}s with the scope fully covered, or remove this {what} from the "
+                   "calibration list and stack without it.")
     return out
 
 

@@ -168,6 +168,13 @@ def run(app, out_dir: Path) -> int:
     _good = type("Cal", (), {"sub": np.full((120, 160), 510.0, np.float32), "hot": ("y", "x")})()
     _bad = type("Cal", (), {"sub": np.full((120, 160), 510.0 / 65535, np.float32), "hot": ("y", "x")})()
     _g, _b = _stk.calibration_check(_li, _good), _stk.calibration_check(_li, _bad)
+    _yl, _xl = np.mgrid[:120, :160].astype(np.float32)
+    _leak = type("Cal", (), {"sub": (510 + 150 * np.exp(-((_xl - 80) ** 2 + (_yl - 60) ** 2) / (2 * 50 ** 2))
+                                      + _rs.normal(0, 3, (120, 160))).astype(np.float32), "hot": ("y", "x")})()
+    _lk = _stk.calibration_check(_li, _leak)
+    check(any("BRIGHTER than the lights" in x for x in _lk) and any("uneven like a picture" in x for x in _lk)
+          and not any("uneven" in x for x in _g),
+          "a dark that light leaked into (brighter than the lights, uneven like a picture) is reported plainly")
     check(_g and "Calibration check" in _g[0] and not any("WARNING" in x for x in _g)
           and any("WARNING" in x and "different scale" in x for x in _b),
           f"page 2 checks the dark subtraction and warns when a master is on the wrong scale ({_b[-1][:60]}…)")
@@ -672,6 +679,8 @@ def run(app, out_dir: Path) -> int:
               f"({[(x.date, x.number, x.duration, x.fwhm) for x in ses]}, {ses[0].cal if ses else None})")
         origins = {(g.filter, k): getattr(g.plan, k).origin for g in win.groups for k in ("bias", "dark", "flat")
                    if getattr(g.plan, k) is not None}
+        check(not getattr(win, "last_cal_warnings", []),
+              f"well-matched calibration frames give no calibration warnings ({getattr(win, 'last_cal_warnings', [])[:1]})")
         check(all(o == "library" for o in origins.values()),
               f"after stacking, the saved library masters are used next time ({origins})")
         QTimer.singleShot(600, shots_10)

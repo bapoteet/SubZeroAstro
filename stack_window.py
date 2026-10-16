@@ -15,7 +15,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
@@ -814,6 +814,22 @@ class StackWindow(QMainWindow):
             return
         ok = [r for r in w.results if not r.error]
         bad = [r for r in w.results if r.error]
+        cal_warn = []
+        for r in ok:
+            for line in r.log:
+                if line.startswith("WARNING: the ") and " master " in line and line not in cal_warn:
+                    cal_warn.append(line)
+        self.last_cal_warnings = cal_warn
+        if cal_warn:
+            box = QMessageBox(QMessageBox.Warning, "Check your calibration frames",
+                              "<b>The masters were made, but a calibration frame does not match your lights:</b>"
+                              "<br><br>" + "<br><br>".join(x.replace("WARNING: ", "• ") for x in cal_warn[:4])
+                              + "<br><br>This is why a picture can come out with bright bands, borders or blotches. "
+                              "Remove that frame from the <i>Calibration frames</i> list (or take new ones) and "
+                              "stack again.", QMessageBox.Ok, self)
+            box.setWindowModality(Qt.NonModal)           # never blocks - the log keeps the details too
+            self._cal_box = box
+            QTimer.singleShot(300, box.open)
         self.progress.setFormat(f"Done — {len(ok)} master{'s' if len(ok) != 1 else ''} saved"
                                 + (f", {len(bad)} failed" if bad else "")
                                 + ("  ·  next: Continue to Image Processing" if ok else ""))
