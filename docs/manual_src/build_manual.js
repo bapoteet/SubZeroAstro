@@ -466,7 +466,8 @@ table(["Problem", "What to do"], [
   ["Slow on a network drive", "Use *Star measurement: Fast*; hide the image (Ctrl+I); results are cached for next time."],
   ["Something went wrong mid-run", "Restart: SubZeroAstro offers to resume from its saved progress."],
 ], [3300, 6060]);
-sec("11.2", "Getting help and reporting problems", ["Support", "Reporting problems", "Self-test"]);
+sec("11.2", "Getting help and reporting problems", ["Support", "Reporting problems", "Zip My Logs", "Logs", "Self-test"]);
+p("**Zip My Logs**: the button at the top left of every page (also **Help › Zip My Logs**) puts the log of every open page, the stack logs of your masters, page 3's processing report and a short note about your computer (SubZeroAstro version, system, screen, which helper programs were found) into one zip on your Desktop and shows it - text only, no pictures. Attach that zip to your message: it is the quickest way to get help.");
 p("Note the version (in small print under the name at the top of every page, or **Help › About**) and take a screenshot of the page and its log. Problems and ideas can be reported on the GitHub page (**github.com/bapoteet/SubZeroAstro**, *Issues*). Advanced: `SubZeroAstro --selftest` runs the built-in self-test.");
 
 ch(12, "Keyboard shortcuts");
