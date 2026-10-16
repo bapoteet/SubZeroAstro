@@ -193,6 +193,47 @@ def run(app, out_dir: Path) -> int:
     check(_stk.plan_group(_grp, [], sky_pool=_pool[:5]).flat is None,
           "too few light frames: no sky flat, the usual 'no flats' warning")
 
+    # --- Build Calibration Masters: one mixed folder of subframes -> masters in the library ----------
+    import cal_builder as _cb
+    _cr = np.random.default_rng(1)
+    _cdir = session.parent / "ScopeXCalis"
+    (_cdir / "Darks").mkdir(parents=True, exist_ok=True)
+    _cH, _cW = 120, 160
+    _cy, _cx = np.mgrid[:_cH, :_cW]
+    _cvig = 1 - 1.2 * (((_cx - _cW / 2) / _cW) ** 2 + ((_cy - _cH / 2) / _cH) ** 2)
+
+    def _cput(name, data, typ, exp, filt=None, folder=_cdir):
+        hd = {"EXPTIME": exp, "GAIN": 100, "OFFSET": 40, "CCD-TEMP": -10.0, "INSTRUME": "ZWO ASI2600MM Pro"}
+        if typ:
+            hd["IMAGETYP"] = typ
+        if filt:
+            hd["FILTER"] = filt
+        core.write_fits(folder / name, np.clip(data, 0, 65535).astype(np.uint16), hd, bitpix=16)
+    for _i in range(5):
+        _cput(f"b_{_i}.fits", 500 + _cr.normal(0, 4, (_cH, _cW)), "Bias Frame", 0.0)
+        _cput(f"d300_{_i}.fits", 510 + _cr.normal(0, 5, (_cH, _cW)), "Dark Frame", 300.0)
+        _cput(f"leak_{_i}.fits", 500 + 160 * _cvig + _cr.normal(0, 5, (_cH, _cW)), "Dark Frame", 180.0)
+        _cput(f"x_{_i}.fits", 501 + _cr.normal(0, 4, (_cH, _cW)), None, 2.0, folder=_cdir / "Darks")
+        _cput(f"fH_{_i}.fits", 500 + 25000 * _cvig + _cr.normal(0, 60, (_cH, _cW)), "Flat Frame", 2.0, "H")
+        _cput(f"fO_{_i}.fits", 500 + 26000 * _cvig + _cr.normal(0, 60, (_cH, _cW)), "Flat Frame", 2.0, "O")
+    _cinf, _ = _stk.scan_paths([_cdir])
+    _cjobs, _ = _cb.plan(_cinf)
+    _crig = _cb.suggest_rig([_cdir], _cinf)
+    _clib = session.parent / "CalLibrary"
+    _cb.build(_cjobs, _clib, _crig, log=lambda *_a: None)
+    _ckinds = sorted(j.item.kind + (j.item.filter if j.item.kind == "flat" else f"{j.item.exptime:g}")
+                     for j in _cjobs if j.files)
+    _cleak = [j for j in _cjobs if j.item.kind == "dark" and j.item.exptime == 180]
+    _cclean = [j for j in _cjobs if not (j.item.kind == "dark" and j.item.exptime == 180)]
+    _cflat = [j for j in _cjobs if j.item.kind == "flat"]
+    _clibitems = _stk.scan_library(_clib)
+    check(_crig == "ScopeX" and _ckinds == ["bias0", "dark180", "dark2", "dark300", "flatHa", "flatOIII"]
+          and _cleak and any("leaked" in w for w in _cleak[0].warnings) and not any(j.warnings for j in _cclean)
+          and all(j.helper_dark is not None for j in _cflat) and len(_clibitems) == 6
+          and all(c.rig == "ScopeX" for c in _clibitems),
+          f"Build Calibration Masters sorts one mixed folder into {_ckinds} for rig '{_crig}', saves them to "
+          "the library and flags the leaky dark")
+
     # --- calibration check: a dark on the wrong scale is caught, a float master is read right ----
     _lt = session.parent / "calcheck_light.fits"
     _lraw = (510 + _rs.normal(0, 8, (120, 160)) + 6).astype(np.float32)
@@ -752,6 +793,15 @@ def run(app, out_dir: Path) -> int:
         import checkpoints as cpm
         left = [p.name for p in cpm.root().glob("stack*_*.json")]
         check(win.worker.completed and not left, f"a finished stacking run leaves no resume notes ({left})")
+        _cbd = win.build_cal_masters(folder=str(session.parent / "ScopeXCalis"), modal=False)
+        if _cbd.work is not None:
+            _cbd.work.wait(60000)
+        for _k in range(20):
+            QApplication.processEvents()
+        _cbn = len(_cbd.jobs)
+        _cbd.reject()
+        check(win.btn_build_masters.isVisible() and _cbn == 6 and _cbd.rig.currentText() == "ScopeX",
+              f"page 2 has Build Calibration Masters; its window found {_cbn} masters to build in a folder")
         fake = Path(__file__).resolve().parent / "tests" / "fake_tools"
         state["fake"] = fake.is_dir() and not getattr(sys, "frozen", False)
         if state["fake"]:

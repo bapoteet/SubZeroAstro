@@ -394,7 +394,12 @@ class StackWindow(QMainWindow):
         b3.clicked.connect(self.search_cal_root)
         b4 = QPushButton("Remove Selected")
         b4.clicked.connect(self.remove_cal)
-        for b in (b1, b2, b3):
+        b5 = QPushButton("Build Calibration Masters…")
+        b5.setToolTip("Turn a folder of bias, dark, flat and dark-flat subframes into masters in your calibration "
+                      "library - no light frames needed")
+        b5.clicked.connect(self.build_cal_masters)
+        self.btn_build_masters = b5
+        for b in (b1, b2, b3, b5):
             crow.addWidget(b)
         crow.addStretch(1)
         crow.addWidget(b4)
@@ -736,6 +741,25 @@ class StackWindow(QMainWindow):
                                              self.cal_root.text() or str(Path.home()))
         if d:
             self._add_cal_paths([d])
+
+    def build_cal_masters(self, folder=None, modal=True):
+        """The Build Calibration Masters window; the library is re-read when it closes."""
+        import cal_builder_window as cbw
+        o = self.options()
+        dlg = cbw.CalBuilderDialog(self, self.cal_root.text().strip(), self.rigs, o.formats, o.kappa)
+        self.cal_builder = dlg
+        if folder:
+            dlg.choose_folder(folder)
+        if not modal:
+            dlg.show()
+            return dlg
+        dlg.exec()
+        if dlg.lib_edit.text().strip() and not self.cal_root.text().strip():
+            self.cal_root.setText(dlg.lib_edit.text().strip())
+        if dlg.built:
+            self.log(f"Built {len(dlg.built)} calibration master(s) into your library")
+            self.refresh_all()
+        return dlg
 
     def add_cal_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Calibration frames or masters", self.cal_root.text() or

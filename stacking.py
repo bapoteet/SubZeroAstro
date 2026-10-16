@@ -205,9 +205,24 @@ def info_from_look(path, look, w, h, typ=None, master=False, planes=1) -> ImgInf
         totalexp=_num(fi.get("totalexp")), smart=fi.get("smart"))
 
 
+_FOLDER_KIND = [("darkflat", r"\b(dark[\s_-]*flats?|flat[\s_-]*darks?)\b"), ("flat", r"\bflats?\b"),
+                ("dark", r"\bdarks?\b"), ("bias", r"\b(bias|biases|offsets?)\b")]
+
+
+def folder_kind(folder: str):
+    """bias / dark / flat / darkflat from a folder name such as 'Darks' or 'Flat_H', or None."""
+    f = re.sub(r"[_\-.]", " ", (folder or "").lower())
+    for k, pat in _FOLDER_KIND:
+        if re.search(pat, f):
+            return k
+    return None
+
+
 def read_info(path) -> ImgInfo:
     src = ImageSource(path)
     typ, master = frame_type(src.look, src.path.name)
+    if typ is None:                      # no IMAGETYP and nothing in the file name: the folder may say
+        typ = folder_kind(src.path.parent.name)
     return info_from_look(path, src.look, src.w, src.h, typ, master, planes=src.channels)
 
 

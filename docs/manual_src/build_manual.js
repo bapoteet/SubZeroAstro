@@ -329,6 +329,16 @@ p("Press **▶ Check & Stack**. Anything missing is listed first, with **Stack A
 sec("7.5", "Results", ["Open Master Lights Folder", "Stack log"]);
 p("Masters are saved in your master lights folder, one subfolder per target, with a `_stacklog.txt` listing every frame used. **Open Master Lights Folder** shows them. Click **Continue to Image Processing ➜** to carry on.");
 
+sec("7.6", "Build Calibration Masters (no lights needed)", ["Build Calibration Masters", "Master bias", "Master dark", "Master flat", "Dark-flats", "Calibration library"]);
+p("Took a fresh set of darks, flats or bias? Turn them into masters right away: click **Build Calibration Masters…** in the *Calibration frames* box on page 2. Choose the folder with the subframes - bias, darks, flats and dark-flats can all be mixed together in one folder (for example *RedCat51Calis*), or sit in subfolders. SubZeroAstro reads each file's header (and, if the header doesn't say, the file or folder name: *Darks*, *Flats*, *Bias*…) and sorts them:");
+bullets(["**Bias** - one master per gain and offset.",
+  "**Darks** - one master per exposure, gain, offset and temperature (180 s and 300 s darks make two master darks).",
+  "**Flats** - one master per filter (and night). Each flat is calibrated with dark-flats or short darks of the same exposure, or else a bias - from the same folder or already in your library.",
+  "**Dark-flats** - saved as masters too, for next time."]);
+p("The telescope (rig) name is taken from the folder name (*RedCat51Calis* → *RedCat51*) or the headers - check it, because flats are only used for lights from the same rig. Untick any set you don't want, then click **Build Masters**. Each master is saved to your calibration library (*<library>/<rig>/Masters/<camera>/…*) with its settings in the name, and is used automatically whenever you stack lights with matching settings.");
+p("Every master is checked as it is built. You are warned when a dark or bias is **uneven like a picture** (light leaked in), a dark is **far brighter than the bias** (light, or the camera not cooled), a bias is **practically zero** (saved on a 0..1 scale or with a pedestal taken off), or flats are **over-exposed** (clipped) or **very dim**. A warned master is still saved, so you can compare - but better to retake that set.");
+tip("Darks: cap the telescope (or take the camera off) and cover it, at night or in a dark room, with the filter wheel on a filter - not an empty slot. Match the lights' exposure, gain, offset and temperature.", "Taking good darks");
+
 ch(8, "Page 3 – Astro Image Processing");
 img("12_prepare_done.png", "Page 3 after processing: masters (left), preview with crop box, step history, and the step settings (right)");
 sec("8.1", "Masters and target sets", ["Target sets", "Will be lined up", "Add Masters"]);
