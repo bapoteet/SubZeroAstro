@@ -142,7 +142,7 @@ class AppHeader(QWidget):
         b.setCursor(Qt.PointingHandCursor)
         b.setToolTip(f"Go back to the {text} window (nothing here is closed or lost)")
         b.clicked.connect(callback)
-        self.left.addWidget(b)
+        self.left.insertWidget(0, b)                 # Back first, Zip My Logs beside it
         self.btn_back = b
         return b
 
@@ -230,6 +230,11 @@ def busy(w) -> bool:
         except RuntimeError:
             pass
     return False
+
+
+def zip_logs_for(window):
+    import zip_logs                          # a plain import, so the packaged app includes it
+    return zip_logs.zip_my_logs(window)
 
 
 def ensure_shown(w):
@@ -420,6 +425,15 @@ def install_header(window, page_title: str, with_menu: bool = False) -> AppHeade
     window.menuBar = lambda: mb          # menus are added under the banner
     window.app_header = header
     header.btn_back = None
+    from PySide6.QtWidgets import QPushButton
+    zb = QPushButton("🗜  Zip My Logs")
+    zb.setStyleSheet(BACK_STYLE)
+    zb.setCursor(Qt.PointingHandCursor)
+    zb.setToolTip("Put the logs of every page (and a note about this computer) in one zip on your Desktop, "
+                  "ready to attach to a message - text only, no pictures")
+    zb.clicked.connect(lambda: zip_logs_for(window))
+    header.left.addWidget(zb)
+    header.btn_zip = zb
     try:                                     # F1 opens the user manual on every page
         from PySide6.QtGui import QKeySequence, QShortcut
         window._f1 = QShortcut(QKeySequence("F1"), window)

@@ -1241,6 +1241,18 @@ def run(app, out_dir: Path) -> int:
         _p4 = _p3.save_as(session.parent / "Another Place")
         check(_p4.dir.is_dir() and _p3.dir.is_dir() and len(_p4.steps) == _n
               and not list(_pd.glob("*.saving")), "saving a project to a new folder copies it completely")
+        # Zip My Logs: every open page's log plus a note about this computer, in one zip
+        import zip_logs as _zl
+        import zipfile as _zf
+        _zp = _zl.zip_my_logs(None, folder=session.parent)
+        _names = _zf.ZipFile(_zp).namelist() if _zp else []
+        _about = _zf.ZipFile(_zp).read("00_about_this_computer.txt").decode() if _zp else ""
+        check(_zp is not None and "00_about_this_computer.txt" in _names and fb.APP_VERSION in _about
+              and any("Calibrate and Stack_log" in n for n in _names)
+              and any("Astro Image Processing_log" in n for n in _names)
+              and any(n.endswith("_stacklog.txt") for n in _names)
+              and getattr(fw2.app_header, "btn_zip", None) is not None,
+              f"Zip My Logs packs every page's log, the stack logs and a system note ({len(_names)} files)")
         # End this Project and Start New Project: every page closes, page 1 is empty and shown
         import ui_header as _uh2
         check("Start New Project" in fw2.btn_new_project.text() and
