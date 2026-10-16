@@ -156,6 +156,12 @@ def run(app, out_dir: Path) -> int:
     check(abs(_vb - _vt) < 0.04 and _db > 0.6 * _dt,
           f"sky flat captures the vignetting (corner {_vt:.3f} -> {_vb:.3f}) and the dust donut "
           f"({_dt:.3f} -> {_db:.3f}) with the stars and light-pollution tilt taken out")
+    try:
+        _stk.build_sky_flat(_pl.flat, np.full((_sh, _sw), 1e6, np.float32))
+        _ate = ""
+    except ValueError as _e:
+        _ate = str(_e)
+    check("as bright as the sky" in _ate, "a dark as bright as the sky stops the sky flat with a clear message")
     check(_stk.plan_group(_grp, [], sky_pool=_pool[:5]).flat is None,
           "too few light frames: no sky flat, the usual 'no flats' warning")
 
@@ -1306,6 +1312,56 @@ def run(app, out_dir: Path) -> int:
               and any(n.endswith("_stacklog.txt") for n in _names)
               and getattr(fw2.app_header, "btn_zip", None) is not None,
               f"Zip My Logs packs every page's log, the stack logs and a system note ({len(_names)} files)")
+        # Target types: recognised from the name and used only to tailor what is recommended
+        import targets as _tg
+        _names_t = {"M31": "galaxy", "NGC 7000": "nebula", "M57": "planetary nebula", "M45": "star cluster",
+                    "161P/Hartley-IRAS": "comet", "C/2023 A3": "comet", "Elephant's Trunk Nebula": "nebula",
+                    "Whirlpool Galaxy": "galaxy", "Sh2-155": "nebula", "my target": ""}
+        _bad_t = {k: _tg.classify(k) for k, v in _names_t.items() if _tg.classify(k) != v}
+        _wf_neb = F.workflow(F.State(rgb=np.zeros((3, 4, 4), np.float32), kind="osc", target="NGC 7000"))
+        _wf_cl = F.workflow(F.State(rgb=np.zeros((3, 4, 4), np.float32), kind="osc", target="M45"))
+        check(not _bad_t and [t.key for t, _ in _wf_neb] == [t.key for t, _ in _wf_cl]
+              and F.target_type(F.State(target="M45")) == "star cluster"
+              and "stars_out" in F.TYPE_TUNING["star cluster"]["optional"]
+              and "sky" in F.TYPE_TUNING["comet"]["recommend"],
+              f"target types recognised ({_bad_t or 'all right'}); a star cluster keeps every step, with star "
+              "removal made optional")
+        # Comet: a second stack follows the comet; the main master joins sharp stars and a sharp comet
+        import stacking as st
+        _cr = np.random.default_rng(8)
+        _cd = session.parent / "comet_frames"
+        _cd.mkdir(exist_ok=True)
+        _CH, _CW = 400, 560
+        _cyy, _cxx = np.mgrid[:_CH, :_CW].astype(np.float32)
+        _cst = [(_cr.uniform(10, _CW - 10), _cr.uniform(10, _CH - 10), _cr.uniform(300, 6000)) for _ in range(150)]
+        for _i in range(10):
+            _dx, _dy = _cr.uniform(-5, 5), _cr.uniform(-5, 5)
+            _ci = 1000 + _cr.normal(0, 12, (_CH, _CW))
+            for _x, _y, _a in _cst:
+                _x, _y = _x + _dx, _y + _dy
+                if 5 < _x < _CW - 5 and 5 < _y < _CH - 5:
+                    _sl = (slice(int(_y) - 5, int(_y) + 6), slice(int(_x) - 5, int(_x) + 6))
+                    _ci[_sl] += _a * np.exp(-((_cxx[_sl] - _x) ** 2 + (_cyy[_sl] - _y) ** 2) / (2 * 1.4 ** 2))
+            _hx, _hy = 230 + 50 * _i / 9 + _dx, 200 + 12 * _i / 9 + _dy
+            _r2c = (_cxx - _hx) ** 2 + (_cyy - _hy) ** 2
+            _ci += 900 * np.exp(-_r2c / (2 * 3.0 ** 2)) + 300 * np.exp(-np.sqrt(_r2c) / 12)
+            core.write_fits(_cd / f"Comet_{_i:02d}.fits", np.clip(_ci, 0, 65535).astype(np.uint16),
+                            {"IMAGETYP": "Light Frame", "OBJECT": "C/2026 X1", "FILTER": "L", "EXPTIME": 120.0,
+                             "DATE-OBS": f"2026-10-16T02:{_i * 2:02d}:00"}, bitpix=16)
+        _cinf = [st.read_info(_p) for _p in sorted(_cd.glob("*.fits"))]
+        _cg = st.LightGroup(st.target_name(_cinf[0].target), "L", "Test", "rig", [st.LightFrame(_x) for _x in _cinf])
+        _cg.plan = st.CalPlan()
+        _co = st.StackOptions(work_dir=str(session.parent / "comet_work"),
+                              masters_root=str(session.parent / "comet_masters"), formats=("fits",))
+        _cres = st.stack_group(_cg, _co)
+        _cm = _cres.extra.get("Comet") if _cres.extra else None
+        _cfiles = st.save_master_light(_cres, _co) if _cm is not None else []
+        _mv = (_cres.comet or {}).get("moved", 0) if hasattr(_cres, "comet") else 0
+        check(_cm is not None and abs(_mv - 51.4) < 4 and any(str(f).endswith("_Comet.fits") for f in _cfiles)
+              and all("/" not in Path(f).name for f in _cfiles)
+              and all(Path(f).parent.parent == Path(_co.masters_root) for f in _cfiles),
+              f"comet stack follows the comet (moved {_mv:.1f} px, truly 51.4) and saves "
+              f"{[Path(f).name for f in _cfiles]}")
         # End this Project and Start New Project: every page closes, page 1 is empty and shown
         import ui_header as _uh2
         check("Start New Project" in fw2.btn_new_project.text() and

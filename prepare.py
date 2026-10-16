@@ -104,7 +104,12 @@ def find_masters(paths) -> list:
     for p in paths:
         p = Path(p)
         if p.is_dir():
-            files += [f for f in p.iterdir() if f.suffix.lower() in st.IMAGE_EXTS]
+            here = [f for f in p.iterdir() if f.suffix.lower() in st.IMAGE_EXTS]
+            stems = {f.stem for f in here}
+            # a comet's extra masters (_Comet, _Stars) stay out when the joined master is there too -
+            # pick one of them with Add Masters… to work on it
+            files += [f for f in here if not (f.stem.endswith(("_Comet", "_Stars")) and
+                                              f.stem.rsplit("_", 1)[0] in stems)]
         elif p.suffix.lower() in st.IMAGE_EXTS:
             files.append(p)
     by_base = {}

@@ -1966,27 +1966,10 @@ def _flux(img, pts, r_in=3.5, r_out=(6, 8)):
     return out
 
 
-_GALAXY_IDS = {f"M{n}" for n in (31, 32, 33, 49, 51, 58, 59, 60, 61, 63, 64, 65, 66, 74, 77, 81, 82, 83, 84, 85, 86,
-                                  87, 88, 89, 90, 91, 94, 95, 96, 98, 99, 100, 101, 102, 104, 105, 106, 108, 109,
-                                  110)} | \
-    {f"NGC{n}" for n in (55, 247, 253, 300, 891, 925, 1023, 1300, 1365, 2403, 2683, 2841, 2903, 3077, 3115, 3184,
-                         3344, 3521, 3628, 3938, 4038, 4039, 4216, 4236, 4244, 4449, 4490, 4559, 4565, 4605, 4631,
-                         4656, 5005, 5033, 5128, 5395, 5907, 6744, 6822, 6946, 7331, 7640, 7479)} | \
-    {"IC342", "IC2574", "IC1613", "IC10", "IC5332"}
-_GALAXY_WORDS = ("galaxy", "galaxies", "andromeda", "triangulum", "whirlpool", "pinwheel", "bode", "cigar",
-                 "sombrero", "leo triplet", "needle", "fireworks", "sculptor", "black eye", "blackeye", "sunflower",
-                 "hamburger", "silver dollar", "cartwheel", "antennae", "stephan", "markarian", "owl galaxy")
-
-
 def is_galaxy_target(name: str) -> bool:
-    """A galaxy by its name: catalogue number (M31, NGC 891, IC 342…) or a common name."""
-    n = (name or "").lower()
-    if any(w in n for w in _GALAXY_WORDS):
-        return True
-    key = re.sub(r"[^a-z0-9]", "", n).upper()
-    key = re.sub(r"^MESSIER", "M", key)
-    m = re.match(r"^(M|NGC|IC)0*(\d+)", key)
-    return bool(m) and f"{m.group(1)}{int(m.group(2))}" in _GALAXY_IDS
+    """A galaxy by its name (catalogue number or common name) - see targets.py."""
+    import targets
+    return targets.is_galaxy(name)
 
 
 class HaGlow(Tool):
@@ -2373,9 +2356,29 @@ WHY = {
 }
 
 
+# What kind of object it is changes only what is RECOMMENDED - every step stays available
+TYPE_TUNING = {
+    "galaxy": {"recommend": {"local"}, "optional": set()},
+    "star cluster": {"recommend": set(), "optional": {"stars_out", "shrink", "local"}},
+    "comet": {"recommend": {"sky"}, "optional": {"stars_out", "shrink", "local"}},
+}
+TYPE_WHY = {
+    ("galaxy", "local"): "A galaxy: this brings out the dust lanes and the structure of the spiral arms.",
+    ("comet", "sky"): "A comet: a darker, even sky lets the faint tail show.",
+}
+
+
+def target_type(s: "State") -> str:
+    import targets
+    return targets.classify(s.target)
+
+
 def workflow(s: State) -> list:
-    """[(tool, status)] in the recommended order; status: done / skipped / next / later / n/a."""
+    """[(tool, status)] in the recommended order; status: done / skipped / next / later / n/a.
+    The kind of object (galaxy, star cluster, comet …) only moves steps between recommended and
+    optional - none is ever taken away."""
     steps = WORKFLOWS.get(s.kind, WORKFLOWS["osc"])
+    tune = TYPE_TUNING.get(target_type(s), {})
     out, found_next = [], False
     for key in steps:
         t = TOOLS[key]
@@ -2389,7 +2392,12 @@ def workflow(s: State) -> list:
         if not ok:
             out.append((t, "later" if t.possible(s) else "n/a"))
             continue
-        if t.is_optional(s):
+        optional = t.is_optional(s)
+        if key in tune.get("optional", ()):
+            optional = True
+        elif key in tune.get("recommend", ()):
+            optional = False
+        if optional:
             out.append((t, "optional"))
             continue
         out.append((t, "later" if found_next else "next"))
@@ -2405,6 +2413,9 @@ def next_step(s: State):
 
 
 def why_next(s: State, t: Tool) -> str:
+    special = TYPE_WHY.get((target_type(s), t.key))
+    if special:
+        return special
     base = t.why(s) if type(t).why is not Tool.why else WHY.get(t.key, t.tip)
     return base
 

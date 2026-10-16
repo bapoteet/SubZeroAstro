@@ -792,7 +792,8 @@ class FinishWindow(QMainWindow):
             self.btn_skip.setVisible(False)
             self.tool_box.setVisible(False)
             return
-        self.title.setText(f"<b>{s.target}</b> — {F.KIND_LABEL.get(s.kind, s.kind)}, "
+        typ = F.target_type(s)
+        self.title.setText(f"<b>{s.target}</b> — " + (f"{typ}, " if typ else "") + f"{F.KIND_LABEL.get(s.kind, s.kind)}, "
                            f"{'linear (not stretched yet)' if s.linear else 'stretched'}"
                            + ("  ·  stars out (they go back at 'Put Stars Back')"
                               if s.stars_out and not s.stars_hidden else ""))

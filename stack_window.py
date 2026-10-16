@@ -641,8 +641,17 @@ class StackWindow(QMainWindow):
             sym, tip = self.status_cell(p, kind)
             col = {"✓": "#50c864", "⚠": "#eba932", "✗": "#e65050"}[sym]
             lines.append(f"<span style='color:{col}'>{sym}</span> <b>{name}:</b> {tip.replace(chr(10), '<br>')}")
+        import targets
+        typ = targets.classify(g.target)
+        if typ == targets.COMET:
+            lines.append("<span style='color:#9fc0ec'>☄ <b>Comet:</b> besides the usual stack (aligned on the stars), "
+                         "a second stack follows the comet; the main master joins the sharp stars and the sharp "
+                         "comet. If the comet barely moved, the usual stack is already sharp for both.</span>")
+        elif typ:
+            lines.append(f"<span style='color:#8a93a6'>Target: {targets.DESCRIBE[typ]} - Finishing Touches "
+                         "recommends the steps that suit it.</span>")
         name = st.master_light_name(g, False)
-        dest = Path(self.masters_root.text().strip() or "(next to the lights)") / g.target
+        dest = Path(self.masters_root.text().strip() or "(next to the lights)") / st.safe_name(g.target)
         lines.append(f"Will save: <i>{dest}\\{name}</i>")
         self.details.setText("<br>".join(lines))
 
@@ -858,7 +867,8 @@ class StackWindow(QMainWindow):
         files = []
         for r in getattr(self, "last_results", []) or []:
             if not r.error:
-                files += [f for f in r.files if Path(f).suffix.lower() in (".fits", ".xisf")]
+                files += [f for f in r.files if Path(f).suffix.lower() in (".fits", ".xisf")
+                          and not Path(f).stem.endswith(("_Comet", "_Stars"))]   # comet extras stay in the folder
         return files
 
     def stop_here_pixinsight(self):

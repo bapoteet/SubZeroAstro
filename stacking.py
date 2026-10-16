@@ -913,6 +913,7 @@ def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None
     stacks = {ph: [] for ph in phases}
     noises = {ph: [] for ph in phases}
     tilts = {ph: [] for ph in phases}
+    no_sky = 0
     for n, inf in enumerate(infos):
         if cancel and cancel():
             raise Cancelled()
@@ -922,7 +923,10 @@ def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None
         if raw.shape != (H, W):
             continue
         if sub is not None and sub.shape == raw.shape:
+            before = float(np.median(raw[::8, ::8]))
             raw = raw - sub
+            if float(np.median(raw[::8, ::8])) < max(3.0, 0.03 * before):
+                no_sky += 1                       # the dark/bias took the whole sky away
         for ph in phases:
             plane = raw if ph is None else raw[ph[0]::2, ph[1]::2]
             f = _sky_frame(_bin(plane, k))
@@ -932,6 +936,10 @@ def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None
                 tilts[ph].append(f[2])
         if progress:
             progress(f"SkyFlat (Mote Buster) - building a flat from your lights: {n + 1}/{len(infos)}", (n + 1) / len(infos) * 0.9)
+    if no_sky > len(infos) / 2:
+        raise ValueError("SkyFlat (Mote Buster) can't be made: after the dark/bias is taken away almost no sky "
+                         "is left in the light frames - the master dark or bias is as bright as the sky. "
+                         "Check that dark (a light leak? the wrong exposure or gain?) or stack without it.")
     out = np.ones((H, W), np.float32)
     import warnings
     for ph in phases:
@@ -1534,6 +1542,7 @@ class StackOptions:
     save_cal_masters: bool = True
     align_common: bool = True               # line up all masters of a target (same camera + rig)
     work_dir: str = ""                      # local folder for temporary files
+    comet: bool = True                      # comets: also stack on the comet (and combine)
 
 
 @dataclass
@@ -1548,6 +1557,7 @@ class StackResult:
     ref_path: Path | None = None            # frame whose pixel grid the master uses
     common_ref: str | None = None
     autocrop: tuple | None = None           # (x0, y0, x1, y1) covered by ~all frames
+    extra: dict = field(default_factory=dict)   # more masters to save, e.g. {"Comet": …, "Stars": …}
 
 
 def coverage_map(transforms, out_shape, in_shape, step=8):
@@ -1645,7 +1655,7 @@ def alignment_sets(groups: list) -> list:
 
 
 def master_light_name(g: LightGroup, multi_camera: bool) -> str:
-    parts = [g.target]
+    parts = [safe_name(g.target)]                          # no '/' from comet names like 12P/Pons-Brooks
     if g.filter and g.filter != "No filter":
         parts.append(safe_name(core._ascii(g.filter)))
     if multi_camera:
@@ -1887,7 +1897,6 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
                 out[c, r0:r0 + nr], rej = _robust_mean(stack, opts.kappa, weights, frame_noise)
                 rejected += rej
         del mm
-        shutil.rmtree(cache_dir, ignore_errors=True)
     else:
         mean, m2, cnt = welford
         sig = np.sqrt(m2 / np.maximum(cnt - 1, 1))
@@ -1908,6 +1917,24 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         out[:] = np.where(sw > 0, swx / np.maximum(sw, 1e-12), np.nan_to_num(mean))
     out = np.nan_to_num(out)
     res.data = out[0] if nc == 1 else out
+    if use_cache:
+        try:
+            import targets
+            if opts.comet and targets.is_comet(g.target):
+                comet_stack(res, out, entries, cache_files, weights, frame_noise, opts, cache_dir, prog)
+        except Cancelled:
+            raise
+        except Exception as e:  # noqa: BLE001 - the ordinary master is never lost
+            log.append(f"Comet stack skipped: {e}")
+        finally:
+            shutil.rmtree(cache_dir, ignore_errors=True)
+    elif opts.comet:
+        try:
+            import targets
+            if targets.is_comet(g.target):
+                log.append("Comet: not enough free disk space for the second (comet-aligned) stack")
+        except Exception:  # noqa: BLE001
+            pass
     total = sum(1 for _ in entries) * out.size
     if n_mirrored:
         log.append(f"Note: {n_mirrored} frame(s) were mirror images of the reference (saved flipped, e.g. by a "
@@ -1917,6 +1944,157 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
                f"{100 * rejected / max(total, 1):.3f}% of pixels rejected as outliers")
     log.append(f"Time: {time.time() - t_start:.0f} s")
     return res
+
+
+# --------------------------------------------------------------------------
+# Comets: a second stack that follows the comet, and the two combined
+# --------------------------------------------------------------------------
+def _time_s(date_obs):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(date_obs).replace("Z", "")).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def comet_position(lum: np.ndarray, guess=None, search=None):
+    """Where the comet's head is in a star-aligned frame: the stars are taken away (an 'opening'),
+    each fuzzy blob is measured against its own surroundings (so gradients and frame edges can't win),
+    the outer edge of the frame is ignored and the middle - where the target was put - is gently
+    preferred. Returns ((x, y), significance) in full-size pixels; significance = how many times
+    the blob stands above the noise (below ~5 it is not reliably the comet)."""
+    h, w = lum.shape
+    f = max(1, int(np.ceil(max(h, w) / 1000)))
+    small = _bin(np.nan_to_num(lum, nan=float(np.nanmedian(lum))), f)
+    op = -_minf(-_minf(small, 5), 5)                       # stars (even bright ones) gone, the coma stays
+    bl = _smooth(op, 3.0)
+    bg = _smooth(_minf(bl, 12), 30.0)                      # the local sky around each blob
+    resid = bl - bg
+    sh, sw = resid.shape
+    dif = (bl[:, 1:] - bl[:, :-1]).ravel()
+    noise = float(np.median(np.abs(dif - np.median(dif)))) * 1.4826 + 1e-9
+    yy, xx = np.mgrid[:sh, :sw]
+    score = resid.copy()
+    m = 0.06
+    score[(yy < m * sh) | (yy > (1 - m) * sh) | (xx < m * sw) | (xx > (1 - m) * sw)] = -np.inf
+    if guess is not None:
+        gx, gy = guess[0] / f, guess[1] / f
+        r = max(6, (search or 0.06 * max(h, w)) / f)
+        score = np.where((xx - gx) ** 2 + (yy - gy) ** 2 <= r * r, score, -np.inf)
+    else:
+        d2 = ((xx - sw / 2) / (sw / 2)) ** 2 + ((yy - sh / 2) / (sh / 2)) ** 2
+        score = score * (1.0 - 0.35 * np.clip(d2, 0, 1))     # gently prefer the middle of the frame
+    iy, ix = np.unravel_index(int(np.argmax(score)), score.shape)
+    peak = float(resid[iy, ix])
+    y0, y1 = max(0, iy - 6), min(sh, iy + 7)
+    x0, x1 = max(0, ix - 6), min(sw, ix + 7)
+    win = np.clip(resid[y0:y1, x0:x1] - 0.5 * peak, 0, None)
+    sig = peak / (noise * 0.25)                             # noise after the smoothing
+    if win.sum() <= 0:
+        return ((ix + 0.5) * f, (iy + 0.5) * f), sig
+    wy, wx = np.mgrid[y0:y1, x0:x1]
+    return (((wx * win).sum() / win.sum() + 0.5) * f, ((wy * win).sum() / win.sum() + 0.5) * f), sig
+
+
+def comet_stack(res, stars_out, entries, cache_files, weights, frame_noise, opts, cache_dir, prog):
+    """Follow the comet: find its head in every star-aligned frame, fit its straight-line motion over
+    time, shift each frame so the comet stays put and combine again (now the stars move and are
+    rejected). The comet image and the star image are then joined: stars from the star stack, the
+    comet (head and tail) from the comet stack. Saves 'Comet' and 'Stars' masters next to the main one."""
+    log = res.log
+    times = [_time_s(e[0].date_obs) for e in entries]
+    if any(t is None for t in times) or len(entries) < 3:
+        log.append("Comet: the frames have no capture times (DATE-OBS), so the comet's motion cannot be followed")
+        return
+    t = np.array(times) - min(times)
+    span = float(t.max())
+    lum_all = stars_out.mean(axis=0) if stars_out.ndim == 3 else stars_out
+    guess, sig0 = comet_position(lum_all)
+    if sig0 < 5:
+        log.append(f"Comet: it is too faint to find automatically in this stack (signal {sig0:.1f}x the noise) - "
+                   "only the ordinary stack is saved. Longer exposures or more frames help.")
+        return
+    pos = []
+    for i, cf in enumerate(cache_files):
+        prog("Comet: finding the comet in each frame", 0.95 + 0.01 * i / len(cache_files))
+        fr = np.load(cf, mmap_mode="r")
+        lum = np.asarray(fr, dtype=np.float32).mean(axis=0)
+        (x, y), sg = comet_position(lum, guess, 0.05 * max(lum.shape))
+        pos.append((x, y, 1.0 if sg >= 3 else 0.0))
+    P = np.array(pos)
+    A = np.stack([np.ones_like(t), t], 1)
+    keep = P[:, 2] > 0
+    for _ in range(3):
+        if keep.sum() < 3:
+            log.append("Comet: could not find the comet in enough frames - only the ordinary stack is saved")
+            return
+        cx, *_r = np.linalg.lstsq(A[keep], P[keep, 0], rcond=None)
+        cy, *_r = np.linalg.lstsq(A[keep], P[keep, 1], rcond=None)
+        rx, ry = P[:, 0] - A @ cx, P[:, 1] - A @ cy
+        d = np.hypot(rx, ry)
+        sd = float(np.median(d[keep])) * 1.4826 + 0.3
+        keep = keep & (d < 3 * sd + 1.0)
+    vx, vy = float(cx[1]), float(cy[1])                     # px per second
+    fit_rms = float(np.sqrt(np.mean(d[keep] ** 2))) if keep.any() else 99.0
+    if keep.sum() < max(3, 0.6 * len(entries)) or fit_rms > 3.0:
+        log.append(f"Comet: its position could not be followed reliably (found in {int(keep.sum())} of "
+                   f"{len(entries)} frames, scatter {fit_rms:.1f} px) - only the ordinary stack is saved")
+        return
+    moved = float(np.hypot(vx, vy) * span)
+    rate = float(np.hypot(vx, vy) * 3600)
+    log.append(f"Comet: head found in {int(keep.sum())} of {len(entries)} frames; it moved {moved:.1f} px over "
+               f"{span / 60:.0f} min ({rate:.0f} px per hour)")
+    if moved < 3.0:
+        log.append("Comet: it barely moved during these frames, so the ordinary stack is already sharp for both "
+                   "the stars and the comet - no separate comet stack is needed")
+        return
+    # second pass: shift every frame so the comet stays where it is in the middle of the session
+    t_mid = float(np.median(t))
+    nc = stars_out.shape[0] if stars_out.ndim == 3 else 1
+    out_h, out_w = stars_out.shape[-2:]
+    shifted = []
+    for i, cf in enumerate(cache_files):
+        prog("Comet: lining the frames up on the comet", 0.96 + 0.02 * i / len(cache_files))
+        fr = np.asarray(np.load(cf, mmap_mode="r"), dtype=np.float32)
+        dx, dy = vx * (t[i] - t_mid), vy * (t[i] - t_mid)
+        T = np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy]])
+        pl = warp_planes(list(fr), T, (out_h, out_w))
+        p = cache_dir / f"c{i:05d}.npy"
+        np.save(p, np.stack([np.clip(x, -65000, 65000).astype(np.float16) for x in pl]))
+        shifted.append(p)
+        del fr, pl
+    mm = [np.load(p, mmap_mode="r") for p in shifted]
+    comet = np.empty((nc, out_h, out_w), np.float32)
+    rows = int(max(8, min(out_h, 3e8 / max(len(mm) * out_w * 4 * 4, 1))))
+    kappa = min(opts.kappa, 2.5)                           # the trailing stars are the outliers now
+    for c in range(nc):
+        for r0 in range(0, out_h, rows):
+            nr = min(rows, out_h - r0)
+            stack = np.empty((len(mm), nr, out_w), np.float32)
+            for i, m in enumerate(mm):
+                stack[i] = m[c, r0:r0 + nr]
+            comet[c, r0:r0 + nr], _rej = _robust_mean(stack, kappa, weights, frame_noise)
+    del mm
+    comet = np.nan_to_num(comet)
+    # join: the comet (head + tail) from the comet stack, everything else from the star stack
+    lum_c = comet.mean(axis=0)
+    f = max(1, int(np.ceil(max(out_h, out_w) / 1000)))
+    small = _bin(lum_c, f)
+    op = _smooth(-_minf(-_minf(small, 3), 3), 3.0)
+    bg = float(np.median(op))
+    dif = (small[:, 1:] - small[:, :-1]).ravel()
+    noise = float(np.median(np.abs(dif - np.median(dif)))) * 1.4826 / np.sqrt(2) + 1e-6
+    m = np.clip((op - bg - 2.0 * noise * 0.3) / (4.0 * noise * 0.3), 0, 1)
+    m = _smooth(-_minf(-m, 2), 3.0)
+    M = _upsample(np.clip(m, 0, 1), out_h, out_w)[None]
+    stars3 = stars_out if stars_out.ndim == 3 else stars_out[None]
+    joined = stars3 * (1 - M) + comet * M
+    res.extra = {"Comet": comet[0] if nc == 1 else comet, "Stars": stars3[0] if nc == 1 else stars3.copy()}
+    res.data = joined[0] if nc == 1 else joined
+    res.comet = {"vx": vx, "vy": vy, "moved": moved, "rate": rate}
+    log.append(f"Comet: a second stack follows the comet ({kappa:g}-sigma rejection removes the trailing stars); "
+               "the main master joins the sharp stars and the sharp comet. The comet-only and stars-only masters "
+               "are saved next to it (_Comet, _Stars).")
 
 
 def _compose(A, B):
@@ -2111,7 +2289,7 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
     g = res.group
     i0 = g.ref
     name = master_light_name(g, multi_camera)
-    folder = Path(opts.masters_root or i0.path.parent) / g.target
+    folder = Path(opts.masters_root or i0.path.parent) / safe_name(g.target)     # 'C/2023 A3' has a slash
     base = _unique_base(folder / name, opts.formats)
     infos = [f.info for f in g.frames]
     dates = sorted(i.date_obs for i in infos if i.date_obs)
@@ -2153,6 +2331,11 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
         header.append(("AUTOCROP", " ".join(str(v) for v in res.autocrop), "x0 y0 x1 y1 covered by 90% of frames"))
     header += [("HISTORY", line, "") for line in res.log[:40]]
     files = save_master_file(base, res.data, header, opts.formats, "MasterLight")
+    for tag, arr in (getattr(res, "extra", None) or {}).items():
+        files += save_master_file(base.with_name(base.name + "_" + tag), arr,
+                                  header + [("COMETSTK", tag, "comet stack: " + ("comet-aligned" if tag == "Comet"
+                                                                                 else "star-aligned"))],
+                                  opts.formats, "MasterLight")
     log_path = base.with_name(base.name + "_stacklog.txt")
     lines = [f"{name}", "=" * len(name), "", *res.log, "", "Frames combined:"]
     skipped = {s for s, _ in res.skipped}
