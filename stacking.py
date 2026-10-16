@@ -295,6 +295,7 @@ class CalItem:
     saved: list = field(default_factory=list)
     hot: tuple | None = None            # hot pixel coordinates (darks)
     sky: bool = False                   # a sky flat made from light frames (never saved to the library)
+    sky_stats: dict = field(default_factory=dict)   # how good a sky flat came out (see sky_flat_problems)
 
     @property
     def ref(self) -> ImgInfo:
@@ -936,6 +937,7 @@ def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None
                 tilts[ph].append(f[2])
         if progress:
             progress(f"SkyFlat (Mote Buster) - building a flat from your lights: {n + 1}/{len(infos)}", (n + 1) / len(infos) * 0.9)
+    item.sky_stats = {"tried": len(infos), "no_sky": no_sky}
     if no_sky > len(infos) / 2:
         raise ValueError("SkyFlat (Mote Buster) can't be made: after the dark/bias is taken away almost no sky "
                          "is left in the light frames - the master dark or bias is as bright as the sky. "
@@ -961,9 +963,18 @@ def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None
         med = low + 0.798 * float(np.mean(noises[ph]))       # mean of a lower half sits 0.8 sigma low
         valid = np.isfinite(arr).sum(axis=0)
         med[valid < max(3, int(0.2 * len(arr)))] = np.nan
+        holes = float(np.mean(~np.isfinite(med)))
         med = _fill_holes(med)
+        rough = _pixel_noise(med) / max(float(np.median(med)), 1e-6)    # the flat's own grain
         med = _smooth(med, 1.0)
         med = med / max(float(np.median(med)), 1e-6)
+        big = _smooth(med, max(3.0, min(med.shape) / 40))
+        st_ = item.sky_stats
+        st_["used"] = min(st_.get("used", 10 ** 9), len(arr))
+        st_["grain"] = max(st_.get("grain", 0.0), rough)
+        st_["holes"] = max(st_.get("holes", 0.0), holes)
+        st_["low"] = min(st_.get("low", 9.0), float(np.percentile(big, 0.5)))
+        st_["high"] = max(st_.get("high", 0.0), float(np.percentile(big, 99.5)))
         if ph is None:
             out = _upsample(med, H, W)
         else:
@@ -972,6 +983,25 @@ def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None
     if progress:
         progress("SkyFlat ready", 1.0)
     return np.clip(out, 0.2, 5.0).astype(np.float32)
+
+
+def sky_flat_problems(item: "CalItem") -> list:
+    """Reasons a SkyFlat (Mote Buster) may do more harm than good ([] when it looks fine)."""
+    s = item.sky_stats or {}
+    out = []
+    if not s or item.data is None:
+        return ["it could not be made"]
+    if s.get("used", 0) < SKY_FLAT_MIN:
+        out.append(f"only {s.get('used', 0)} light frames were usable (at least {SKY_FLAT_MIN} are needed "
+                   "for a smooth flat)")
+    if s.get("grain", 0) > 0.02:
+        out.append(f"it is grainy ({100 * s['grain']:.1f}% noise) - it would add noise to every frame")
+    if s.get("low", 1) < 0.4 or s.get("high", 1) > 1.8:
+        out.append(f"its brightness range is unusual for vignetting ({s.get('low', 1):.2f} - {s.get('high', 1):.2f})"
+                   " - nebulosity or a light-pollution gradient may have got into it")
+    if s.get("holes", 0) > 0.05:
+        out.append(f"{100 * s['holes']:.0f}% of it had to be filled in (always covered by stars or nebula)")
+    return out
 
 
 def hot_pixels(dark: np.ndarray, bias: np.ndarray | None, limit=0.002):

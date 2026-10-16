@@ -162,6 +162,34 @@ def run(app, out_dir: Path) -> int:
     except ValueError as _e:
         _ate = str(_e)
     check("as bright as the sky" in _ate, "a dark as bright as the sky stops the sky flat with a clear message")
+    # a SkyFlat that looks poor (or can't be made) asks: proceed without flats / use anyway / cancel
+    import stack_window as _sw
+    _good = _stk.build_master(_pl.flat)
+    _probs_good = _stk.sky_flat_problems(_pl.flat)
+    _keep_stats = dict(_pl.flat.sky_stats)
+    _pl.flat.sky_stats.update(grain=0.05, high=2.5)
+    _probs_bad = _stk.sky_flat_problems(_pl.flat)
+    _pl.flat.sky_stats = _keep_stats
+    _wk = _sw.StackWorker([], [], _stk.StackOptions(), {})
+    _said = []
+    _wk.log.connect(_said.append)
+    _real_bm = _sw.st.build_master
+
+    def _boom(*_a, **_k):
+        raise ValueError("SkyFlat (Mote Buster) can't be made: the master dark or bias is as bright as the sky")
+    _sw.st.build_master = _boom
+    try:
+        _wk.sky_answer = "without"
+        _without = _wk._sky_flat(_stk.CalItem("flat", _pl.flat.infos, False, sky=True), None, None, lambda t, f: None)
+    finally:
+        _sw.st.build_master = _real_bm
+    _it2 = _stk.CalItem("flat", _pl.flat.infos, False, sky=True, data=_good, sky_stats=dict(_keep_stats, grain=0.05))
+    _wk.sky_answer = "use"
+    _use = _wk._sky_flat(_it2, None, None, lambda t, f: None)
+    check(not _probs_good and any("grainy" in x for x in _probs_bad) and any("unusual" in x for x in _probs_bad)
+          and _without is False and _use is True and any("may not be good enough" in x for x in _said)
+          and hasattr(_sw.StackWindow, "ask_sky_flat"),
+          f"a poor SkyFlat is caught ({len(_probs_bad)} reasons) and the user chooses: without flats or use anyway")
     check(_stk.plan_group(_grp, [], sky_pool=_pool[:5]).flat is None,
           "too few light frames: no sky flat, the usual 'no flats' warning")
 

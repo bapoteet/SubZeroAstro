@@ -58,6 +58,7 @@ class StackWorker(QThread):
     log = Signal(str)
     group_done = Signal(object)
     failed = Signal(str)
+    ask_sky = Signal(object)            # {"filter", "problems", "built", "answer", "event"} - answered on the UI thread
 
     def __init__(self, groups, items, opts, rigs, runlog=None, skip=()):
         super().__init__()
@@ -68,6 +69,8 @@ class StackWorker(QThread):
         self.cancel_requested = False
         self.results = []
         self.saved_cal = []
+        self.sky_answer = None              # tests: "without" / "use" / "cancel" instead of asking
+        self.sky_dropped = set()            # sky flats the user chose to stack without
 
     def cancel(self):
         self.cancel_requested = True
@@ -79,6 +82,42 @@ class StackWorker(QThread):
             self.log.emit("Cancelled.")
         except Exception as e:  # noqa: BLE001
             self.failed.emit(f"{e}\n\n{traceback.format_exc()[-1500:]}")
+
+    def _sky_flat(self, item, helper_b, helper_d, prog) -> bool:
+        """Build a SkyFlat (Mote Buster) and check it. When it may not be good enough, ask whether to use it
+        anyway or stack without flats. True = use it; False = stack without flats."""
+        try:
+            st.build_master(item, helper_b, helper_d, self.opts.kappa,
+                            progress=lambda t, f: prog(t, 0.15 * f), cancel=lambda: self.cancel_requested)
+            problems = st.sky_flat_problems(item)
+        except st.Cancelled:
+            raise
+        except Exception as e:  # noqa: BLE001 - asked about below, never a crash
+            item.data = None
+            problems = [str(e)]
+        if not problems:
+            return True
+        built = item.data is not None
+        self.log.emit(f"WARNING: the SkyFlat (Mote Buster) for {item.filter} may not be good enough: "
+                      + "; ".join(problems))
+        q = {"filter": item.filter, "problems": problems, "built": built, "answer": self.sky_answer}
+        if q["answer"] is None:
+            import threading
+            q["event"] = threading.Event()
+            self.ask_sky.emit(q)
+            while not q["event"].wait(0.2):
+                if self.cancel_requested:
+                    raise st.Cancelled()
+        ans = q["answer"] or "without"
+        if ans == "cancel":
+            self.cancel_requested = True
+            raise st.Cancelled()
+        if ans == "use" and built:
+            self.log.emit(f"Using the SkyFlat for {item.filter} anyway, as chosen")
+            return True
+        item.data = None
+        self.log.emit(f"Stacking {item.filter} without flats, as chosen (no SkyFlat)")
+        return False
 
     def _run(self):
         opts = self.opts
@@ -127,8 +166,21 @@ class StackWorker(QThread):
                     if prev and st.use_saved_calibration(item, prev):
                         self.log.emit(f"Using {Path(prev[0]).name} saved by the interrupted run")
                 first = id(item) not in built
-                st.build_master(item, helper_b, helper_d, opts.kappa,
-                                progress=lambda t, f: prog(t, 0.15 * f), cancel=lambda: self.cancel_requested)
+                if item.sky and id(item) in self.sky_dropped:
+                    p.flat = None
+                    self.log.emit(f"No flat for {g.label()} - stacking without flats, as chosen")
+                    p.warnings.append(("flat", "no flats - the SkyFlat was not used, as chosen"))
+                    continue
+                if item.sky and first:
+                    if not self._sky_flat(item, helper_b, helper_d, prog):
+                        self.sky_dropped.add(id(item))
+                        p.flat = None
+                        p.warnings.append(("flat", "no flats - the SkyFlat was not used, as chosen"))
+                        built.add(id(item))
+                        continue
+                else:
+                    st.build_master(item, helper_b, helper_d, opts.kappa,
+                                    progress=lambda t, f: prog(t, 0.15 * f), cancel=lambda: self.cancel_requested)
                 if first:
                     built.add(id(item))
                     if not item.master:
@@ -775,8 +827,27 @@ class StackWindow(QMainWindow):
         self.worker.progress.connect(self.on_progress)
         self.worker.log.connect(self.log)
         self.worker.failed.connect(self.on_failed)
+        self.worker.ask_sky.connect(self.ask_sky_flat)
         self.worker.finished.connect(self.on_finished)
         self.worker.start()
+
+    def ask_sky_flat(self, q):
+        """The SkyFlat (Mote Buster) may not be good enough: use it anyway, stack without flats, or stop."""
+        box = QMessageBox(self)
+        box.setWindowTitle("SkyFlat (Mote Buster)")
+        box.setIcon(QMessageBox.Warning)
+        box.setText(f"<b>The SkyFlat made for filter {q['filter']} may not be good enough to use.</b>")
+        why = "\n".join(f"  • {p}" for p in q["problems"])
+        box.setInformativeText(why + "\n\nA poor flat can add blotches or rings instead of removing them. "
+                               "Do you want to proceed without flats for this filter?")
+        b_without = box.addButton("Proceed Without Flats", QMessageBox.AcceptRole)
+        b_use = box.addButton("Use the SkyFlat Anyway", QMessageBox.DestructiveRole) if q["built"] else None
+        b_stop = box.addButton("Cancel Stacking", QMessageBox.RejectRole)
+        box.setDefaultButton(b_without)
+        box.exec()
+        c = box.clickedButton()
+        q["answer"] = "use" if (b_use is not None and c is b_use) else "cancel" if c is b_stop else "without"
+        q["event"].set()
 
     def ask_resume(self, done, total):
         """True = skip the masters an interrupted run saved, False = stack all again, None = cancel."""
