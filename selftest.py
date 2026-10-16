@@ -159,6 +159,25 @@ def run(app, out_dir: Path) -> int:
     check(_stk.plan_group(_grp, [], sky_pool=_pool[:5]).flat is None,
           "too few light frames: no sky flat, the usual 'no flats' warning")
 
+    # --- calibration check: a dark on the wrong scale is caught, a float master is read right ----
+    _lt = session.parent / "calcheck_light.fits"
+    _lraw = (510 + _rs.normal(0, 8, (120, 160)) + 6).astype(np.float32)
+    core.write_fits(_lt, np.clip(_lraw, 0, 65535).astype(np.uint16), {"IMAGETYP": "Light Frame", "EXPTIME": 180.0},
+                    bitpix=16)
+    _li = _stk.read_info(_lt)
+    _good = type("Cal", (), {"sub": np.full((120, 160), 510.0, np.float32), "hot": ("y", "x")})()
+    _bad = type("Cal", (), {"sub": np.full((120, 160), 510.0 / 65535, np.float32), "hot": ("y", "x")})()
+    _g, _b = _stk.calibration_check(_li, _good), _stk.calibration_check(_li, _bad)
+    check(_g and "Calibration check" in _g[0] and not any("WARNING" in x for x in _g)
+          and any("WARNING" in x and "different scale" in x for x in _b),
+          f"page 2 checks the dark subtraction and warns when a master is on the wrong scale ({_b[-1][:60]}…)")
+    import xisf as _xs
+    _xp = session.parent / "float_dark_nobounds.xisf"
+    _xs.write_xisf(_xp, np.full((40, 50), 510.0 / 65535, np.float32), image_type="Master Dark")
+    _src = _stk.ImageSource(_xp)                         # its stated range is the data's own min:max
+    check(abs(float(np.median(_src.read())) - 510.0) < 1.0,
+          "a 0..1 floating-point master with any (or no) stated range is read in camera units")
+
     # --- smart telescopes: header recognition (synthetic files, real header layouts) ----
     import numpy as _np
     import stacking as _st

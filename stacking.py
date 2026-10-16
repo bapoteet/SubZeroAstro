@@ -58,10 +58,11 @@ class ImageSource:
             _r, _img, self.cards, self.look = xisf.read_header(self.path)
             self.w, self.h = int(self.look["NAXIS1"]), int(self.look["NAXIS2"])
             self.channels = int(self.look.get("_XISF_CHANNELS", 1))
-            # PixInsight stores floating-point images in the range 0..1
-            if self.look.get("_XISF_FORMAT", "").startswith("Float") and \
-                    str(self.look.get("_XISF_BOUNDS", "")).startswith("0:1"):
-                self.scale = 65535.0
+            # PixInsight stores floating-point images in the range 0..1. Without a stated range,
+            # decide from the values (a master dark or bias of 0..1 must not be taken as 0..1 ADU)
+            if self.look.get("_XISF_FORMAT", "").startswith("Float"):
+                b = str(self.look.get("_XISF_BOUNDS", "") or "")
+                self.scale = 65535.0 if b.startswith("0:1") else None     # None: decided from the values
         else:
             with open(self.path, "rb") as f:
                 self.lay = core.read_layout(f)
@@ -1089,6 +1090,37 @@ class Calibrator:
         return x
 
 
+def calibration_check(light: ImgInfo, cal: "Calibrator") -> list:
+    """Log lines checking the dark / bias subtraction on one light frame. With narrowband
+    filters there may be only a few ADU of sky above the camera offset, so a dark or bias on the
+    wrong scale, or from another gain / offset, leaves a 'pedestal' that the flat then turns into
+    bright edges and corners. Says so plainly when the numbers don't add up."""
+    raw = ImageSource(light.path).read()
+    raw = (raw[0] if raw.ndim == 3 else raw)[::8, ::8].astype(np.float32)
+    sub = cal.sub[::8, ::8].astype(np.float32)
+    if sub.shape != raw.shape:
+        return []
+    raw_med, sub_med = float(np.median(raw)), float(np.median(sub))
+    left = raw - sub
+    sky = float(np.median(left))
+    noise = float(np.median(np.abs(left - sky))) * 1.4826 + 1e-6
+    what = "dark" if cal.hot is not None else "bias"
+    out = [f"Calibration check: light background {raw_med:.0f} ADU - {what} {sub_med:.0f} ADU = {sky:.1f} ADU of sky "
+           f"(noise {noise:.1f} ADU)"]
+    if raw_med > 100 and sub_med < 0.3 * raw_med:
+        out.append(f"WARNING: the {what} master ({sub_med:.0f} ADU) is far below the camera offset in the lights "
+                   f"({raw_med:.0f} ADU) - it is on a different scale or from other camera settings (gain / offset). "
+                   "The offset stays in the image and the flat will over-correct the edges (bright borders). "
+                   "Use a dark / bias taken with the same gain and offset as the lights.")
+    elif sky < -3 * noise:
+        out.append(f"WARNING: the {what} master is brighter than the lights ({sub_med:.0f} vs {raw_med:.0f} ADU) - "
+                   "check that it has the same gain, offset, temperature and exposure as the lights.")
+    elif sky < 0.5 * noise and raw_med > 100:
+        out.append("Note: very little sky signal above the camera offset (typical for narrowband) - the result "
+                   "depends strongly on matching darks, bias and flats.")
+    return out
+
+
 def fix_pixels(img, ys, xs, step=1):
     """Replace pixels with the mean of their same-colour neighbours."""
     h, w = img.shape
@@ -1632,6 +1664,13 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         log.append(f"WARNING: {w}")
     for n in plan.notes:
         log.append(f"Note: {n}")
+
+    if not rgb_in and cal.sub is not None:
+        try:
+            for line in calibration_check(ref_info, cal):
+                log.append(line)
+        except Exception as e:  # noqa: BLE001 - a check must never stop stacking
+            log.append(f"(calibration check skipped: {e})")
 
     def calibrated(info):
         raw = ImageSource(info.path).read()
