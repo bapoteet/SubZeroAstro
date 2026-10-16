@@ -905,7 +905,11 @@ class FinishWindow(QMainWindow):
         self.chk_mask.blockSignals(True)
         self.chk_mask.setChecked(False)
         self.chk_mask.blockSignals(False)
-        self.chk_mask.setVisible(key == "core")
+        has_mask = key == "core" or getattr(self.tool, "has_mask", False)
+        self.chk_mask.setVisible(has_mask)
+        self.chk_mask.setText(getattr(self.tool, "mask_label", "Show what will change"))
+        self.chk_mask.setToolTip(getattr(self.tool, "mask_tip", "Tints the area this tool works on (the mask "
+                                                                   "SubZeroAstro made for you) in red"))
         self.sign_row.setVisible(key == "signature")
         self.crop_row.setVisible(key == "final_crop")
         if key == "signature":
@@ -1179,7 +1183,7 @@ class FinishWindow(QMainWindow):
             return
         params = self.current_params()
         tuned = self.fine_box.isChecked() and bool(self.fine_values)
-        if t.key == "core" and self.chk_mask.isChecked():
+        if (t.key == "core" or getattr(t, "has_mask", False)) and self.chk_mask.isChecked():
             params = dict(params, show_mask=True)
 
         def work():

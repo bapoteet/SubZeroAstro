@@ -185,6 +185,31 @@ def run(app, out_dir: Path) -> int:
     check(abs(float(np.median(_src.read())) - 510.0) < 1.0,
           "a 0..1 floating-point master with any (or no) stated range is read in camera units")
 
+    # --- RGB + Ha of a galaxy: only the HII knots are added to red ------------------------------
+    import finish as _Fg
+    _rg = np.random.default_rng(2)
+    _gy, _gx = np.mgrid[:300, :400].astype(np.float32)
+    _disk = 0.08 * np.exp(-np.sqrt(((_gx - 200) / 110) ** 2 + ((_gy - 150) / 50) ** 2) * 2.5)
+    _kn = np.zeros((300, 400), np.float32)
+    _kp = [(200 + 80 * np.cos(a), 150 + 35 * np.sin(a)) for a in np.linspace(0, 6.0, 10)]
+    for _x, _y in _kp:
+        _kn += 0.012 * np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * 2.5 ** 2))
+    _ns = lambda: _rg.normal(0, 0.0015, (300, 400))
+    _chg = {"R": (0.01 + _disk + _ns()).astype(np.float32), "G": (0.01 + 0.95 * _disk + _ns()).astype(np.float32),
+            "B": (0.01 + 0.8 * _disk + _ns()).astype(np.float32),
+            "Ha": (0.003 + 0.3 * 1.06 * _disk + _kn + _ns()).astype(np.float32)}
+    _sg = _Fg.State(channels=_chg, linear=True, kind="mono_rgb", target="M 101")
+    _vg = _Fg.TOOLS["ha_glow"].variants(_sg)
+    _ln = _Fg.TOOLS["ha_glow"].line(_sg, _vg[0].params)
+    _km = np.zeros((300, 400), bool)
+    for _x, _y in _kp:
+        _km |= (_gx - _x) ** 2 + (_gy - _y) ** 2 < 9
+    _dm = (np.sqrt(((_gx - 200) / 110) ** 2 + ((_gy - 150) / 50) ** 2) < 0.5)
+    check(_Fg.is_galaxy_target("M 101") and not _Fg.is_galaxy_target("NGC 7000") and _vg[0].recommended
+          and "HII" in _vg[0].label and _ln[_km].mean() > 15 * _ln[_dm].mean(),
+          f"RGB+Ha galaxy: the HII regions are added on their own (knots {_ln[_km].mean():.4f}, "
+          f"smooth disk {_ln[_dm].mean():.5f})")
+
     # --- smart telescopes: header recognition (synthetic files, real header layouts) ----
     import numpy as _np
     import stacking as _st

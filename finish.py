@@ -17,6 +17,7 @@ Images are float32 in 0..1, shape (channels, h, w).
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import time
 from dataclasses import dataclass, field, replace
@@ -1965,11 +1966,37 @@ def _flux(img, pts, r_in=3.5, r_out=(6, 8)):
     return out
 
 
+_GALAXY_IDS = {f"M{n}" for n in (31, 32, 33, 49, 51, 58, 59, 60, 61, 63, 64, 65, 66, 74, 77, 81, 82, 83, 84, 85, 86,
+                                  87, 88, 89, 90, 91, 94, 95, 96, 98, 99, 100, 101, 102, 104, 105, 106, 108, 109,
+                                  110)} | \
+    {f"NGC{n}" for n in (55, 247, 253, 300, 891, 925, 1023, 1300, 1365, 2403, 2683, 2841, 2903, 3077, 3115, 3184,
+                         3344, 3521, 3628, 3938, 4038, 4039, 4216, 4236, 4244, 4449, 4490, 4559, 4565, 4605, 4631,
+                         4656, 5005, 5033, 5128, 5395, 5907, 6744, 6822, 6946, 7331, 7640, 7479)} | \
+    {"IC342", "IC2574", "IC1613", "IC10", "IC5332"}
+_GALAXY_WORDS = ("galaxy", "galaxies", "andromeda", "triangulum", "whirlpool", "pinwheel", "bode", "cigar",
+                 "sombrero", "leo triplet", "needle", "fireworks", "sculptor", "black eye", "blackeye", "sunflower",
+                 "hamburger", "silver dollar", "cartwheel", "antennae", "stephan", "markarian", "owl galaxy")
+
+
+def is_galaxy_target(name: str) -> bool:
+    """A galaxy by its name: catalogue number (M31, NGC 891, IC 342…) or a common name."""
+    n = (name or "").lower()
+    if any(w in n for w in _GALAXY_WORDS):
+        return True
+    key = re.sub(r"[^a-z0-9]", "", n).upper()
+    key = re.sub(r"^MESSIER", "M", key)
+    m = re.match(r"^(M|NGC|IC)0*(\d+)", key)
+    return bool(m) and f"{m.group(1)}{int(m.group(2))}" in _GALAXY_IDS
+
+
 class HaGlow(Tool):
     key = "ha_glow"
     title = "Add Hydrogen Glow"
     tip = ("Blends your Ha image into the red channel so nebulae glow in a natural-colour picture. The "
            "starlight is removed from the Ha first (continuum subtraction), so stars don't turn pink.")
+    has_mask = True
+    mask_label = "Show the hydrogen regions (red)"
+    mask_tip = "Tints in red exactly what this step adds to the picture"
 
     def applicable(self, s):
         if s.rgb is not None or not {"Ha", "R", "G", "B"} <= set(s.channels):
@@ -1978,6 +2005,13 @@ class HaGlow(Tool):
 
     def possible(self, s):
         return s.rgb is None and {"Ha", "R", "G", "B"} <= set(s.channels)
+
+    def why(self, s):
+        if is_galaxy_target(s.target):
+            return ("A galaxy with Ha: the hydrogen regions (HII) - the pink-red knots along the spiral arms - are "
+                    "added to red on their own, so they stand out crisply against the blue arms without tinting "
+                    "the whole galaxy pink.")
+        return self.tip
 
     def variants(self, s):
         import stacking as st
@@ -1995,23 +2029,63 @@ class HaGlow(Tool):
         if not c or c <= 0:
             c = float(np.percentile(ha[::3, ::3], 99) - bg_h) / max(float(np.percentile(r[::3, ::3], 99) - bg_r), 1e-6)
         base = {"c": c, "bg_h": bg_h, "bg_r": bg_r}
-        return [Variant(n, {**base, "k": k}, f"starlight factor {c:.2f} removed from Ha", i == 1) for i, (n, k) in
+        note = f"starlight factor {c:.2f} removed from Ha"
+        if is_galaxy_target(s.target):
+            return [Variant("HII regions - natural", {**base, "k": 1.2, "mode": "knots"},
+                            "only the compact hydrogen knots of the galaxy; " + note, True),
+                    Variant("HII regions - strong", {**base, "k": 2.2, "mode": "knots"},
+                            "the knots stand out boldly", False),
+                    Variant("HII regions - very strong", {**base, "k": 3.5, "mode": "knots"},
+                            "show-piece: every knot vivid", False),
+                    Variant("All hydrogen glow", {**base, "k": 1.0, "mode": "all"},
+                            "also any smooth Ha glow (for galaxies inside nebulosity)", False)]
+        return [Variant(n, {**base, "k": k}, note, i == 1) for i, (n, k) in
                 enumerate((("Subtle", 0.5), ("Natural", 1.0), ("Strong", 1.6), ("Very strong", 2.5)))]
 
     def sliders(self, s, params):
-        return [Slider("k", "Glow strength", 0.0, 4.0, params["k"], "How much hydrogen glow to add to red", 0.05)]
+        return [Slider("k", "Glow strength", 0.0, 5.0, params["k"], "How much hydrogen glow to add to red", 0.05)]
+
+    def line(self, s, params) -> np.ndarray:
+        """The hydrogen emission alone (Ha without starlight) - and for 'knots' only the compact HII regions
+        clearly above the noise: the galaxy's smooth glow and any leftover sky are left out."""
+        ch = s.channels
+        c = float(params["c"])
+        line = np.clip((ch["Ha"] - params["bg_h"]) - c * (ch["R"] - params["bg_r"]), 0, None).astype(np.float32)
+        if params.get("mode") != "knots":
+            return line
+        sm = _blur(line, 1.0)
+        h, w = sm.shape
+        r = int(max(4, min(24, max(h, w) / 160)))           # HII knots: up to about this radius
+        small, f = _small_plane(sm, 1200)
+        rr = max(2, int(round(r / f)))
+        base_small = -_min_filter(-_min_filter(small, rr), rr)   # the smooth part (opening)
+        base_small = _blur(base_small, rr)
+        knots = np.clip(sm - _resize(base_small, h, w), 0, None)
+        med, noise = _stats(line)
+        nz = noise / 2.5                                        # noise after the light smoothing
+        sig = np.clip((knots - 2.5 * nz) / (2.5 * nz), 0, 1)   # only what clearly stands out
+        return (knots * sig * sig * (3 - 2 * sig)).astype(np.float32)
 
     def preview(self, s, params):
         ch = s.channels
         base = np.stack([ch["R"], ch["G"], ch["B"]])
         r = self.apply(s, params).channels
-        return display_fixed(np.stack([r["R"], r["G"], r["B"]]), base)
+        img = display_fixed(np.stack([r["R"], r["G"], r["B"]]), base)
+        if params.get("show_mask"):
+            ln = self.line(s, params)
+            top = float(np.percentile(ln[ln > 0], 99)) if (ln > 0).any() else 1.0
+            m = np.clip(ln / max(top, 1e-9), 0, 1) ** 0.5
+            if m.shape != img.shape[:2]:
+                m = _resize(m, *img.shape[:2])
+            tint = np.array([255, 40, 60], np.float32)
+            img = (img * (1 - 0.6 * m[..., None]) + tint * 0.6 * m[..., None]).astype(np.uint8)
+        return img
 
     def apply(self, s, params):
         s = s.copy()
         ch = dict(s.channels)
         c, k = float(params["c"]), float(params["k"])
-        line = np.clip((ch["Ha"] - params["bg_h"]) - c * (ch["R"] - params["bg_r"]), 0, None)  # Ha without starlight
+        line = self.line(s, params)
         ch["R"] = (ch["R"] + k * line / max(c, 1e-6)).astype(np.float32)
         ch.pop("Ha")
         s.channels = ch

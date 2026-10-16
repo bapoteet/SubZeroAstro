@@ -384,7 +384,7 @@ bullets([
 sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Mote Buster", "Fix Dust Donuts", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
 p("Which steps appear depends on your data. In typical order:");
 table(["Step", "What it does", "PixInsight equivalent"], [
-  ["Add Hydrogen Glow", "Adds Ha to the red of an RGB set, without its stars", "Continuum subtraction + PixelMath"],
+  ["Add Hydrogen Glow", "Adds Ha to the red of an RGB set, without its stars. For a galaxy (M31, M33, M101, NGC 891…) it adds only the compact HII regions - the red knots along the arms", "Continuum subtraction + PixelMath / NBRGBCombination"],
   ["Combine Colour Channels", "Builds colour from separate filters: RGB, LRGB, Hubble (SHO), HSO, HOO, Foraxx…", "ChannelCombination / LRGBCombination"],
   ["Choose a Colour Palette", "Dual-band colour cameras: separates Ha and OIII (or SII and OIII) and offers HOO, Gold & blue, Foraxx…", "PixelMath palettes"],
   ["Balance Colours", "Neutral sky and natural star colour", "BackgroundNeutralization / colour calibration"],
@@ -441,7 +441,8 @@ sec("10.1", "Colour camera (OSC), broadband", ["OSC broadband recipe"]);
 p("Cull › Stack (flats + darks or bias) › page 3: crop, plate solve, GraXpert, BlurX, StarX › page 4: Balance Colours, Remove Green Cast, Take Stars Out, Brighten, Curves, Colour Intensity, star steps, Put Stars Back, Final Crop, Sign.");
 sec("10.2", "Colour camera with a dual-band filter", ["Dual-band recipe", "L-Ultimate", "L-eXtreme", "Askar D1", "Askar D2", "L-Synergy"]);
 p("Make sure the filter is set (page 1, *Filter used* or *Set Filter Name*) so the matching flats are found. On page 4 the first step is **Choose a Colour Palette** (HOO, Gold & blue, Foraxx…), and **Star Colours** is recommended so the stars are not all teal. Two dual-band filters of the same target - **L-Ultimate + L-Synergy** or **Askar D1 + D2** - are combined into a full **SHO** set automatically.");
-sec("10.3", "Mono camera: LRGB", ["LRGB recipe"]);
+sec("10.3", "Mono camera: LRGB", ["LRGB recipe", "RGB + Ha galaxies", "HII regions"]);
+p("**RGB (or LRGB) + Ha of a galaxy**: SubZeroAstro recognises galaxies by name (M31, M33, M51, M81, M101, NGC 891, IC 342… or names like *Andromeda* or *Pinwheel*). **Add Hydrogen Glow** then recommends **HII regions**: the starlight - and the galaxy's own smooth light - is subtracted from the Ha, and only the compact hydrogen knots that clearly stand out are added to red. They stand out crisply against the blue arms without tinting the whole galaxy pink. Tick **Show the hydrogen regions** to see exactly what is added; *All hydrogen glow* adds everything, for galaxies set inside nebulosity.");
 p("Each filter is stacked separately on page 2 (one row each; keep *Line up all filters* on). Load all masters together on page 3 - they must appear as **one row**. Page 4 starts with **Combine Colour Channels** (RGB or LRGB).");
 sec("10.4", "Mono camera: narrowband (SHO)", ["SHO recipe", "Narrowband recipe", "Hubble palette"]);
 p("As 10.3 with Ha, OIII and SII. Filter names from filter wheels such as *Ha 7nm*, *H-alpha*, *O*, *S* or *Antlia Ha 3nm Pro* are recognised. Page 4: **Combine Colour Channels** › Hubble (SHO), Foraxx or HOO; then Remove Green Cast (turns the green gold), and **Star Colours** before Put Stars Back.");
