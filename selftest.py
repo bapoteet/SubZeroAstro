@@ -822,6 +822,8 @@ def run(app, out_dir: Path) -> int:
               "page 3 completion message says the page is complete and what comes next")
         _rd.deleteLater()
         from prepare import target_out_dir as _tod
+        check(str(res[0]["out_dir"]) in pw.out_where.text() and "Saved in" in pw.out_where.text(),
+              f"page 3 shows the folder the images were saved in ({pw.out_where.text()[:90]})")
         check(_tod("C:/out/NGC891", "IC1805").name == "IC1805"
               and _tod("C:/out", "IC1805").name == "IC1805"
               and _tod("C:/out/IC1805", "IC1805").parent.name == "out",

@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.17 beta"
+APP_VERSION = "0.9.18 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -2159,6 +2159,7 @@ class MainWindow(QMainWindow):
             self.refresh_item(u)
         if done:
             self.undo_stack.append({"label": "Reject Flagged", "reject": done, "flags": flags})
+            self.show_combo.setCurrentText("Kept")          # what goes on to stacking
         self.rebuild_list()
         self.update_chart()
         if done:
@@ -2355,6 +2356,7 @@ class MainWindow(QMainWindow):
         self.load_data()
 
     def reset_session(self):
+        self.end_session_record()
         self.save_disk_cache()
         self.generation += 1
         self.analyze_pool.clear()
@@ -2560,7 +2562,8 @@ class MainWindow(QMainWindow):
             else:
                 srcs.append(["files", [str(x) for x in src[1]]])
         cur = self.frames.get(self.current_uid)
-        d = {"sources": srcs,
+        old = cp.read_json(p, {}) or {}
+        d = {"sources": srcs, "page": old.get("page") if old.get("sources") == srcs else None,
              "flags": {str(f.path): f.flag_note for f in self.frames.values() if f.flagged and not f.rejected},
              "filters": dict(self.filter_overrides),
              "frames": len(self.frames), "rejected": sum(1 for f in self.frames.values() if f.rejected),
@@ -2575,17 +2578,83 @@ class MainWindow(QMainWindow):
         d = cp.read_json(self.session_path(), None)
         return d if d and d.get("sources") else None
 
+    PAGE_NAMES = {"stack_win": "Calibrate and Stack", "prep_win": "Astro Image Processing",
+                  "finish_win": "Finishing Touches"}
+
+    def remember_page(self, attr, files=None):
+        """Called when a page opens: start-up can bring you back to it ('pick up where you left off')."""
+        p = self.session_path()
+        d = cp.read_json(p, {}) or {}
+        if not d.get("sources"):
+            return
+        d["page"] = {"attr": attr, "files": [str(f) for f in (files or [])]}
+        d.pop("ended", None)
+        try:
+            cp.write_json(p, d)
+        except OSError:
+            pass
+
+    def end_session_record(self):
+        """The project was ended on purpose: nothing to offer at the next start."""
+        p = self.session_path()
+        d = cp.read_json(p, {}) or {}
+        if d:
+            d["ended"], d["page"] = True, None
+            try:
+                cp.write_json(p, d)
+            except OSError:
+                pass
+
     def offer_resume(self):
-        """At start-up after a crash: offer to reopen what was loaded."""
+        """At start-up: offer to pick up where you left off - the frames, flags and the page you were on
+        (after a normal quit too, not only after a crash)."""
         d = self.last_session()
-        if not d or d.get("clean"):
+        if not d or d.get("ended") or not d.get("sources"):
             return
         nfl = len(d.get("flags", {}))
-        if QMessageBox.question(
-                self, APP_NAME, f"{APP_NAME} didn't close normally last time.\n\nReopen your last session "
-                f"({d.get('frames', '?')} frames, {nfl} flagged, {d.get('time', '')})?\n\n"
-                "Star measurements are reused from the cache, so this is quick.") == QMessageBox.StandardButton.Yes:
-            self.reopen_last_session()
+        page = d.get("page") or {}
+        where = self.PAGE_NAMES.get(page.get("attr"), "Astro Image Quality and Cull")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(APP_NAME)
+        box.setText(("<b>" + APP_NAME + " didn't close normally last time.</b><br><br>" if not d.get("clean") else "")
+                    + f"<b>Pick up where you left off?</b><br><br>Last time ({d.get('time', '')}): "
+                    f"{d.get('frames', '?')} frames, {nfl} flagged - you were on <b>{where}</b>."
+                    "<br><br><small>Star measurements are reused from the cache, so this is quick.</small>")
+        yes = box.addButton("Pick Up Where I Left Off", QMessageBox.AcceptRole)
+        box.addButton("Start Fresh", QMessageBox.RejectRole)
+        box.setDefaultButton(yes)
+        box.exec()
+        if box.clickedButton() is yes:
+            self.resume_last(d)
+        else:
+            self.end_session_record()
+
+    def resume_last(self, d=None):
+        d = d or self.last_session()
+        self.reopen_last_session()
+        page = (d or {}).get("page") or {}
+        attr = page.get("attr")
+        files = [Path(f) for f in page.get("files") or [] if Path(f).exists()]
+        if attr == "stack_win" and self.frames:
+            t0 = time.time()
+
+            def when_measured():
+                if self.loaded_count >= len(self.frames) or time.time() - t0 > 180:
+                    self.open_stacking()
+                else:
+                    QTimer.singleShot(500, when_measured)
+            QTimer.singleShot(500, when_measured)
+        elif attr == "prep_win" and files:
+            import prepare_window
+            QTimer.singleShot(300, lambda: ui_header.open_page(
+                self, "prep_win", tuple(str(f) for f in files),
+                lambda: prepare_window.PrepareWindow(self, self.settings, files)))
+        elif attr == "finish_win" and files:
+            import finish_window
+            QTimer.singleShot(300, lambda: ui_header.open_page(
+                self, "finish_win", tuple(str(f) for f in files),
+                lambda: finish_window.FinishWindow(self, self.settings, files)))
 
     def reopen_last_session(self):
         d = self.last_session()

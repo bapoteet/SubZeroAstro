@@ -232,6 +232,20 @@ def busy(w) -> bool:
     return False
 
 
+def ensure_shown(w):
+    """Safety net after a page change: the page must really be on screen, opaque and in front."""
+    try:
+        if not alive(w):
+            return
+        if not w.isVisible() or w.windowOpacity() < 0.99 or w.isMinimized():
+            w.setWindowOpacity(1.0)
+            w.showNormal() if w.isMinimized() or not w.isVisible() else w.show()
+        w.raise_()
+        w.activateWindow()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def leave(window, ms: int = 550):
     """Fade a page out and hide it (it stays alive, so Next can bring it back as it was)."""
     try:
@@ -267,7 +281,19 @@ def open_page(owner, attr: str, key, make):
     w.setAttribute(Qt.WA_DeleteOnClose, True)
     setattr(owner, attr, w)
     present(w, owner)
+    remember(attr, key)
     return w
+
+
+def remember(attr, key):
+    """Note the page that was just opened, so start-up can bring you back to it."""
+    try:
+        main = main_page()
+        if main is not None and hasattr(main, "remember_page"):
+            files = list(key) if isinstance(key, tuple) and attr != "stack_win" else None
+            main.remember_page(attr, files)
+    except Exception:  # noqa: BLE001 - never stop a page opening
+        pass
 
 
 NEW_PROJECT_STYLE = ("QPushButton { background:#1d7373; color:white; font-weight:700; font-size:%spt; "
@@ -316,6 +342,8 @@ def new_project(from_page, load=True):
             if hasattr(owner, attr):
                 setattr(owner, attr, None)
     main.reset_session()
+    if hasattr(main, "end_session_record"):
+        main.end_session_record()
     if hasattr(main, "tools_banner"):
         main.tools_banner.start_check()              # helper programs checked again for the new project
     if hasattr(main, "statusBar"):
@@ -405,11 +433,26 @@ def install_header(window, page_title: str, with_menu: bool = False) -> AppHeade
     if prev_header is not None:
         def go_back():
             # Windows keeps a page in front of the page that opened it, so going back means
-            # stepping this page aside (it stays alive for Next) to reveal the one beneath
+            # stepping this page aside (it stays alive for Next) to reveal the one beneath.
+            # A full-screen page first leaves full screen: on a Mac, hiding a full-screen
+            # window leaves an empty full-screen Space behind (a blank page with no way out).
+            from PySide6.QtCore import QTimer
+            was_full = window.isFullScreen()
+            if was_full:
+                window.showNormal()
             if prev.isMinimized():
                 prev.showNormal()
-            prev.show()
+            prev.setWindowOpacity(1.0)
+            if was_full and not prev.isFullScreen():
+                prev.showFullScreen()
+            else:
+                prev.show()
+            prev.raise_()
             prev.activateWindow()
-            leave(window)
+            if _MAC or was_full:
+                QTimer.singleShot(250 if was_full else 0, window.hide)    # no fade: never an invisible page in front
+            else:
+                leave(window)
+            QTimer.singleShot(1000, lambda: ensure_shown(prev))
         header.add_back(prev_header.page.text(), go_back)
     return header

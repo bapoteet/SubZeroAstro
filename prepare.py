@@ -221,6 +221,12 @@ def line_up(masters, log=None):
         except ValueError as e:
             lg(f"Could not line up {m.name} with {ref.name} ({e}) — it is used as it is")
             continue
+        A = np.asarray(T)[:, :2]
+        scale = float(np.sqrt(abs(np.linalg.det(A))))
+        if abs(scale - 1.0) > 0.03:              # same telescope and camera: the scale cannot change
+            lg(f"Not lining up {m.name}: the star match would resize it by {scale:.3f}x, which cannot be right "
+               "for the same telescope - it is used as it is")
+            continue
         own = m.autocrop                      # its own well-covered area (ragged stacking edges outside)
         planes = st.warp_planes(list(m.data), T, ref.shape)
         valid = np.isfinite(planes[0])

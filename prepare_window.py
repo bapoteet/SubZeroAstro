@@ -711,9 +711,16 @@ class PrepareWindow(QMainWindow):
         orow.addWidget(b_out)
         b_clear = QPushButton("Default")
         b_clear.setToolTip("Go back to a 'Prepared' folder next to the masters")
-        b_clear.clicked.connect(lambda: (self.out_edit.clear(), setattr(self, "_out_confirmed", True)))
+        b_clear.clicked.connect(lambda: (self.out_edit.clear(), setattr(self, "_out_confirmed", True),
+                                         self.update_out_where()))
         orow.addWidget(b_clear)
         ov.addLayout(orow)
+        self.out_where = QLabel()
+        self.out_where.setWordWrap(True)
+        self.out_where.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.out_where.setStyleSheet("color:#9fc0ec;")
+        ov.addWidget(self.out_where)
+        self.out_edit.textChanged.connect(lambda _t: self.update_out_where())
 
         def fmt_box(label, key, default, tip):
             cb = QCheckBox(label)
@@ -933,6 +940,7 @@ class PrepareWindow(QMainWindow):
         if not 0 <= row < len(self.sets):
             return
         s = self.sets[row]
+        self.update_out_where()
         pals = P.palettes_for(s)
         self.palette.clear()
         self.palette.addItems(pals)
@@ -1142,6 +1150,26 @@ class PrepareWindow(QMainWindow):
         self.worker.finished.connect(self.on_finished)
         self.worker.start()
 
+    def out_folder(self):
+        """The folder the current target will really be saved in (what the run will use)."""
+        if not self.sets or not self.sets[min(max(self.set_list.currentRow(), 0), len(self.sets) - 1)]:
+            return None
+        m = self.sets[min(max(self.set_list.currentRow(), 0), len(self.sets) - 1)][0]
+        chosen = self.out_edit.text().strip()
+        return P.target_out_dir(chosen, m.target) if chosen else m.path.parent / "Prepared"
+
+    def update_out_where(self, actual=None):
+        if not hasattr(self, "out_where"):
+            return
+        where = actual or self.out_folder()
+        if where is None:
+            self.out_where.setText("")
+            return
+        how = "Saved in" if actual else ("Will be saved in" if self.out_edit.text().strip()
+                                         else "Will be saved next to the masters, in")
+        self.out_where.setText(f"{how}: <b>{where}</b>")
+        self.out_where.setToolTip(str(where))
+
     def ask_output_folder(self) -> bool:
         """Before the first run in this window: confirm where the processed images go, so a folder
         remembered from an earlier session is never used by surprise."""
@@ -1195,6 +1223,7 @@ class PrepareWindow(QMainWindow):
         if self.hist_combo.count() > 1:
             self.hist_combo.setCurrentIndex(self.hist_combo.count() - 1)
         if res:
+            self.update_out_where(res[0].get("out_dir"))
             __import__("ui_header").mark_done(self.btn_start, "✓  Done – Run Again?")
             self.progress.setValue(1000)
             self.progress.setFormat(READY_TEXT)

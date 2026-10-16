@@ -1396,9 +1396,13 @@ def match_frames(ref_pts, tgt_pts, tol=3.0):
             continue
         try:
             T, n, rms, ok, j = _match_once(ref_pts, tgt_pts, tol, n_tri, mirrored)
-            if n >= max(6, int(0.15 * min(len(ref_pts), len(tgt_pts)))) or n_tri == 80:
+            few = min(len(ref_pts), len(tgt_pts))
+            # a real match shares a good part of its stars and fits tightly; a mirror image needs
+            # stronger evidence still (never accept a handful of chance coincidences)
+            need = max(10, int(0.2 * few)) if mirrored else max(8, int((0.15 if n_tri == 40 else 0.1) * few))
+            if n >= need and rms <= 0.6 * tol:
                 return T, n, rms, ok, j
-            last = ValueError("too few stars in common")
+            last = ValueError(f"too few stars in common ({n} of {few})")
         except ValueError as e:
             last = e
     raise last or ValueError("could not match the star field")
