@@ -394,6 +394,8 @@ def run(app, out_dir: Path) -> int:
     w.show()
     for k, a in w.mode_actions.items():
         a.setChecked(k == "fast")
+    check(w.fills_screen() in (True, False) and w.settings.value("window/fill", True, type=bool) in (True, False),
+          "the main window knows whether it fills the screen (it opens filled next time)")
     _sub_old = w.settings.value("load/subfolders")
     w.settings.remove("load/subfolders")                  # a new user
     w._restore_settings()

@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.26 beta"
+APP_VERSION = "0.9.27 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -1345,7 +1345,19 @@ class MainWindow(QMainWindow):
                 return k
         return "fast"
 
+    def fills_screen(self) -> bool:
+        """Maximised / full screen, or dragged to (nearly) fill the screen."""
+        if self.isMaximized() or self.isFullScreen():
+            return True
+        try:
+            av = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+            fg = self.frameGeometry()
+            return fg.width() >= 0.9 * av.width() and fg.height() >= 0.85 * av.height()
+        except Exception:  # noqa: BLE001
+            return False
+
     def closeEvent(self, event):
+        self.settings.setValue("window/fill", self.fills_screen())      # next start: fill the screen again
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("splitter", self.splitter.saveState())
         self.settings.setValue("vsplit", self.vsplit.saveState())
@@ -2901,8 +2913,11 @@ def main():
     w = MainWindow()
 
     def show_main():
-        w.show()
-        ui_header.fit_to_screen(w)
+        if w.settings.value("window/fill", True, type=bool):
+            w.showMaximized()           # fills the screen; the Mac menu bar and Dock stay visible
+        else:
+            w.show()
+            ui_header.fit_to_screen(w)
         w.raise_()
         w.activateWindow()
         if len(sys.argv) <= 1:

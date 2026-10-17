@@ -192,6 +192,7 @@ steps([
   "If macOS says the app \"is damaged\" or \"can't be opened\", open **Terminal** (Applications › Utilities) and type: `xattr -dr com.apple.quarantine /Applications/SubZeroAstro.app` then press Return and open the app again.",
 ]);
 tip("Both messages appear because SubZeroAstro is not yet signed by Microsoft or notarized by Apple. Signing is being set up for future versions.", "Why the warnings?");
+tip("SubZeroAstro opens filling the screen, with the menu bar and Dock still showing. Avoid the green button's full-screen mode on a Mac: it hides the menu bar (where **Stack › Build Calibration Masters…** and **Help** live). To fill the screen yourself, **Option-click** the green button, or double-click the window's title bar. If you make the window smaller, it opens at that size next time.", "Mac: window size");
 sec("3.3", "Updating to a new version", ["Updating"]);
 p("Download the newest zip from the releases page and replace the old app folder (Windows) or the app in Applications (Mac). **Your settings, tool locations, rig names, saved measurements and saved progress are kept** - they are stored separately from the app.");
 sec("3.4", "Removing SubZeroAstro", ["Uninstall"]);
