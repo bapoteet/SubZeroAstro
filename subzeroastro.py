@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.27 beta"
+APP_VERSION = "0.9.28 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -733,8 +733,8 @@ class LoadDataDialog(QDialog):
             self.add_source(("folder", d, self.chk_sub.isChecked()))
 
     def add_files_dialog(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "Add FITS files", self.last_folder(),
-                                                "FITS files (*.fits *.fit *.fts);;All files (*)")
+        files, _ = QFileDialog.getOpenFileNames(self, "Add light frames", self.last_folder(),
+                                                "FITS / XISF (*.fits *.fit *.fts *.xisf);;All files (*)")
         if files:
             self.settings.setValue("last_folder", str(Path(files[0]).parent))
             self.add_source(("files", [Path(x) for x in files]))
@@ -1407,7 +1407,7 @@ class MainWindow(QMainWindow):
         if not frames:
             where = "\n".join(str(s[1]) for s in sources if s[0] == "folder")
             QMessageBox.information(self, APP_NAME,
-                                    "No FITS files (.fits, .fit, .fts) were found" + (f" in:\n{where}" if where else ".")
+                                    "No light frames (.fits, .fit, .fts, .xisf) were found" + (f" in:\n{where}" if where else ".")
                                     + "\n\nTip: tick “Include subfolders” if your frames are in subfolders.")
             return
         self.sources = list(sources)

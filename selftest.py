@@ -193,6 +193,48 @@ def run(app, out_dir: Path) -> int:
     check(_stk.plan_group(_grp, [], sky_pool=_pool[:5]).flat is None,
           "too few light frames: no sky flat, the usual 'no flats' warning")
 
+    # --- XISF light frames on page 1, and every XISF compression PixInsight writes ----------------
+    import xisf as _xs
+    _xd = session.parent / "xisf_lights"
+    _xd.mkdir(exist_ok=True)
+    _xr = np.random.default_rng(3)
+    _xH, _xW = 300, 400
+    _xyy, _xxx = np.mgrid[:_xH, :_xW]
+    _ximg = 800 + _xr.normal(0, 10, (_xH, _xW))
+    for _k in range(80):
+        _sx, _sy, _sa = _xr.uniform(10, _xW - 10), _xr.uniform(10, _xH - 10), _xr.uniform(500, 20000)
+        _ximg += _sa * np.exp(-((_xxx - _sx) ** 2 + (_xyy - _sy) ** 2) / (2 * 1.8 ** 2))
+    _ximg[:20, :20] = 30000
+    _xhd = {"IMAGETYP": "Light Frame", "EXPTIME": 120.0, "FILTER": "Ha", "OBJECT": "M42", "INSTRUME": "TestCam",
+            "DATE-OBS": "2026-10-17T03:00:00", "ROWORDER": "TOP-DOWN"}
+    _xu = np.clip(_ximg, 0, 65535).astype(np.uint16)
+    core.write_fits(_xd / "a.fits", _xu, _xhd, bitpix=16)
+    _xs.write_xisf(_xd / "b.xisf", _xu.astype(np.float32), [(k, v, "") for k, v in _xhd.items()],
+                   image_type="Light", sample_format="UInt16", compression="zlib+sh")
+    _xs.write_xisf(_xd / "c.xisf", (_xu / 65535.0).astype(np.float32), [(k, v, "") for k, v in _xhd.items()],
+                   image_type="Light")
+    _xfr = core.scan_folder(_xd)
+    _xres = {f.path.name: core.analyze_frame(f.path) for f in _xfr}
+    _xm = {n: (round(r["metrics"]["fwhm"], 3), r["metrics"]["stars"], round(r["metrics"]["background"]))
+           for n, r in _xres.items()}
+    _xtop = {n: bool(r["thumb"][:2, :2].mean() > r["thumb"].mean()) for n, r in _xres.items()}
+    check(sorted(_xm) == ["a.fits", "b.xisf", "c.xisf"] and len(set(_xm.values())) == 1 and all(_xtop.values()),
+          f"page 1 loads XISF light frames (16-bit and 0..1 float) and measures them exactly like FITS {_xm}")
+    _xdata = _xu.astype(np.float32)
+    _xok = {}
+    for _codec in ("zlib", "lz4", "lz4hc+sh", "zstd+sh"):
+        try:
+            _xs.write_xisf(_xd / "cmp.xisf", _xdata, {"IMAGETYP": "Light"}, sample_format="UInt16", compression=_codec)
+            _xok[_codec] = bool(np.array_equal(_xs.read_xisf(_xd / "cmp.xisf")[0], _xdata))
+        except ValueError as _e:
+            _xok[_codec] = str(_e)
+    _xpure = None
+    if _xs._lz4block is not None:
+        _src = _xu.tobytes()
+        _xpure = _xs.lz4_block_decompress(_xs._lz4block.compress(_src, store_size=False), len(_src)) == _src
+    check(all(v is True for v in _xok.values()) and _xpure is not False,
+          f"XISF with zlib, LZ4, LZ4-HC and Zstandard compression opens ({_xok}; built-in LZ4 decoder agrees: {_xpure})")
+
     # --- Build Calibration Masters: one mixed folder of subframes -> masters in the library ----------
     import cal_builder as _cb
     _cr = np.random.default_rng(1)

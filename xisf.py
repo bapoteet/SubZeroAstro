@@ -1,9 +1,8 @@
 """
 xisf.py - read and write PixInsight XISF images (NumPy only).
 
-Reading supports monolithic XISF 1.0 files with uncompressed, zlib or
-zlib+sh (byte-shuffled) image data, which covers PixInsight's defaults.
-LZ4 / Zstandard compressed files give a clear error asking to re-save them.
+Reading supports monolithic XISF 1.0 files, uncompressed or compressed with any of PixInsight's
+codecs: zlib, LZ4, LZ4-HC and Zstandard, each with or without byte shuffling ("+sh").
 Writing produces uncompressed 32-bit float images that PixInsight opens directly.
 
 Images are returned as float32 arrays shaped (h, w) or (channels, h, w), row 0
@@ -20,6 +19,15 @@ import zlib
 from pathlib import Path
 
 import numpy as np
+
+try:                                    # fast LZ4 (a pure-Python fallback is below)
+    import lz4.block as _lz4block
+except ImportError:                     # pragma: no cover - depends on the installation
+    _lz4block = None
+try:
+    import zstandard as _zstd
+except ImportError:                     # pragma: no cover
+    _zstd = None
 
 SIGNATURE = b"XISF0100"
 NS = "{http://www.pixinsight.com/xisf}"
@@ -111,17 +119,7 @@ def read_xisf(path):
         raw = f.read(size)
     comp = img.get("compression", "")
     if comp:
-        parts = comp.split(":")
-        codec = parts[0].lower()
-        if codec in ("zlib", "zlib+sh"):
-            raw = zlib.decompress(raw)
-            if codec == "zlib+sh":
-                item = int(parts[2]) if len(parts) > 2 else dt.itemsize
-                n = len(raw) // item
-                raw = np.frombuffer(raw, np.uint8)[: n * item].reshape(item, n).T.tobytes()
-        else:
-            raise ValueError(f"XISF compression '{codec}' is not supported - re-save the file in "
-                             "PixInsight without compression (or with zlib)")
+        raw = decompress(raw, comp, dt.itemsize)
     data = np.frombuffer(raw, dtype=dt, count=w * h * c)
     if img.get("pixelStorage", "Planar").lower() == "normal":
         data = data.reshape(h, w, c).transpose(2, 0, 1)
@@ -131,6 +129,85 @@ def read_xisf(path):
     if c == 1:
         data = data[0]
     return data, cards, look
+
+
+def lz4_block_decompress(src: bytes, size: int) -> bytes:
+    """Decode one raw LZ4 block (no frame header) - used when the lz4 package is missing."""
+    out = bytearray()
+    i, n = 0, len(src)
+    while i < n:
+        token = src[i]
+        i += 1
+        lit = token >> 4
+        if lit == 15:
+            while True:
+                b = src[i]
+                i += 1
+                lit += b
+                if b != 255:
+                    break
+        out += src[i:i + lit]
+        i += lit
+        if i >= n:
+            break
+        off = src[i] | (src[i + 1] << 8)
+        i += 2
+        if off == 0:
+            raise ValueError("damaged LZ4 data")
+        ml = token & 15
+        if ml == 15:
+            while True:
+                b = src[i]
+                i += 1
+                ml += b
+                if b != 255:
+                    break
+        ml += 4
+        start = len(out) - off
+        if start < 0:
+            raise ValueError("damaged LZ4 data")
+        if off >= ml:
+            out += out[start:start + ml]
+        else:                                   # overlapping copy: repeat the pattern
+            pat = bytes(out[start:])
+            out += (pat * (ml // off + 1))[:ml]
+    if len(out) != size:
+        raise ValueError("damaged LZ4 data (wrong size)")
+    return bytes(out)
+
+
+def decompress(raw: bytes, comp: str, itemsize: int) -> bytes:
+    """Undo XISF compression 'codec:uncompressed-size[:item-size]'."""
+    parts = comp.split(":")
+    codec = parts[0].strip().lower()
+    size = int(parts[1]) if len(parts) > 1 and parts[1].strip().isdigit() else None
+    shuffled = codec.endswith("+sh")
+    base = codec[:-3] if shuffled else codec
+    if base == "zlib":
+        out = zlib.decompress(raw)
+    elif base in ("lz4", "lz4hc"):
+        if size is None:
+            raise ValueError("XISF LZ4 data without its size")
+        out = _lz4block.decompress(raw, uncompressed_size=size) if _lz4block is not None else \
+            lz4_block_decompress(raw, size)
+    elif base == "zstd":
+        if _zstd is not None:
+            out = _zstd.ZstdDecompressor().decompress(raw, max_output_size=size or 0)
+        else:
+            try:
+                from compression import zstd as _std_zstd      # Python 3.14+
+            except ImportError:
+                raise ValueError("this XISF file is Zstandard-compressed and the zstandard module is "
+                                 "missing - re-save it in PixInsight with zlib or LZ4 compression")
+            out = _std_zstd.decompress(raw)
+    else:
+        raise ValueError(f"XISF compression '{codec}' is not supported - re-save the file in PixInsight "
+                         "without compression (or with zlib)")
+    if shuffled:
+        item = int(parts[2]) if len(parts) > 2 and parts[2].strip().isdigit() else itemsize
+        n = len(out) // item
+        out = np.frombuffer(out, np.uint8)[: n * item].reshape(item, n).T.tobytes()
+    return out
 
 
 def _fmt_value(v):
@@ -150,10 +227,11 @@ def _esc(s: str) -> str:
 
 
 def write_xisf(path, data: np.ndarray, keywords: list | dict | None = None, image_type: str | None = None,
-               bounds: tuple | None = None):
+               bounds: tuple | None = None, sample_format: str = "Float32", compression: str | None = None):
     """
-    Write an uncompressed Float32 XISF file. data is (h, w) or (3, h, w) RGB.
+    Write an XISF file (Float32 by default; "UInt16" like a camera frame). data is (h, w) or (3, h, w) RGB.
     keywords: list of (name, value, comment) or dict name -> value.
+    compression: None, or "zlib" / "lz4" / "lz4hc" / "zstd", optionally with "+sh" (byte shuffling).
     """
     data = np.asarray(data, dtype=np.float32)
     if data.ndim == 2:
@@ -162,7 +240,35 @@ def write_xisf(path, data: np.ndarray, keywords: list | dict | None = None, imag
     else:
         c, h, w = data.shape
         planes = data
-    body = np.ascontiguousarray(planes.astype("<f4")).tobytes()
+    if sample_format == "UInt16":
+        body = np.ascontiguousarray(np.clip(np.round(planes), 0, 65535).astype("<u2")).tobytes()
+        item = 2
+    else:
+        sample_format = "Float32"
+        body = np.ascontiguousarray(planes.astype("<f4")).tobytes()
+        item = 4
+    comp_attr = ""
+    if compression:
+        codec = compression.lower()
+        base = codec[:-3] if codec.endswith("+sh") else codec
+        src = body
+        if codec.endswith("+sh"):
+            src = np.frombuffer(body, np.uint8).reshape(-1, item).T.tobytes()
+        if base == "zlib":
+            packed = zlib.compress(src, 6)
+        elif base in ("lz4", "lz4hc"):
+            if _lz4block is None:
+                raise ValueError("LZ4 compression needs the lz4 module")
+            packed = _lz4block.compress(src, mode="high_compression" if base == "lz4hc" else "default",
+                                        store_size=False)
+        elif base == "zstd":
+            if _zstd is None:
+                raise ValueError("Zstandard compression needs the zstandard module")
+            packed = _zstd.ZstdCompressor(level=3).compress(src)
+        else:
+            raise ValueError(f"unknown XISF compression {compression}")
+        comp_attr = f' compression="{codec}:{len(body)}' + (f':{item}"' if codec.endswith("+sh") else '"')
+        body = packed
     if isinstance(keywords, dict):
         keywords = [(k, v, "") for k, v in keywords.items()]
     kw_xml = "".join(
@@ -177,8 +283,9 @@ def write_xisf(path, data: np.ndarray, keywords: list | dict | None = None, imag
         return ('<?xml version="1.0" encoding="UTF-8"?>'
                 '<xisf version="1.0" xmlns="http://www.pixinsight.com/xisf" '
                 'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-                f'<Image geometry="{w}:{h}:{c}" sampleFormat="Float32" bounds="{lo:.8g}:{hi:.8g}" '
-                f'colorSpace="{color}"{itype} location="attachment:{pos}:{len(body)}">'
+                f'<Image geometry="{w}:{h}:{c}" sampleFormat="{sample_format}" '
+                + (f'bounds="{lo:.8g}:{hi:.8g}" ' if sample_format == "Float32" else '')
+                + f'colorSpace="{color}"{itype}{comp_attr} location="attachment:{pos}:{len(body)}">'
                 f'{kw_xml}</Image>'
                 '<Metadata><Property id="XISF:CreatorApplication" type="String">'
                 'SubZeroAstro</Property></Metadata></xisf>').encode("utf-8")

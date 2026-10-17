@@ -169,7 +169,7 @@ table(["Program", "Used for", "Where to get it", "Without it"], [
 ], [2500, 2200, 2360, 2300]);
 sec("2.3", "Your images", ["FITS", "XISF", "Folder organisation", "File formats"]);
 bullets([
-  "SubZeroAstro reads **FITS** (`.fit`, `.fits`, `.fts`) and PixInsight **XISF** files, from capture programs such as N.I.N.A., ASIAIR, SharpCap and smart telescopes (ZWO Seestar, DWARF, Vaonis Vespera, Stellina, eVscope).",
+  "SubZeroAstro reads **FITS** (`.fit`, `.fits`, `.fts`) and PixInsight **XISF** (`.xisf`) files on every page - light frames, calibration frames and masters - from capture programs such as N.I.N.A., ASIAIR, SharpCap and smart telescopes (ZWO Seestar, DWARF, Vaonis Vespera, Stellina, eVscope). XISF files can be uncompressed or compressed with any of PixInsight's options (zlib, LZ4, LZ4-HC, Zstandard, with or without byte shuffling).",
   "Keep each night's lights in their own folder, and your calibration frames in a **calibration library** folder with one subfolder per telescope (see 4.3).",
   "Your original files are **never changed or deleted**. Rejected frames are only moved into a `REJECTED` subfolder.",
 ]);

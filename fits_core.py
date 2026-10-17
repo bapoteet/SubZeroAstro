@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 
 FITS_EXTS = {".fits", ".fit", ".fts"}
+LIGHT_EXTS = FITS_EXTS | {".xisf"}       # what page 1 loads (XISF: PixInsight / N.I.N.A.)
 REJECTED_DIR = "REJECTED"
 DEFAULT_SKIP_PREFIXES = ["FLAT", "DARK", "BIAS", "CALIB", "OFFSET"]
 
@@ -213,6 +214,32 @@ def read_rows(f, lay: Layout, r0: int, n: int) -> np.ndarray:
     return _decode(raw, lay, (n, lay.shape[-1]))
 
 
+def is_xisf(path) -> bool:
+    return Path(path).suffix.lower() == ".xisf"
+
+
+def read_xisf_frame(path, header_only: bool = False):
+    """An XISF frame the way read_fits returns a FITS one: (data, cards, look). XISF properties the
+    FITS keywords lack (camera, filter, exposure, frame type, Bayer pattern, size) are added as cards,
+    and floating-point data saved on PixInsight's 0..1 scale is put back in camera units."""
+    import xisf
+    _r, _img, cards, look = xisf.read_header(path)
+    have = {c[0] for c in cards}
+    for k in ("NAXIS1", "NAXIS2", "IMAGETYP", "INSTRUME", "FILTER", "EXPTIME", "BAYERPAT"):
+        if k not in have and look.get(k) is not None:
+            cards.append((k, look[k], "from the XISF properties"))
+    if header_only:
+        return None, cards, look
+    data, _c, _l = xisf.read_xisf(path)
+    fmt = str(look.get("_XISF_FORMAT", ""))
+    if fmt.startswith("Float"):
+        b = str(look.get("_XISF_BOUNDS", "") or "")
+        peak = float(np.nanmax(data[..., ::7, ::7]))
+        if b.startswith("0:1") or peak <= 1.5:
+            data = data * np.float32(65535.0)
+    return data, cards, look
+
+
 def read_fits(path, header_only: bool = False):
     """
     Read the first image in a FITS file.
@@ -224,6 +251,8 @@ def read_fits(path, header_only: bool = False):
     The file is fully read and closed before returning (important on Windows,
     where an open file cannot be moved).
     """
+    if is_xisf(path):
+        return read_xisf_frame(path, header_only)
     with open(Path(path), "rb") as f:
         lay = read_layout(f)
         if header_only:
@@ -373,7 +402,7 @@ def to_display_plane(data: np.ndarray, look: dict) -> np.ndarray:
         data = data[:h2, :w2].reshape(h2 // 2, 2, w2 // 2, 2).mean(axis=(1, 3))
 
     roworder = str(look.get("ROWORDER", "BOTTOM-UP") or "BOTTOM-UP").strip().upper()
-    if roworder != "TOP-DOWN":
+    if roworder != "TOP-DOWN" and "_XISF_FORMAT" not in look:      # XISF: top row first
         data = data[::-1]
     return np.ascontiguousarray(data, dtype=np.float32)
 
@@ -659,7 +688,7 @@ def _fits_entries(d: Path):
     try:
         with os.scandir(d) as it:
             for e in it:
-                if os.path.splitext(e.name)[1].lower() in FITS_EXTS and e.is_file():
+                if os.path.splitext(e.name)[1].lower() in LIGHT_EXTS and e.is_file():
                     st = e.stat()
                     out.append((Path(e.path), st.st_size, st.st_mtime_ns))
     except OSError:
@@ -702,7 +731,7 @@ def frames_from_files(files):
     """Frames for individually chosen/dropped files."""
     frames = []
     for f in sorted((Path(x) for x in files), key=lambda p: natural_key(str(p))):
-        if f.suffix.lower() not in FITS_EXTS:
+        if f.suffix.lower() not in LIGHT_EXTS:
             continue
         try:
             st = f.stat()
@@ -719,6 +748,13 @@ def frames_from_files(files):
 
 def _date_obs(path) -> str | None:
     """DATE-OBS from the first header block (cheap: one small read)."""
+    if is_xisf(path):
+        try:
+            import xisf
+            v = xisf.read_header(path)[3].get("DATE-OBS")
+            return str(v) if v else None
+        except Exception:  # noqa: BLE001
+            return None
     try:
         with open(path, "rb") as fh:
             head = fh.read(2880 * 3)
@@ -843,7 +879,7 @@ def _saturation_level(lay: Layout) -> float | None:
 
 def _orient(plane: np.ndarray, look: dict) -> np.ndarray:
     roworder = str(look.get("ROWORDER", "BOTTOM-UP") or "BOTTOM-UP").strip().upper()
-    return plane if roworder == "TOP-DOWN" else plane[::-1]
+    return plane if (roworder == "TOP-DOWN" or "_XISF_FORMAT" in look) else plane[::-1]
 
 
 def analyze_frame(path, mode: str = "fast") -> dict:
@@ -854,6 +890,8 @@ def analyze_frame(path, mode: str = "fast") -> dict:
     """
     import metrics as M
     path = Path(path)
+    if is_xisf(path):
+        return _analyze_xisf(path, mode)
     with open(path, "rb") as f:
         lay = read_layout(f)
         look = lay.look
@@ -903,6 +941,40 @@ def analyze_frame(path, mode: str = "fast") -> dict:
             r0 = min(max(r0, 0), max(ny - band_h, 0))
             parts.append(M.measure(read_rows(f, lay, r0, min(band_h, ny)), bayer=bayer,
                                    saturation=sat, area_fraction=1.0))
+    result["metrics"] = _combine_bands(parts, (band_h * len(BANDS)) / ny)
+    return result
+
+
+def _analyze_xisf(path, mode: str) -> dict:
+    """analyze_frame for an XISF file: read once into memory, then measured exactly like a FITS
+    frame (the same thumbnail and the same three bands in 'fast' mode)."""
+    import metrics as M
+    data, cards, look = read_xisf_frame(path)
+    bayer = is_bayer(look)
+    fmt = str(look.get("_XISF_FORMAT", ""))
+    sat = {"UInt8": 255.0, "UInt16": 65535.0}.get(fmt)
+    dm = look.get("DATAMAX")
+    if isinstance(dm, (int, float)) and dm > 0:
+        sat = float(dm)
+    if sat is None and fmt.startswith("Float"):
+        sat = 65535.0
+    result = {"cards": cards, "info": frame_info(look), "mode": mode}
+    plane = to_display_plane(data, look)
+    thumb, params = make_thumbnail(plane)
+    result.update(thumb=thumb, stretch=params, display_size=(plane.shape[1], plane.shape[0]))
+    if mode == "off":
+        return result
+    if data.ndim != 2 or mode == "full":
+        img = data if data.ndim == 2 else (data.mean(axis=0) if data.shape[0] == 3 else data[0])
+        result["metrics"] = M.measure(img, bayer=bayer and data.ndim == 2, saturation=sat)
+        return result
+    ny = data.shape[0]
+    band_h = max(64, int(ny * BAND_FRACTION)) // 2 * 2
+    parts = []
+    for c in BANDS:
+        r0 = int(ny * c - band_h / 2) // 2 * 2
+        r0 = min(max(r0, 0), max(ny - band_h, 0))
+        parts.append(M.measure(data[r0:r0 + min(band_h, ny)], bayer=bayer, saturation=sat, area_fraction=1.0))
     result["metrics"] = _combine_bands(parts, (band_h * len(BANDS)) / ny)
     return result
 
