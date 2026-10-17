@@ -264,14 +264,15 @@ p("The purple **Stop Here – Continue in PixInsight** button (pages 2, 3 and 4)
 
 ch(6, "Page 1 – Astro Image Quality and Cull");
 img("1_main_window_fwhm.png", "Page 1: frame list (left), the selected frame, the session chart and the measurements (example data)");
-sec("6.1", "Loading your sub-frames", ["Load Data", "Add Folders", "Several folders at once", "Include subfolders", "Filter used", "Network drive (NAS)"]);
+sec("6.1", "Loading your sub-frames", ["Load Light Frame Data", "Add Folders", "Several folders at once", "Include subfolders", "Filter used", "Network drive (NAS)"]);
 steps([
-  "Click **Load Data** (Ctrl+O), then **Add Folders…**. You can pick **several folders at once**: click one, then **Shift**-click to add a range, or **Ctrl**-click (**Cmd**-click on a Mac) to add others one by one. Click **Add Folders…** again for folders in other places (other nights, other drives), or **Add Files…** for individual files.",
+  "Click **Load Light Frame Data** (Ctrl+O), then **Add Folders…**. You can pick **several folders at once**: click one, then **Shift**-click to add a range, or **Ctrl**-click (**Cmd**-click on a Mac) to add others one by one. Click **Add Folders…** again for folders in other places (other nights, other drives), or **Add Files…** for individual files.",
   "**Include subfolders** is ticked by default, so nights kept in subfolders are found too (FLAT, DARK, BIAS, CALIB and OFFSET folders are skipped). Untick it to load only the files directly in each folder; your choice is remembered.",
   "If your capture software does not record the filter (e.g. ASIAIR with a manual filter drawer), choose it under **Filter used**.",
   "Press **Start Processing**. Frames appear at once and are measured in the background.",
 ]);
-img("7_load_data_window.png", "The Load Data window", 480);
+img("7_load_data_window.png", "The Load Light Frame Data window", 480);
+tip("Load Light Frame Data is for **light frames only**. To turn bias, darks and flats into masters, use **Stack › Build Calibration Masters…** instead (7.6) - no light frames needed.", "Calibration frames?");
 tip("If the file names mention the filter (e.g. `…_SQA55Lult_0001.fit`), SubZeroAstro notices after the first few frames and offers to use it for the whole set. Duplicate files are skipped and reported.");
 sec("6.2", "Reading the measurements", ["Score", "FWHM", "Eccentricity", "SNR", "Star count", "Background", "Badges", "Session chart"]);
 p("Each frame gets a coloured **badge** (green = good, amber = check it, red = probably reject) and a **score** where 100 = a typical frame for that filter. Frames are only ever compared with frames from the **same camera and filter**.");
@@ -444,7 +445,7 @@ bullets([
   "**Stop Here – Continue in PixInsight** - see 5.4.",
 ]);
 sec("9.8", "Starting your next target", ["End this Project and Start New Project", "New project", "Next target"]);
-p("When a picture is finished, click the teal **↺ End this Project and Start New Project** button at the top right of Finishing Touches. SubZeroAstro asks first - and if you have not saved the picture yet, offers **Save the Picture First…**. Then every page and image closes, the helper programs are checked again, and you are back on **page 1 (Quality and Cull)** with the **Load Data** window open, ready for the next target's light frames: cull, stack, process and finish, from the beginning.");
+p("When a picture is finished, click the teal **↺ End this Project and Start New Project** button at the top right of Finishing Touches. SubZeroAstro asks first - and if you have not saved the picture yet, offers **Save the Picture First…**. Then every page and image closes, the helper programs are checked again, and you are back on **page 1 (Quality and Cull)** with the **Load Light Frame Data** window open, ready for the next target's light frames: cull, stack, process and finish, from the beginning.");
 tip("Nothing on your disk is deleted. Your masters, finished pictures and every Finishing Touches step stay where they are: open the same masters on Finishing Touches later and the project carries on where you stopped.", "Your work is safe");
 
 ch(10, "Recipes for common setups");
@@ -501,7 +502,7 @@ table(["Keys", "Action"], [
   ["Ctrl+Z", "Undo"],
   ["Ctrl+0  /  1  /  double-click", "Fit to window / 100% / toggle"],
   ["Mouse wheel, drag", "Zoom, pan"],
-  ["Ctrl+O", "Load Data"],
+  ["Ctrl+O", "Load Light Frame Data"],
   ["Ctrl+Shift+O", "Open one folder"],
   ["Ctrl+N", "Start over – load new data"],
   ["Ctrl+H", "FITS header window"],

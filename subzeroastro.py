@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.25 beta"
+APP_VERSION = "0.9.26 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -172,7 +172,7 @@ class ImageView(QGraphicsView):
         self.setRenderHint(QPainter.SmoothPixmapTransform)
         self.fit_mode = True
         self.has_image = False
-        self.message = "Click Load Data… (Ctrl+O) to choose folders\nor drag folders onto this window"
+        self.message = "Click Load Light Frame Data… (Ctrl+O) to choose folders\nor drag folders onto this window"
         self.banner = ""
         self.subtitle = ""
         self.on_detail = None        # called when zoomed in enough to want full resolution
@@ -637,7 +637,7 @@ class LoadDataDialog(QDialog):
 
     def __init__(self, parent, settings, recursive_default=False, initial=None):
         super().__init__(parent)
-        self.setWindowTitle("Load Data")
+        self.setWindowTitle("Load Light Frame Data")
         self.setAcceptDrops(True)
         self.settings = settings
         self.resize(760, 440)
@@ -1115,8 +1115,9 @@ class MainWindow(QMainWindow):
             self.addAction(a)
             return a
 
-        self.act_load = act("Load Data…", self.load_data, "Ctrl+O", QStyle.SP_DirOpenIcon,
-                            "Choose folders and files from one or more places, then start processing (Ctrl+O)")
+        self.act_load = act("Load Light Frame Data…", self.load_data, "Ctrl+O", QStyle.SP_DirOpenIcon,
+                            "Choose folders of LIGHT frames from one or more places, then start processing (Ctrl+O). "
+                            "Calibration frames (bias, darks, flats) go through Stack > Build Calibration Masters…")
         self.act_open = act("Open One Folder…", self.choose_folder, "Ctrl+Shift+O", None,
                             "Quickly open a single folder (Ctrl+Shift+O)")
         self.act_reject = act("Reject / Restore", self.toggle_reject, ["X", "Delete"],
@@ -2433,7 +2434,7 @@ class MainWindow(QMainWindow):
         self.list.clear()
         self.items.clear()
         self.list.blockSignals(False)
-        self.view.clear("Click Load Data… (Ctrl+O) to choose folders\nor drag folders onto this window")
+        self.view.clear("Click Load Light Frame Data… (Ctrl+O) to choose folders\nor drag folders onto this window")
         self.fill_inspector(None)
         self.warning_label.setText("")
         self.ready_bar.hide()

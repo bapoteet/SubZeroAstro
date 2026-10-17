@@ -1404,7 +1404,7 @@ class FinishWindow(QMainWindow):
                      "if you want to keep it.")
             box.setText("<b>End this project and start a new one?</b><br><br>"
                         "All pages and images close and SubZeroAstro starts again at "
-                        "<b>Quality and Cull</b> with the Load Data window, ready for your next target.<br><br>"
+                        "<b>Quality and Cull</b> with the Load Light Frame Data window, ready for your next target.<br><br>"
                         f"{saved}<br><br><small>Nothing on disk is deleted. Every step here is kept: opening "
                         "these masters on Finishing Touches later carries on where you stopped.</small>")
             b_save = None if self.picture_saved or not self.state or self.state.rgb is None else \
