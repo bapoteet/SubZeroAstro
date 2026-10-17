@@ -42,7 +42,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.24 beta"
+APP_VERSION = "0.9.25 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -1253,6 +1253,12 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_advance)
         m = mb.addMenu("&Stack")
         m.addAction(self.act_stack)
+        a = QAction("Build Calibration Masters… (no lights needed)", self)
+        a.setToolTip("Turn a folder of bias, dark, flat and dark-flat subframes into masters in your calibration "
+                     "library")
+        a.triggered.connect(self.open_cal_builder)
+        m.addAction(a)
+        self.act_cal_builder = a
         a = QAction("Astro Image Processing…", self)
         a.triggered.connect(self.open_prepare)
         m.addAction(a)
@@ -2321,8 +2327,18 @@ class MainWindow(QMainWindow):
     def open_stacking(self):
         kept = self.kept_lights()
         if not kept:
-            QMessageBox.information(self, APP_NAME, "Load and cull some light frames first — the Stacking "
-                                    "window opens with the frames you kept.")
+            box = QMessageBox(self)
+            box.setWindowTitle(APP_NAME)
+            box.setIcon(QMessageBox.Information)
+            box.setText("Load and cull some light frames first — the Stacking window opens with the frames you "
+                        "kept.")
+            box.setInformativeText("Only want to turn calibration frames (bias, darks, flats) into masters? "
+                                   "That needs no light frames.")
+            b_cal = box.addButton("Build Calibration Masters…", QMessageBox.AcceptRole)
+            box.addButton(QMessageBox.Close)
+            box.exec()
+            if box.clickedButton() is b_cal:
+                self.open_cal_builder()
             return
         if self.loaded_count < len(self.frames):
             if QMessageBox.question(self, APP_NAME, f"{len(self.frames) - self.loaded_count} frames are still "
@@ -2333,6 +2349,31 @@ class MainWindow(QMainWindow):
         import stack_window
         self.ready_bar.hide()
         ui_header.open_page(self, "stack_win", tuple(sorted(str(f.path) for f in kept)), lambda: stack_window.StackWindow(self, kept, self.settings))
+
+    def open_cal_builder(self, folder=None, modal=True):
+        """Build Calibration Masters straight from page 1 - no light frames needed."""
+        import json as _json
+        import cal_builder_window
+        import stacking as _st
+        try:
+            rigs = _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
+        except (ValueError, TypeError):
+            rigs = _st.Rigs()
+        fmts = tuple(f for f, k, d in (("fits", "stack/fits", True), ("xisf", "stack/xisf", False))
+                     if self.settings.value(k, d, type=bool)) or ("fits",)
+        dlg = cal_builder_window.CalBuilderDialog(self, self.settings.value("stack/cal_root", "") or "", rigs, fmts,
+                                                  float(self.settings.value("stack/kappa", 3.0)))
+        self.cal_builder = dlg
+        if folder:
+            dlg.choose_folder(folder)
+        if not modal:
+            dlg.show()
+            return dlg
+        dlg.exec()
+        lib = dlg.lib_edit.text().strip()
+        if lib and not (self.settings.value("stack/cal_root", "") or ""):
+            self.settings.setValue("stack/cal_root", lib)      # page 2 then finds the new masters
+        return dlg
 
     def open_prepare(self):
         import prepare_window

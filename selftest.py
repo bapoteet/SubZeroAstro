@@ -802,6 +802,15 @@ def run(app, out_dir: Path) -> int:
         _cbd.reject()
         check(win.btn_build_masters.isVisible() and _cbn == 6 and _cbd.rig.currentText() == "ScopeX",
               f"page 2 has Build Calibration Masters; its window found {_cbn} masters to build in a folder")
+        _cbd1 = w.open_cal_builder(folder=str(session.parent / "ScopeXCalis"), modal=False)
+        if _cbd1.work is not None:
+            _cbd1.work.wait(60000)
+        for _k in range(20):
+            QApplication.processEvents()
+        _cbn1 = len(_cbd1.jobs)
+        _cbd1.reject()
+        check(w.act_cal_builder is not None and _cbn1 == 6,
+              f"page 1 Stack menu opens Build Calibration Masters without lights ({_cbn1} masters found)")
         fake = Path(__file__).resolve().parent / "tests" / "fake_tools"
         state["fake"] = fake.is_dir() and not getattr(sys, "frozen", False)
         if state["fake"]:
