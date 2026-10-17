@@ -1,0 +1,232 @@
+Created 16 synthetic frames in 1.0s at /var/folders/s6/5hzmn6lx4dz5nxs7k_0slzph0000gn/T/sza_selftest_18s3aaan/M33
+PASS  no flats for a filter: page 2 plans a sky flat from the light frames
+PASS  sky flat captures the vignetting (corner 0.750 -> 0.758) and the dust donut (0.055 -> 0.041) with the stars and light-pollution tilt taken out
+PASS  a dark as bright as the sky stops the sky flat with a clear message
+PASS  a poor SkyFlat is caught (2 reasons) and the user chooses: without flats or use anyway
+PASS  too few light frames: no sky flat, the usual 'no flats' warning
+PASS  page 1 loads XISF light frames (16-bit and 0..1 float) and measures them exactly like FITS {'a.fits': (3.926, 56, 800), 'b.xisf': (3.926, 56, 800), 'c.xisf': (3.926, 56, 800)}
+PASS  XISF with zlib, LZ4, LZ4-HC and Zstandard compression opens ({'zlib': True, 'lz4': True, 'lz4hc+sh': True, 'zstd+sh': True}; built-in LZ4 decoder agrees: True)
+PASS  Build Calibration Masters sorts one mixed folder into ['bias0', 'dark180', 'dark2', 'dark300', 'flatHa', 'flatOIII'] for rig 'ScopeX', saves them to the library and flags the leaky dark
+PASS  a dark that light leaked into (brighter than the lights, uneven like a picture) is reported plainly
+PASS  page 2 checks the dark subtraction and warns when a master is on the wrong scale (WARNING: the dark master is practically zero (0.008) while t…)
+PASS  a 0..1 floating-point master with any (or no) stated range is read in camera units
+PASS  RGB+Ha galaxy: the HII regions are added on their own (knots 0.0058, smooth disk 0.00013)
+PASS  DWARF mini subs recognised (light, DWARF mini, 14.0 C)
+PASS  Vespera Pro subs recognised (light, Vespera Pro, 10.0 s)
+PASS  Seestar stack recognised as stacked colour (3 planes, 1240 s)
+PASS  a Seestar stack can go straight into Prepare
+PASS  dual-band filters recognised (L-Ultimate: Ha+OIII, L-Synergy: SII+OIII)
+PASS  filter found in file names ('…SQA55Lult_0107.fit' -> L-Ultimate)
+PASS  Seestar LP stack gets dual-band quick-look palettes (['HOO (dual-band)', 'Gold & blue (dual-band)', 'RGB (colour camera)'])
+PASS  alt-az field rotation through 60 degrees stacks and auto-crops (6/6 frames, auto-crop (64, 64, 340, 340))
+PASS  robust star finder aligns faint subs with hot pixels (101 stars, shift (-13.36, 7.31))
+PASS  banner 'SubZeroAstro / Astro Image Quality and Cull' above working menus
+PASS  Help > User Manual (PDF) is there and the manual ships with the app (/Users/runner/work/SubZeroAstro/SubZeroAstro/docs/SubZeroAstro_User_Manual.pdf)
+PASS  the SubZeroAstro icon ships with the app and is set on the windows (/Users/runner/work/SubZeroAstro/SubZeroAstro/assets/icon_256.png)
+PASS  the main window knows whether it fills the screen (it opens filled next time)
+PASS  'Include subfolders' is on by default
+qt.qpa.fonts: Populating font family aliases took 101 ms. Replace uses of missing font family "Segoe UI" with one that exists to avoid this cost. 
+PASS  intro animation plays and closes by itself (~4.5 s)
+Measured 16 frames in 6.9s
+PASS  16 frames listed
+PASS  no unreadable frames
+PASS  trailed frame Light_Ha_005.fits has a red badge (got red: Elongated / trailed stars (e = 0.85))
+PASS  cloud frame Light_OIII_008.fits has a red badge (got red: Low SNR (20% of median) - clouds, haze or dew?)
+PASS  focus frame Light_OIII_012.fits has a red badge (got red: Soft focus / poor seeing (FWHM 60% above median))
+PASS  good frames green (13/13)
+PASS  FWHM of good frames ≈ 3.0 px (got 3.00–3.00)
+PASS  chart has 16 points
+PASS  sidebar lists 16 frames
+screenshot 1_main_window_fwhm.png: saved (1600x942)
+PASS  missing helper programs are each reported with what happens without them
+PASS  page 1 shows an amber banner when helper programs are missing
+screenshot 1a_tools_banner.png: saved (1600x942)
+PASS  'Don't Remind Me' hides the banner while nothing changes
+PASS  an installed but unlicensed RC-Astro tool is flagged on page 1
+PASS  a new problem brings the banner back after 'Don't Remind Me'
+PASS  all helper programs found and ready
+PASS  no banner when every helper program is ready
+PASS  Your Tools window lists each helper with its status, Browse… and Download Page
+screenshot 1b_your_tools.png: saved (940x246)
+PASS  page 1 (Quality and Cull) fits a small laptop screen (needs at least 784x415, limit 1280x680)
+PASS  a page never hangs off the screen (window (0, 53, 1920, 942), screen (0, 25, 1920, 970))
+PASS  page 1 status line (frame counts) is on screen
+PASS  good / marginal / poor counts shown in the Kept frames box
+PASS  Settings menu has 'Your Tools…'
+PASS  worst-first sort puts the 3 bad frames on top (['Light_Ha_005.fits', 'Light_OIII_012.fits', 'Light_OIII_008.fits'])
+screenshot 2_sorted_worst_first_score_chart.png: saved (1600x942)
+PASS  Auto-Flag defaults catch all bad frames (['Light_Ha_005.fits', 'Light_OIII_008.fits', 'Light_OIII_012.fits'])
+screenshot 3_autoflag_dialog.png: saved (342x320)
+PASS  Flagged view lists the flagged frames
+PASS  flagged frames moved to REJECTED (3)
+screenshot 4_after_reject_eccentricity_chart.png: saved (1600x942)
+PASS  undo restored all files and removed REJECTED
+PASS  results cache written
+screenshot 5_zoom_100.png: saved (1600x942)
+PASS  kept-frames summary shows live averages (<b>13</b> of 16 frames · <b>1.1 h</b><br>FWHM <b>3.00</b> px…)
+PASS  next step 'Calibrate and Stack ➜' in the banner
+PASS  FITS header window lists the header (17 cards)
+PASS  header window search finds a keyword
+PASS  Set Filter Name relabels the frames
+PASS  filter name can be set back to the recorded one
+PASS  the image can be hidden
+PASS  less preset flags all bad frames (3 flagged)
+PASS  less preset flags no good frames ([])
+PASS  semi preset flags all bad frames (3 flagged)
+PASS  semi preset flags no good frames ([])
+PASS  aggressive preset flags all bad frames (3 flagged)
+PASS  aggressive preset flags no good frames ([])
+PASS  one Ctrl+Z undoes a whole Auto-cull preset
+PASS  Saved Progress dialog shows the space used
+screenshot 6_semi_aggressive_flagged.png: saved (1600x942)
+PASS  Load Data lists 2 folders (duplicate ignored)
+PASS  Add Folders… lets you pick several folders at once (Shift/Ctrl-click) (2 of 5 views)
+screenshot 7b_folder_picker.png: saved (860x540)
+PASS  several picked folders come back together (['M33', 'M33_night2'])
+PASS  picking two folders adds both, with their subfolders
+PASS  Load Data: filter name typed as 'LUlt' becomes L-Ultimate
+PASS  Load Data: '(as recorded)' leaves the files' filter
+screenshot 7_load_data_window.png: saved (760x440)
+PASS  Start Over clears the session
+PASS  Reopen Last Session restores folders and flags (3 flagged)
+PASS  duplicate frames skipped with a notice (16 duplicate frames were skipped - the same file a)
+PASS  two folders loaded together (32 frames)
+PASS  frames keep their folder names (['M33', 'M33_night2'])
+screenshot 8_two_folders.png: saved (1600x942)
+PASS  stacking window groups lights by filter (['M33 · Ha · TestCamera · 1140mm scope', 'M33 · OIII · TestCamera · 1140mm scope'])
+PASS  each group has its 16 kept frames
+PASS  missing darks are reported before calibration is added
+PASS  calibration sets recognised (['bias', 'dark', 'flat', 'flat'])
+PASS  bias, darks and flats matched ([('Ha', True, 'exact', True), ('OIII', True, 'exact', True)])
+screenshot 9_stacking_window.png: saved (1300x860)
+Stacked 2 groups in 4.8s
+PASS  both groups stacked ([None, None])
+master lights: M33_Ha_Master_2026-10-10.fits, M33_Ha_Master_2026-10-10.xisf, M33_Ha_Master_2026-10-10_stacklog.txt, M33_OIII_Master_2026-10-10.fits, M33_OIII_Master_2026-10-10.xisf, M33_OIII_Master_2026-10-10_stacklog.txt
+PASS  Ha master saved as FITS
+PASS  OIII master saved as XISF
+PASS  stack log saved next to the master
+calibration library: 1140mm scope/Masters/Test Camera/Bias/MasterBias_TestCamera.fits; 1140mm scope/Masters/Test Camera/Darks/MasterDark_TestCamera_300s.fits; 1140mm scope/Masters/Test Camera/Flats/Ha/MasterFlat_Ha_TestCamera_2026-10-10.fits; 1140mm scope/Masters/Test Camera/Flats/OIII/MasterFlat_OIII_TestCamera_2026-10-10.fits
+PASS  calibration masters saved into the library
+PASS  master header records 16 frames (16, Master Light)
+PASS  master saved in PixInsight's 0-1 range (max 0.216)
+PASS  master records its common reference and plate-solve hints (Light_Ha_011.fits)
+PASS  master records each night's acquisition for AstroBin ([('2026-10-10', 16, 300.0, 2.04)], {'darks': 7, 'flats': 3, 'flatDarks': 0, 'bias': 7})
+PASS  well-matched calibration frames give no calibration warnings ([])
+PASS  after stacking, the saved library masters are used next time ({('Ha', 'bias'): 'library', ('Ha', 'dark'): 'library', ('Ha', 'flat'): 'library', ('OIII', 'bias'): 'library', ('OIII', 'dark'): 'library', ('OIII', 'flat'): 'library'})
+screenshot 10_stacking_done.png: saved (1300x860)
+PASS  Continue to Image Processing button enabled after stacking
+PASS  a finished stacking run leaves no resume notes ([])
+PASS  page 2 has Build Calibration Masters; its window found 6 masters to build in a folder
+PASS  page 1 Stack menu opens Build Calibration Masters without lights (6 masters found)
+PASS  prepare window loads the 2 masters as one target ([['Ha', 'OIII']])
+PASS  RC-Astro CLI detected with version and licenses
+PASS  dedicated NVIDIA GPU chosen by default (gpu1)
+PASS  NoiseXTerminator controls generated from the CLI description
+PASS  Intensity/Color Separation switches the NoiseXTerminator sliders
+PASS  BlurXTerminator PSF Diameter greyed out while Automatic PSF is on
+PASS  'RC-Astro Licences…' button on the RC-Astro CLI row
+PASS  rc-astro console messages shown without colour codes or progress redraws
+PASS  an unlicensed StarXTerminator is greyed out on the page
+PASS  licence window lists each RC-Astro tool and its licence
+screenshot 11a_rc_licences.png: saved (817x539)
+PASS  a refused activation code is reported and nothing changes
+PASS  activation code pasted into 'rc-astro license' activates every tool
+PASS  Check for Updates shows what rc-astro update says
+PASS  after activating, the page re-reads the licences and StarXTerminator is available
+screenshot 11_prepare_window.png: saved (1450x900)
+PASS  prepare produced results (1)
+PASS  after a run the page's run button turns amber ('Run Again?') on both pages
+PASS  page 3 says 'Ready for Processing Finishing Touches' when done (✓ Ready for Processing Finishing Touches)
+PASS  page 3 completion message says the page is complete and what comes next
+PASS  page 3 shows the folder the images were saved in (Saved in: <b>/var/folders/s6/5hzmn6lx4dz5nxs7k_0slzph0000gn/T/sza_selftest_18s3aaan/Final )
+PASS  custom output folder gets a per-target subfolder
+PASS  Ha + SII/OIII stacked in separate runs become one set and are lined up ((0, 7, 390, 300))
+PASS  Askar D1 (Ha+OIII) and D2 (SII+OIII) are known dual-band filters
+PASS  filter-wheel names like 'Ha 7nm', 'O', 'S', 'Antlia Ha 3nm Pro' are recognised ({})
+PASS  a frame saved as a mirror image (other capture setting / row order) is still lined up
+PASS  a tool's JSON answer is found even with notices around it; no answer is handled, not a crash
+PASS  NoiseXTerminator never starts at 0 (typical 0.6), a chosen value is kept
+prepared: M33_HOO_quicklook.jpg, M33_HOO_quicklook.tif, M33_Ha_Master_2026-10-10_prepared.fits, M33_Ha_Master_2026-10-10_prepared.xisf, M33_Ha_Master_2026-10-10_prepared_stars.fits, M33_Ha_Master_2026-10-10_prepared_stars.xisf, M33_OIII_Master_2026-10-10_prepared.fits, M33_OIII_Master_2026-10-10_prepared.xisf, M33_OIII_Master_2026-10-10_prepared_stars.fits, M33_OIII_Master_2026-10-10_prepared_stars.xisf, M33_PixInsight_next_steps.html
+PASS  two prepared XISF masters
+PASS  quick-look JPG and 16-bit TIFF saved
+PASS  PixInsight plan saved
+PASS  unticked PNG format not saved
+PASS  final images saved to the chosen folder, in a per-target subfolder (Final Images\M33)
+PASS  prepared master is plate solved (ASTAP)
+PASS  StarXTerminator stars image saved
+PASS  a tool that hands the picture back upside down is turned back; unannounced stars image picked up
+PASS  prepared master faces the same way as the stacked master (crop at 8,8)
+PASS  plan ticks the steps done here (['Crop the stacking edges', 'Plate solve', 'Remove gradients', 'Sharpen with BlurXTerminator', 'Separate the stars'])
+screenshot 12_prepare_done.png: saved (1450x900)
+screenshot 13_ready_for_pixinsight.png: saved (820x700)
+PASS  step history lists each finished step (5, expected 5)
+PASS  after Prepare the view shows the result of the last step
+PASS  Before and Go Back buttons available
+screenshot 14_step_history.png: saved (1450x900)
+PASS  Go Back & Redo keeps only the earlier steps (1)
+PASS  re-run resumed from saved progress (1 step kept)
+PASS  history complete again after the redo
+PASS  prepared masters found for Finish (['M33_Ha_Master_2026-10-10_prepared.xisf', 'M33_OIII_Master_2026-10-10_prepared.xisf'])
+PASS  Finish loads the Ha/OIII masters as narrowband (mono_nb)
+PASS  stars separated by Prepare are picked up (per filter)
+PASS  first recommendation is to combine the filters (combine)
+PASS  page 2 (Calibrate and Stack) fits a small laptop screen (needs at least 916x633, limit 1280x680)
+PASS  page 3 (Astro Image Processing) fits a small laptop screen (needs at least 921x524, limit 1280x680)
+PASS  page 4 (Finishing Touches) fits a small laptop screen (needs at least 1230x334, limit 1280x680)
+PASS  every window shows the banner with its page title
+PASS  every page shows the version in small print (by Brian A. Poteet  ·  v0.9.28 beta)
+PASS  each page has '◀ previous page' at the top left
+PASS  next-step buttons sit at the top right
+PASS  ◀ back steps this page aside and shows the previous page
+PASS  Next brings the same page back as it was (input unchanged)
+screenshot 15_finish_start.png: saved (1500x942)
+/Users/runner/work/SubZeroAstro/SubZeroAstro/finish_window.py:1032: RuntimeWarning: libpyside: Failed to disconnect (None) from signal "idClicked(int)".
+  self.group.idClicked.disconnect()
+PASS  palette choices shown as pictures (['HOO', 'HOO (vivid)', 'Gold & blue', 'Foraxx (dynamic)'])
+screenshot 16_finish_palette_choices.png: saved (1500x942)
+PASS  Mote Buster opens with clickable circles (No donuts found automatically (ones on bright nebulosity are left to y)
+PASS  the dust donut tool is called Mote Buster
+PASS  a circle can be added for a donut SubZeroAstro did not find
+screenshot 17_finish_brighten_choices.png: saved (1502x942)
+PASS  Brighten offers 5 strengths to pick from
+PASS  clicking a version previews it big without applying it
+PASS  moving a fine-tune slider updates the preview
+screenshot 19_finish_fine_tune.png: saved (1502x942)
+PASS  Cancel leaves the picture exactly as it was
+PASS  Curves shows a curve you can drag
+PASS  recommended workflow runs to a finished picture (['combine', 'stars_out', 'stretch', 'scnr', 'curves', 'saturation', 'local', 'star_stretch', 'shrink', 'star_color', 'stars_back'])
+PASS  stars from Prepare: 'Take Stars Out' is offered as a real step, not pre-ticked (['combine', 'stars_out', 'stretch', 'scnr', 'curves', 'saturation', 'local', 'star_stretch', 'shrink', 'star_color', 'stars_back'])
+PASS  narrowband: Star Colours is recommended before the stars go back
+PASS  fine-tuned values are applied
+PASS  Tame Bright Core previews with 'Show what will change'
+screenshot 20_finish_tame_core_mask.png: saved (1502x942)
+PASS  Spot Fix: click marks a spot, right-click removes the last
+PASS  optional tools (Tame Bright Core, local contrast, Spot Fix) work
+PASS  Undo removes the last step
+PASS  finished sky is neutral and sensibly bright ([0.133, 0.124, 0.133])
+PASS  every step saved in the project (14)
+PASS  Final Crop shows a draggable box on the picture
+screenshot 22_finish_final_crop.png: saved (1502x942)
+PASS  Final Crop trims the picture to the box ((866, 1292) from (892, 1342))
+PASS  Sign Your Picture offers 3 fonts (['Elegant script', 'Handwritten', 'Classic'])
+screenshot 21_finish_signature.png: saved (1502x942)
+PASS  the signature is drawn in the bottom-right corner only
+PASS  Stop Here - Continue in PixInsight saves XISF + a note (['M33_continue_in_PixInsight.txt', 'M33_stretched.xisf'])
+PASS  Share to AstroBin saves the picture + an acquisition CSV (['M33_AstroBin.jpg', 'M33_astrobin_acquisition.csv'], [['date', 'filter', 'number', 'duration', 'iso', 'binning', 'gain', 'sensorCooling', 'fNumber', 'darks', 'flats', 'flatDarks', 'bias', 'bortle', 'meanSqm', 'meanFwhm', 'temperature'], ['2026-10-10', '', '16', '300', '', '1', '', '', '', '7', '3', '', '7', '', '', '2.04', ''], ['2026-10-10', '', '16', '300', '', '1', '', '', '', '7', '4', '', '7', '', '', '2.19', '']])
+PASS  Go Back to Here undoes the later steps
+screenshot 18_finish_done.png: saved (1502x942)
+PASS  reopening the same masters resumes the project (3 steps)
+PASS  Back to Start returns to the original masters
+PASS  Darken the Sky: sky 0.206 -> 0.111, faint nebula above the sky 0.047 -> 0.045; offered before Final Crop
+PASS  Mote Buster finds the donut ([[703, 346, 62]]) and divides it out (shadow -0.059 -> -0.002); offered while the picture is unstretched
+PASS  Final Noise Reduction runs NoiseXTerminator and keeps the picture the right way up (largest change 0.0004); offered after Darken the Sky ()
+PASS  saving a project again to the same folder keeps it (1 steps in M33.szproj)
+PASS  saving a project to a new folder copies it completely
+PASS  Zip My Logs packs every page's log, the stack logs and a system note (7 files)
+PASS  target types recognised (all right); a star cluster keeps every step, with star removal made optional
+PASS  comet stack follows the comet (moved 50.7 px, truly 51.4) and saves ['C2026X1_L_Master_2026-10-15.fits', 'C2026X1_L_Master_2026-10-15_Comet.fits', 'C2026X1_L_Master_2026-10-15_Stars.fits', 'C2026X1_L_Master_2026-10-15_stacklog.txt']
+PASS  Finishing Touches has 'End this Project and Start New Project' at the top
+PASS  Start New Project closes every page (4 open, still showing: []) and empties page 1
+screenshot 19a_new_project.png: saved (1600x942)
+
+RESULT: ALL CHECKS PASSED
