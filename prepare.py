@@ -414,7 +414,7 @@ def solve_with_retries(astap, path, ra, dec, fov, radius, cancel=None, progress=
     last = None
     for n, (f, r, why) in enumerate(tries):
         if n and progress:
-            progress(f"retry {n} of {len(tries) - 1} - field {f:.2f}°")
+            progress(f"retry {n} of {len(tries) - 1}" + (f" - field {f:.2f}°" if f else " - field from the header"))
         try:
             cards = astap.solve(path, ra, dec, f, radius=r, cancel=cancel)
             if f:
@@ -1003,6 +1003,8 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                     raise Cancelled()
                 except tools.ToolError as e:
                     lg(f"Plate solve failed for {m.name}: {e}")
+                except Exception as e:  # noqa: BLE001 - plate solving is optional: never stop the run
+                    lg(f"Plate solve skipped for {m.name} (unexpected problem: {type(e).__name__}: {e})")
         elif step == "gradient":
             for i, m in enumerate(masters):
                 pr(f"Removing gradients: {m.name}", s0 + ds * i / n)

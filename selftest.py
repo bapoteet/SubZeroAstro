@@ -268,6 +268,12 @@ def run(app, out_dir: Path) -> int:
     _c3, _n3 = _pp.solve_with_retries(_s3, "x.fits", 190.0, -11.6, None, 30.0, memo=_memo)   # no scale in the header
     _s4 = _StubAstap()
     _pp.solve_with_retries(_s4, "y.fits", 190.0, -11.6, None, 30.0, memo=_memo)              # the next master
+    _said = []
+    _s5 = _StubAstap()
+    _s5.solve = lambda *a, **k: (_ for _ in ()).throw(_tl.ToolError("No solution found!")) if k.get("radius") \
+        and a[3] != 0.35 else [("CRVAL1", 1.0, "")]
+    _pp.solve_with_retries(_s5, "z.fits", 190.0, -11.6, None, 30.0, progress=_said.append,
+                           memo={"fov": 0.9})                                                # retries with no field
     check(_c3 and "no pixel scale" in _n3 and _s4.calls[0] == 0.35 and len(_s4.calls) == 1,
           f"no focal length / pixel size in the header: typical field sizes are tried ({_n3}) and the one that "
           "worked is used first for the other masters")
