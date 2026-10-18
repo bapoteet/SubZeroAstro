@@ -1469,6 +1469,12 @@ def run(app, out_dir: Path) -> int:
         try:
             _lw, _lf, _lp = _ti.lookup_all("NGC281")
             _lmsg = f"{(_lw or ['-'])[0]} / {_lf}" + (f" / {_lp}" if _lp else "")
+            if _lf is None:
+                try:
+                    _raw = _ti._sesame_get(_ti.simbad_query("NGC281"))
+                except Exception as _e2:  # noqa: BLE001
+                    _raw = f"(fetch failed: {_e2})"
+                log("SESAME RAW: " + _raw[:1500].replace("\n", " | "))
             _lok = _lf is not None and _lf.get("type_code") == "HII" or any("CERTIFICATE" not in x.upper() for x in _lp)
         except Exception as _e:  # noqa: BLE001
             _lok, _lmsg = False, f"failed: {_e}"

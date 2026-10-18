@@ -141,7 +141,9 @@ def parse_sesame(xml: str):
     does not know the object."""
     import xml.etree.ElementTree as ET
     xml = re.sub(r'\sxmlns(:\w+)?="[^"]*"', "", xml or "")        # namespaces would hide the tags
+    xml = re.sub(r'\s[\w.-]+:[\w.-]+="[^"]*"', "", xml)             # e.g. xsi:noNamespaceSchemaLocation
     xml = re.sub(r"<(/?)\w+:", r"<\1", xml)
+    xml = re.sub(r"<!DOCTYPE[^>]*>", "", xml)
     try:
         root = ET.fromstring(xml.encode("utf-8"))
     except ET.ParseError:
