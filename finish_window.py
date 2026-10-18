@@ -332,8 +332,14 @@ class DescriptionDialog(QDialog):
         self.text.setPlainText(TI.note_text(self.target, title, text, url))
 
     def _failed(self, msg):
-        self.status.setText("Could not reach Wikipedia (no internet connection?). Type your own description if "
-                            f"you like.<br><small>{msg[:200]}</small>")
+        import html
+        import target_info as TI
+        why = TI.explain(msg)
+        self.status.setText("Could not get the description from Wikipedia: " + html.escape(why) + ". Type your own "
+                            "description if you like.<br><small>" + html.escape(msg[:240]) + "</small>")
+        par = self.parent()
+        if par is not None and hasattr(par, "log"):
+            par.log(f"Target description: could not reach Wikipedia - {msg[:300]}")
 
     def save(self):
         import target_info as TI

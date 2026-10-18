@@ -1447,6 +1447,16 @@ def run(app, out_dir: Path) -> int:
         _asked = []
         _res = _ti.lookup("NGC281", getter=lambda p: (_asked.append(p), _fake)[1])
         _note = _ti.note_text("NGC281", *_res) if _res else ""
+        _ctx = _ti.ssl_context()
+        _ncert = _ctx.cert_store_stats().get("x509_ca", 0)
+        try:
+            _live = _ti.lookup("M42")
+            _live_msg = f"live lookup: {_live[0] if _live else 'nothing found'}"
+            _live_ok = _live is not None
+        except Exception as _e:  # noqa: BLE001
+            _live_msg = f"live lookup failed: {_e}"
+            _live_ok = "CERTIFICATE" not in str(_e).upper()          # only a missing-certificate failure is ours
+        check(_ncert > 50 and _live_ok, f"secure connections work in this build ({_ncert} certificates; {_live_msg})")
         check(_res is not None and _asked[0]["titles"] == "Pacman Nebula" and "Third" not in _res[1]
               and "CC BY-SA" in _note and _note.startswith('NGC 281 "Pacman Nebula"')
               and _tg2.display_name("ElephantsTrunkNebula") == "Elephants Trunk Nebula",

@@ -8,9 +8,15 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+try:                         # the packaged app carries its own certificates (a Mac app can't use the system's)
+    import certifi as _certifi
+except ImportError:          # pragma: no cover
+    _certifi = None
 
 import targets
 
@@ -19,11 +25,35 @@ UA = "SubZeroAstro (https://github.com/bapoteet/SubZeroAstro) astrophotography a
 LICENCE = "CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/)"
 
 
-def _get(params: dict, timeout=12) -> dict:
+def ssl_context() -> ssl.SSLContext:
+    """Secure connections that work in the packaged app too: Python inside a Mac app finds none of the
+    system's certificates, so the certifi bundle that ships with the app is used (plus the system's)."""
+    ctx = ssl.create_default_context()
+    if _certifi is not None:
+        try:
+            ctx.load_verify_locations(cafile=_certifi.where())
+        except (OSError, ssl.SSLError):
+            pass
+    return ctx
+
+
+def _get(params: dict, timeout=15) -> dict:
     url = API + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as r:
         return json.loads(r.read().decode("utf-8"))
+
+
+def explain(err) -> str:
+    """A plain-words reason a lookup failed."""
+    t = str(err)
+    if "CERTIFICATE_VERIFY_FAILED" in t or "certificate" in t.lower():
+        return "the secure connection could not be checked (missing certificates)"
+    if "timed out" in t.lower():
+        return "Wikipedia did not answer in time"
+    if "Name or service not known" in t or "nodename nor servname" in t or "getaddrinfo" in t:
+        return "no internet connection (Wikipedia's address could not be found)"
+    return t
 
 
 def parse_result(data: dict, paragraphs: int = 2):
