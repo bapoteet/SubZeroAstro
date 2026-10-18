@@ -1575,6 +1575,17 @@ def run(app, out_dir: Path) -> int:
         else:
             check(_dn.runner is None or _dn.applicable(fw2.state)[0], "Final Noise Reduction says what it needs "
                                                                      "when NoiseXTerminator is missing")
+        # Save the Picture: the folder picked for one target is where the next new target starts
+        import finish_window as _fwm
+        _ed = _fwm.ExportDialog(fw2, fw2.settings, session.parent / "masters_A" / "Finished", "TargetA")
+        _ed.dir.setText(str(session.parent / "My Final Pictures"))
+        _ed.accept()
+        _ed2 = _fwm.ExportDialog(fw2, fw2.settings, session.parent / "masters_B" / "Finished", "TargetB")
+        _ed3 = _fwm.ExportDialog(fw2, fw2.settings, session.parent / "masters_A" / "Finished", "TargetA")
+        check(_ed2.dir.text() == str(session.parent / "My Final Pictures") == _ed3.dir.text(),
+              f"Save the Picture: a new target starts in the folder used last time ({Path(_ed2.dir.text()).name})")
+        _ed2.reject()
+        _ed3.reject()
         # Save Project As twice into the same folder (Mac report: the second save deleted the project)
         _pd = session.parent / "Final Astro Pics"
         _pd.mkdir(exist_ok=True)

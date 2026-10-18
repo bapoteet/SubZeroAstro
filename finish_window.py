@@ -32,6 +32,7 @@ import tools
 from prepare_window import CropView, save_rgb8
 
 SIGN_DRAGGED = "Where I dragged it"
+LAST_EXPORT_DIR = "finish/export_dir_last"     # the folder the last picture was saved to
 STATUS_MARK = {"done": "✓", "next": "➜", "later": "○", "skipped": "⤼", "n/a": "–", "optional": "◇"}
 PREVIEW_SIDE = 1400                         # live preview size (fast, still sharp on screen)
 
@@ -228,8 +229,9 @@ class ExportDialog(QDialog):
         lay = QVBoxLayout(self)
         form = QFormLayout()
         row = QHBoxLayout()
-        # each target remembers its own folder; a new target starts next to its own masters
-        self.dir = QLineEdit(settings.value(self.key, "") or str(default_dir))
+        # each target remembers its own folder; a new target starts in the folder used last time
+        # (only the very first picture starts next to its masters)
+        self.dir = QLineEdit(settings.value(self.key, "") or settings.value(LAST_EXPORT_DIR, "") or str(default_dir))
         b = QPushButton("Browse…")
         b.clicked.connect(lambda: self._browse())
         row.addWidget(self.dir, 1)
@@ -267,9 +269,11 @@ class ExportDialog(QDialog):
 
     def accept(self):
         self.settings.setValue(self.key, self.dir.text().strip())
+        self.settings.setValue(LAST_EXPORT_DIR, self.dir.text().strip())
         for k, cb in self.boxes.items():
             self.settings.setValue(f"finish/fmt_{k}", cb.isChecked())
         self.settings.setValue("finish/save_about", self.chk_about.isChecked())
+        self.settings.sync()                     # written now, not only when the app quits
         super().accept()
 
 
