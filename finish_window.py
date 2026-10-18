@@ -308,7 +308,7 @@ class DescriptionDialog(QDialog):
         t = self.target
 
         def work():
-            return TI.lookup(t)
+            return TI.lookup_all(t)
         if sync:
             try:
                 self._found(work())
@@ -321,15 +321,25 @@ class DescriptionDialog(QDialog):
         self.job.start()
 
     def _found(self, res):
+        import html
         import target_info as TI
-        if not res:
-            self.status.setText(f"Wikipedia has no article that matches <b>{self.target}</b>. Type your own "
-                                "description if you like.")
+        wiki, facts, problems = res
+        if wiki is None and facts is None:
+            why = ("; ".join(problems) if problems else
+                   f"neither Wikipedia nor SIMBAD knows {self.target!r} by that name")
+            self.status.setText(f"No description found: {html.escape(why)}. Type your own description if you like.")
+            par = self.parent()
+            if problems and par is not None and hasattr(par, "log"):
+                par.log("Target description: " + "; ".join(problems))
             return
-        title, text, url = res
-        self.status.setText(f"From Wikipedia: <b>{title}</b>. Edit it if you like, then save. "
-                            "(Wikipedia text may be reused with credit - the source line is included.)")
-        self.text.setPlainText(TI.note_text(self.target, title, text, url))
+        title, text, url = wiki if wiki else ("", "", "")
+        got = [x for x, ok in (("Wikipedia" + (f" (<b>{html.escape(title)}</b>)" if title else ""), wiki),
+                               ("SIMBAD facts", facts)) if ok]
+        note = " and ".join(got)
+        if problems:
+            note += " - " + html.escape("; ".join(problems))
+        self.status.setText(f"From {note}. Edit it if you like, then save. (The sources are credited at the end.)")
+        self.text.setPlainText(TI.note_text(self.target, title, text, url, facts))
 
     def _failed(self, msg):
         import html

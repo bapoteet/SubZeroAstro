@@ -1447,6 +1447,15 @@ def run(app, out_dir: Path) -> int:
         _asked = []
         _res = _ti.lookup("NGC281", getter=lambda p: (_asked.append(p), _fake)[1])
         _note = _ti.note_text("NGC281", *_res) if _res else ""
+        _sx = ('<?xml version="1.0"?><Sesame><Target option="S"><name>M 42</name><Resolver name="S=Simbad">'
+               '<otype>HII</otype><jradeg>83.82208</jradeg><jdedeg>-5.39111</jdedeg><mag band="V"><v>4.0</v>'
+               '</mag><oname>M  42</oname></Resolver></Target></Sesame>')
+        _sf = _ti.lookup_simbad("M42", getter=lambda q: _sx)
+        _sn = _ti.note_text("Sh2155", facts=_sf)
+        check(_sf is not None and _sf["type_code"] == "HII" and "H II region" in _sn and "RA 05h 35m" in _sn
+              and "SIMBAD" in _sn and _ti.simbad_query("Sh2155") == "Sh 2-155"
+              and _ti.lookup_simbad("x", getter=lambda q: "<Sesame><Target><name>x</name></Target></Sesame>") is None,
+              "SIMBAD facts: type, position and brightness, credited (and nothing when SIMBAD doesn't know it)")
         _ctx = _ti.ssl_context()
         _ncert = _ctx.cert_store_stats().get("x509_ca", 0)
         try:
@@ -1457,6 +1466,13 @@ def run(app, out_dir: Path) -> int:
             _live_msg = f"live lookup failed: {_e}"
             _live_ok = "CERTIFICATE" not in str(_e).upper()          # only a missing-certificate failure is ours
         check(_ncert > 50 and _live_ok, f"secure connections work in this build ({_ncert} certificates; {_live_msg})")
+        try:
+            _lw, _lf, _lp = _ti.lookup_all("NGC281")
+            _lmsg = f"{(_lw or ['-'])[0]} / {_lf}" + (f" / {_lp}" if _lp else "")
+            _lok = _lf is not None and _lf.get("type_code") == "HII" or any("CERTIFICATE" not in x.upper() for x in _lp)
+        except Exception as _e:  # noqa: BLE001
+            _lok, _lmsg = False, f"failed: {_e}"
+        check(_lok, f"live Wikipedia + SIMBAD lookup of NGC 281: {_lmsg}")
         check(_res is not None and _asked[0]["titles"] == "Pacman Nebula" and "Third" not in _res[1]
               and "CC BY-SA" in _note and _note.startswith('NGC 281 "Pacman Nebula"')
               and _tg2.display_name("ElephantsTrunkNebula") == "Elephants Trunk Nebula",
