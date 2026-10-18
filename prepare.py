@@ -104,7 +104,7 @@ def find_masters(paths) -> list:
     for p in paths:
         p = Path(p)
         if p.is_dir():
-            here = [f for f in p.iterdir() if f.suffix.lower() in st.IMAGE_EXTS]
+            here = [f for f in p.iterdir() if f.suffix.lower() in st.IMAGE_EXTS and not f.name.startswith(".")]
             stems = {f.stem for f in here}
             # a comet's extra masters (_Comet, _Stars) stay out when the joined master is there too -
             # pick one of them with Add Masters… to work on it

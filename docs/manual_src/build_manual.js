@@ -487,6 +487,7 @@ table(["Problem", "What to do"], [
   ["XTerminators very slow", "Choose your graphics card under **RC-Astro device** (4.1)."],
   ["Slow on a network drive", "Use *Star measurement: Fast*; hide the image (Ctrl+I); results are cached for next time."],
   ["Something went wrong mid-run", "Restart: SubZeroAstro offers to resume from its saved progress."],
+  ["Half the frames show *unreadable*, names starting with `._`", "Those are hidden macOS copies (AppleDouble files) that a Mac writes next to every file on a NAS or external drive - not pictures. Version 0.9.31 and later ignore them; with an older version, delete the `._` files or turn off *Include subfolders*."],
 ], [3300, 6060]);
 sec("11.2", "Getting help and reporting problems", ["Support", "Reporting problems", "Zip My Logs", "Logs", "Self-test"]);
 p("**Zip My Logs**: the button at the top left of every page (also **Help › Zip My Logs**) puts the log of every open page, the stack logs of your masters, page 3's processing report and a short note about your computer (SubZeroAstro version, system, screen, which helper programs were found) into one zip on your Desktop and shows it - text only, no pictures. Attach that zip to your message: it is the quickest way to get help.");

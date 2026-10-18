@@ -213,11 +213,17 @@ def run(app, out_dir: Path) -> int:
                    image_type="Light", sample_format="UInt16", compression="zlib+sh")
     _xs.write_xisf(_xd / "c.xisf", (_xu / 65535.0).astype(np.float32), [(k, v, "") for k, v in _xhd.items()],
                    image_type="Light")
+    (_xd / "._a.fits").write_bytes(b"\x00\x05\x16\x07\x00\x02\x00\x00Mac OS X        ")   # macOS AppleDouble
+    (_xd / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1")
     _xfr = core.scan_folder(_xd)
     _xres = {f.path.name: core.analyze_frame(f.path) for f in _xfr}
     _xm = {n: (round(r["metrics"]["fwhm"], 3), r["metrics"]["stars"], round(r["metrics"]["background"]))
            for n, r in _xres.items()}
     _xtop = {n: bool(r["thumb"][:2, :2].mean() > r["thumb"].mean()) for n, r in _xres.items()}
+    import stacking as _stk2
+    check(not any(f.path.name.startswith(".") for f in _xfr) and len(_xfr) == 3
+          and not any(i.path.name.startswith(".") for i in _stk2.scan_paths([_xd])[0]),
+          "macOS '._' copies and .DS_Store on a NAS / external drive are ignored, not shown as unreadable")
     check(sorted(_xm) == ["a.fits", "b.xisf", "c.xisf"] and len(set(_xm.values())) == 1 and all(_xtop.values()),
           f"page 1 loads XISF light frames (16-bit and 0..1 float) and measures them exactly like FITS {_xm}")
     _xdata = _xu.astype(np.float32)

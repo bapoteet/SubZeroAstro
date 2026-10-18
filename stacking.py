@@ -385,11 +385,11 @@ def scan_paths(paths, progress=None):
         p = Path(p)
         if p.is_dir():
             for dirpath, dirnames, filenames in os.walk(p):
-                dirnames[:] = [d for d in dirnames if d.upper() != core.REJECTED_DIR]
+                dirnames[:] = [d for d in dirnames if d.upper() != core.REJECTED_DIR and not d.startswith(".")]
                 for fn in filenames:
-                    if os.path.splitext(fn)[1].lower() in IMAGE_EXTS:
+                    if os.path.splitext(fn)[1].lower() in IMAGE_EXTS and not core.is_hidden_file(fn):
                         files.append(Path(dirpath) / fn)
-        elif p.suffix.lower() in IMAGE_EXTS:
+        elif p.suffix.lower() in IMAGE_EXTS and not core.is_hidden_file(p.name):
             files.append(p)
     infos, problems = [], []
     for k, f in enumerate(sorted(set(files), key=lambda x: core.natural_key(str(x)))):

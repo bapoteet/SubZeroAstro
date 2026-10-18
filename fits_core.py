@@ -22,6 +22,12 @@ import numpy as np
 
 FITS_EXTS = {".fits", ".fit", ".fts"}
 LIGHT_EXTS = FITS_EXTS | {".xisf"}       # what page 1 loads (XISF: PixInsight / N.I.N.A.)
+
+
+def is_hidden_file(name: str) -> bool:
+    """Files that are never pictures: macOS '._name' AppleDouble copies (written next to every file
+    on a NAS or external drive), '.DS_Store' and other dot-files."""
+    return Path(str(name)).name.startswith(".")
 REJECTED_DIR = "REJECTED"
 DEFAULT_SKIP_PREFIXES = ["FLAT", "DARK", "BIAS", "CALIB", "OFFSET"]
 
@@ -688,7 +694,8 @@ def _fits_entries(d: Path):
     try:
         with os.scandir(d) as it:
             for e in it:
-                if os.path.splitext(e.name)[1].lower() in LIGHT_EXTS and e.is_file():
+                if os.path.splitext(e.name)[1].lower() in LIGHT_EXTS and not is_hidden_file(e.name) \
+                        and e.is_file():
                     st = e.stat()
                     out.append((Path(e.path), st.st_size, st.st_mtime_ns))
     except OSError:
@@ -719,7 +726,8 @@ def scan_folder(root, recursive: bool = False, skip_prefixes=None):
         for dirpath, dirnames, _ in os.walk(root):
             dirnames[:] = sorted(
                 (n for n in dirnames
-                 if n.upper() != REJECTED_DIR and not any(n.upper().startswith(s) for s in skip)),
+                 if n.upper() != REJECTED_DIR and not n.startswith(".")
+                 and not any(n.upper().startswith(s) for s in skip)),
                 key=natural_key)
             add_dir(Path(dirpath))
     else:
@@ -731,7 +739,7 @@ def frames_from_files(files):
     """Frames for individually chosen/dropped files."""
     frames = []
     for f in sorted((Path(x) for x in files), key=lambda p: natural_key(str(p))):
-        if f.suffix.lower() not in LIGHT_EXTS:
+        if f.suffix.lower() not in LIGHT_EXTS or is_hidden_file(f.name):
             continue
         try:
             st = f.stat()
