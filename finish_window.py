@@ -675,6 +675,24 @@ class FinishWindow(QMainWindow):
         cr.addWidget(b_all)
         self.crop_row.setVisible(False)
         tl.addWidget(self.crop_row)
+        # Flip the Picture: two toggles; each press flips the preview (again = back)
+        self.flip_row = QWidget()
+        fr_ = QHBoxLayout(self.flip_row)
+        fr_.setContentsMargins(0, 0, 0, 0)
+        self.btn_flip_h = QPushButton("⇆  Flip Horizontally")
+        self.btn_flip_h.setCheckable(True)
+        self.btn_flip_h.setToolTip("Mirror left ↔ right. Press again to flip it back.")
+        self.btn_flip_v = QPushButton("⇅  Flip Vertically")
+        self.btn_flip_v.setCheckable(True)
+        self.btn_flip_v.setToolTip("Upside down. Press again to flip it back.")
+        for b in (self.btn_flip_h, self.btn_flip_v):
+            b.setStyleSheet("QPushButton { padding:6px 14px; } QPushButton:checked { background:#2f5d9e; "
+                            "color:white; }")
+            b.toggled.connect(lambda _on: self.schedule_preview())
+            fr_.addWidget(b)
+        fr_.addStretch(1)
+        self.flip_row.setVisible(False)
+        tl.addWidget(self.flip_row)
         self.spot_wheel_timer = QTimer(self)
         self.spot_wheel_timer.setSingleShot(True)
         self.spot_wheel_timer.setInterval(350)
@@ -1016,6 +1034,12 @@ class FinishWindow(QMainWindow):
                                                                    "SubZeroAstro made for you) in red"))
         self.sign_row.setVisible(key == "signature")
         self.crop_row.setVisible(key == "final_crop")
+        self.flip_row.setVisible(key == "flip")
+        if key == "flip":
+            for b in (self.btn_flip_h, self.btn_flip_v):
+                b.blockSignals(True)
+                b.setChecked(False)
+                b.blockSignals(False)
         if key == "signature":
             F.TOOLS["signature"].thumb_corner = self.sign_corner.currentText().lower()
             import targets as _tg
@@ -1333,6 +1357,8 @@ class FinishWindow(QMainWindow):
             return {"spots": [list(q) for q in self.spots]}
         if t.key == "final_crop":
             return {"rect": [int(x) for x in self.view.crop()]}
+        if t.key == "flip":
+            return {"h": self.btn_flip_h.isChecked(), "v": self.btn_flip_v.isChecked()}
         if t.key == "signature":
             p = dict(v.params)
             if self.fine_box.isChecked():
@@ -1548,6 +1574,10 @@ class FinishWindow(QMainWindow):
             return
         v = self.selected()
         params = self.current_params()
+        if t.key == "flip" and not params.get("h") and not params.get("v"):
+            if not self.synchronous:
+                QMessageBox.information(self, t.title, "Press Flip Horizontally or Flip Vertically first.")
+            return
         if t.key == "signature" and not params.get("text") and not params.get("target_text"):
             if not self.synchronous:
                 QMessageBox.information(self, t.title, "Type your signature (or the target name) first.")
@@ -1560,6 +1590,9 @@ class FinishWindow(QMainWindow):
         tuned = (self.fine_box.isChecked() and bool(self.fine_values)) or spots_tool
         label = (f"{len(params['spots'])} spot(s)" if spots_tool
                  else v.label + (" (fine-tuned)" if tuned else ""))
+        if t.key == "flip":
+            label = " and ".join(x for x, on in (("flipped horizontally", params.get("h")),
+                                                 ("flipped vertically", params.get("v"))) if on)
 
         def work():
             t0 = time.time()

@@ -415,7 +415,7 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Put Stars Back", "Blends the stars back at the strength you pick", "PixelMath screen blend"],
   ["Darken the Sky Background ◇", "Darker (or lighter) sky without dimming the nebula, faint dust or stars; also evens out a brighter corner or side", "ABE/DBE model + PixelMath"],
   ["Final Noise Reduction ◇", "A last, light NoiseXTerminator pass on the finished picture (needs the RC-Astro CLI)", "NoiseXTerminator"],
-  ["Flip the Picture ◇", "Mirror left ↔ right, flip upside down or turn 180° - the saved pictures are flipped too", "FastRotation"],
+  ["Flip the Picture ◇", "Flip Horizontally and/or Flip Vertically (each press toggles) - the saved pictures are flipped too", "FastRotation"],
   ["Final Crop ◇", "A last clean-up crop; finds ragged or off-colour edges for you", "DynamicCrop"],
   ["Spot Fix ◇", "Click dust donuts, satellite remnants or hot pixels to patch them", "CloneStamp"],
   ["Sign Your Picture ◇", "Your signature - and the target name above it - in a corner or wherever you drag it", "Annotation"],
@@ -436,7 +436,7 @@ bullets([
   "**Final Noise Reduction** runs NoiseXTerminator once more on the finished picture - most useful right after a darker sky, which shows grain more. The choices (*Light*, *Medium*, *Strong*) are shown at full size on the busiest part of the picture so you can judge the grain; **Strength** fine-tunes it. (BlurXTerminator is not offered here on purpose: it is made for unstretched data and already runs on page 3. For more crispness at the end, use **Bring Out Hidden Structure**.)",
   "**Final Crop** shows a yellow box on the whole picture, already placed where it found ragged or off-colour edges. Drag it or its sides (**Found Edges** / **Whole Picture** reset it) and press **Crop to the Box**.",
   "**Spot Fix**: click the middle of a blemish - a circle appears - then **turn the mouse wheel to make that circle bigger or smaller** until it just covers the blemish. Click a circle to pick it again (it turns blue) and drag to move it; right-click removes it. A dashed ring follows the mouse to show the size of the next circle. Then **Fix the marked spots**.",
-  "**Flip the Picture** (optional): *Mirror left ↔ right*, *Flip upside down* or *Turn 180°* - to match how the object usually looks in charts and other pictures. Flip before signing, so the signature reads the right way.",
+  "**Flip the Picture** (optional): press **Flip Horizontally** (left ↔ right) and/or **Flip Vertically** (upside down) - each press flips the preview, pressing again flips it back (both together turn it 180°). When it looks right, press **Keep This Orientation**. Useful to match how the object usually looks in charts and other pictures. Flip before signing, so the signature reads the right way.",
   "**Sign Your Picture**: type your name once (it is remembered) and, if you like, a **Target name** for a line above it - filled in for you (for example *NGC 281 \"Pacman Nebula\"*) and remembered for each target; empty it for none. Pick a font - *Elegant script*, *Handwritten* or *Classic* - a corner and a colour, and fine-tune size, opacity and distance from the edge. To put it anywhere else, **drag the dashed box** on the picture (or click where it should go); *Place* then says *Where I dragged it*. Do this last: the signature becomes part of the picture.",
 ]);
 img("21_finish_signature.png", "Sign Your Picture: signature text, corner, colour and three fonts (example data)");

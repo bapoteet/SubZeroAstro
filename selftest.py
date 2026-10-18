@@ -1333,6 +1333,24 @@ def run(app, out_dir: Path) -> int:
         QApplication.processEvents()
         check(fw.state.shape == (h0 - 26, w0 - 50) and "final_crop" in fw.state.done,
               f"Final Crop trims the picture to the box ({fw.state.shape} from {(h0, w0)})")
+        # Flip the Picture: two toggle buttons; pressing again flips back
+        _orig = fw.state.rgb.copy()
+        _nflip = len(fw.project.steps)
+        fw.open_tool("flip")
+        fw.btn_flip_h.click()
+        fw.btn_flip_h.click()                    # toggled back
+        fw.btn_flip_v.click()
+        QApplication.processEvents()
+        _fp = fw.current_params()
+        fw.apply_choice()
+        QApplication.processEvents()
+        _flip_ok = np.array_equal(fw.state.rgb, _orig[:, ::-1, :])
+        check(_fp == {"h": False, "v": True} and _flip_ok
+              and "flipped vertically" in fw.project.steps[-1]["label"],
+              f"Flip the Picture: Flip Horizontally / Flip Vertically toggle (pressing again flips back) - {_fp}")
+        fw.undo_last()
+        QApplication.processEvents()
+        check(len(fw.project.steps) == _nflip and np.array_equal(fw.state.rgb, _orig), "undo un-flips the picture")
         # Sign Your Picture
         before_sig = fw.state.rgb.copy()
         fw.open_tool("signature")
@@ -1404,15 +1422,15 @@ def run(app, out_dir: Path) -> int:
         _nb = {k: np.random.default_rng(1).random((40, 50)).astype(np.float32) for k in ("Ha", "OIII", "SII")}
         _labels = [v.label for v in F.TOOLS["combine"].variants(F.State(channels=_nb, kind="mono_nb"))]
         _fs = F.State(rgb=np.random.default_rng(2).random((3, 30, 40)).astype(np.float32), linear=False)
-        _lr = F.TOOLS["flip"].apply(_fs, {"how": "lr"}).rgb
-        _ud = F.TOOLS["flip"].apply(_fs, {"how": "ud"}).rgb
-        _bt = F.TOOLS["flip"].apply(_fs, {"how": "both"}).rgb
+        _lr = F.TOOLS["flip"].apply(_fs, {"h": True, "v": False}).rgb
+        _ud = F.TOOLS["flip"].apply(_fs, {"h": False, "v": True}).rgb
+        _bt = F.TOOLS["flip"].apply(_fs, {"h": True, "v": True}).rgb
         _flip_ok = (np.array_equal(_lr, _fs.rgb[:, :, ::-1]) and np.array_equal(_ud, _fs.rgb[:, ::-1, :])
                     and np.array_equal(_bt, _fs.rgb[:, ::-1, ::-1]))
         _wf = F.WORKFLOWS["mono_nb"]
         check("HOO" in _labels and _flip_ok and _wf.index("flip") < _wf.index("final_crop") < _wf.index("signature"),
-              f"palettes for Ha+OIII+SII include HOO ({_labels}); Flip the Picture mirrors, flips and turns 180°, "
-              "before the signature")
+              f"palettes for Ha+OIII+SII include HOO ({_labels}); Flip the Picture flips horizontally and / or "
+              "vertically, before the signature")
         _sp = {"text": "B. Poteet", "target_text": 'NGC 281 "Pacman Nebula"', "font": "Georgia", "size": 3.0}
         _b1 = F.SignPicture.block((600, 900), _sp)
         _b2 = F.SignPicture.block((600, 900), {**_sp, "target_text": ""})

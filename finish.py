@@ -1756,9 +1756,11 @@ class SignPicture(Tool):
 class FlipPicture(Tool):
     key = "flip"
     title = "Flip the Picture"
-    tip = ("Mirror the picture left to right, flip it upside down, or turn it half way round - for example "
-           "to match how the object looks in other pictures or charts. The saved pictures are flipped too.")
+    tip = ("Press Flip Horizontally or Flip Vertically - each press flips the picture (press again to flip it "
+           "back). When it looks right, keep it. The saved pictures are flipped too.")
     optional = True
+    pick = False
+    editor = "flip"                  # the window shows two toggle buttons
 
     def applicable(self, s):
         if s.rgb is None and not s.channels:
@@ -1766,19 +1768,23 @@ class FlipPicture(Tool):
         return True, ""
 
     def variants(self, s):
-        return [Variant("Mirror left ↔ right", {"how": "lr"}, "Left and right swap places", True),
-                Variant("Flip upside down", {"how": "ud"}, "Top and bottom swap places"),
-                Variant("Turn 180°", {"how": "both"}, "Both at once - the picture turned half way round")]
+        return [Variant("Keep This Orientation", {"h": False, "v": False},
+                        "Use the buttons above to flip the picture, then keep it", True)]
 
     def apply(self, s, params):
-        how = params.get("how", "lr")
-        if how == "lr":
+        h, v = bool(params.get("h")), bool(params.get("v"))
+        how = params.get("how")                       # projects saved by v0.9.29-0.9.31
+        if how:
+            h, v = how in ("lr", "both"), how in ("ud", "both")
+        if h and v:
+            fn = lambda a: np.ascontiguousarray(a[..., ::-1, ::-1])  # noqa: E731
+        elif h:
             fn = lambda a: np.ascontiguousarray(a[..., ::-1])        # noqa: E731
-        elif how == "ud":
+        elif v:
             fn = lambda a: np.ascontiguousarray(a[..., ::-1, :])     # noqa: E731
         else:
-            fn = lambda a: np.ascontiguousarray(a[..., ::-1, ::-1])  # noqa: E731
-        s = s._map(fn)
+            fn = None
+        s = s._map(fn) if fn else s.copy()
         s.done.append(self.key)
         return s
 
