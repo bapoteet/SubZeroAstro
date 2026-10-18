@@ -675,6 +675,10 @@ class FinishWindow(QMainWindow):
         cr.addWidget(b_all)
         self.crop_row.setVisible(False)
         tl.addWidget(self.crop_row)
+        self.spot_wheel_timer = QTimer(self)
+        self.spot_wheel_timer.setSingleShot(True)
+        self.spot_wheel_timer.setInterval(350)
+        self.spot_wheel_timer.timeout.connect(self.schedule_preview)
         self.sign_timer = QTimer(self)
         self.sign_timer.setSingleShot(True)
         self.sign_timer.setInterval(450)
@@ -1041,7 +1045,12 @@ class FinishWindow(QMainWindow):
             self.spot_r = float(getattr(self.tool, "spot_start", 10.0))
             self.show_current()
             self.view.on_click = self._spot_click
+            self.view.on_drag = self._spot_drag
+            self.view.on_hover = self._spot_hover
             self.view.on_wheel = self._spot_wheel
+            self.spot_active = None
+            spot_note = ("Click a blemish to circle it, then turn the mouse wheel to size that circle. Click a "
+                         "circle to pick it again (drag to move); right-click removes it.")
             if hasattr(self.tool, "found_spots"):
                 try:
                     found = self.tool.found_spots(self.state)
@@ -1052,9 +1061,10 @@ class FinishWindow(QMainWindow):
                     self._add_spot(x, y, r)
                 spot_note = ((f"Found {len(found)} donut(s) - circled in yellow. " if found else
                               "No donuts found automatically (ones on bright nebulosity are left to you). ") +
-                             "Click to add one (mouse wheel = circle size), right-click removes the last.")
+                             "Click a blemish to circle it, then turn the mouse wheel to size that circle. Click a "
+                             "circle to pick it again (drag to move); right-click removes it.")
         self.render_choices()
-        if getattr(self.tool, "editor", None) == "spots" and hasattr(self.tool, "found_spots"):
+        if getattr(self.tool, "editor", None) == "spots":
             self.choice_note.setText(spot_note)
         if key == "final_crop":
             self._set_crop_box("found")
@@ -1066,6 +1076,9 @@ class FinishWindow(QMainWindow):
         self.view.on_click = None
         self.view.on_wheel = None
         self.view.on_drag = None
+        self.view.on_hover = None
+        self._drop_hover_ring()
+        self.spot_active = None
         self._drop_sign_box()
         for it in self.spot_items:
             self.view.scene().removeItem(it)
@@ -1395,34 +1408,139 @@ class FinishWindow(QMainWindow):
         self.preview_job.failed.connect(lambda m: self.log("Preview failed: " + m[:300]))
         self.preview_job.start()
 
-    # ------------------------------------------------------------ Spot Fix clicks
+    # ------------------------------------------------------------ Spot Fix / Mote Buster circles
+    # Click on a blemish: a circle appears there, and the mouse wheel resizes THAT circle while you
+    # watch. Click inside a circle to pick it again (drag to move it); right-click removes the picked one.
+    # A dashed ring follows the mouse, showing the size the next circle will have.
+    SPOT_PEN = QColor(255, 200, 60)
+    SPOT_ACTIVE = QColor(80, 220, 255)
+
+    def _spot_disp(self, i):
+        f = getattr(self, "disp_factor", 1.0)
+        x, y, r = self.spots[i]
+        return x / f, y / f, r / f
+
+    def _redraw_spot(self, i):
+        x, y, r = self._spot_disp(i)
+        it = self.spot_items[i]
+        it.setRect(x - r, y - r, 2 * r, 2 * r)
+
+    def _set_active_spot(self, i):
+        self.spot_active = i
+        for k, it in enumerate(self.spot_items):
+            pen = QPen(self.SPOT_ACTIVE if k == i else self.SPOT_PEN, 0)
+            it.setPen(pen)
+
     def _add_spot(self, x_full, y_full, r_full):
         """A circle at full-size coordinates (drawn on the shown, possibly smaller, picture)."""
         f = getattr(self, "disp_factor", 1.0)
         self.spots.append([float(x_full), float(y_full), float(r_full)])
         x, y, r = x_full / f, y_full / f, r_full / f
         it = QGraphicsEllipseItem(x - r, y - r, 2 * r, 2 * r)
-        it.setPen(QPen(QColor(255, 200, 60), 0))
+        it.setPen(QPen(self.SPOT_PEN, 0))
         self.view.scene().addItem(it)
         self.spot_items.append(it)
 
-    def _spot_click(self, x, y, button):
-        f = getattr(self, "disp_factor", 1.0)
-        if button == Qt.RightButton:
-            if self.spots:
-                self.spots.pop()
-                it = self.spot_items.pop()
+    def _remove_spot(self, i):
+        if 0 <= i < len(self.spots):
+            self.spots.pop(i)
+            it = self.spot_items.pop(i)
+            if it.scene() is not None:
                 self.view.scene().removeItem(it)
-        else:
-            self._add_spot(x * f, y * f, self.spot_r)
-        self.choice_note.setText(f"{len(self.spots)} circle(s) marked. Circle size {self.spot_r:.0f} px (mouse wheel). "
-                                 "Right-click removes the last one.")
-        self.schedule_preview()
+        self._set_active_spot(len(self.spots) - 1 if self.spots else None)
+
+    def _spot_note(self):
+        n = len(self.spots)
+        act = getattr(self, "spot_active", None)
+        size = (f"Picked circle: {self.spots[act][2]:.0f} px" if act is not None and act < n
+                else f"Next circle: {self.spot_r:.0f} px")
+        self.choice_note.setText(f"{n} circle(s) marked. {size} - turn the mouse wheel to resize it. Click a "
+                                 "circle to pick it (drag to move), right-click removes the picked one.")
+
+    def _spot_hit(self, x, y):
+        """Index of the circle under (x, y) in shown pixels, or None (the smallest one wins)."""
+        hits = []
+        for i in range(len(self.spots)):
+            cx, cy, r = self._spot_disp(i)
+            d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+            if d <= max(r, 4.0):
+                hits.append((r, i))
+        return min(hits)[1] if hits else None
+
+    def _spot_drag(self, x, y, phase):
+        f = getattr(self, "disp_factor", 1.0)
+        if phase == "press":
+            i = self._spot_hit(x, y)
+            if i is None:
+                self._add_spot(x * f, y * f, self.spot_r)
+                i = len(self.spots) - 1
+                self._spot_grab = None              # a new circle: nothing to drag
+                self.schedule_preview()
+            else:
+                cx, cy, _r = self._spot_disp(i)
+                self._spot_grab = (x - cx, y - cy)
+            self._set_active_spot(i)
+            self._spot_note()
+            return
+        i = getattr(self, "spot_active", None)
+        grab = getattr(self, "_spot_grab", None)
+        if i is None or grab is None or i >= len(self.spots):
+            return
+        self.spots[i][0] = (x - grab[0]) * f
+        self.spots[i][1] = (y - grab[1]) * f
+        self._redraw_spot(i)
+        if phase == "release":
+            self._spot_grab = None
+            self.schedule_preview()
+
+    def _spot_click(self, x, y, button):
+        """Right-click: remove the picked circle (or the one under the mouse)."""
+        if button == Qt.RightButton and self.spots:
+            i = self._spot_hit(x, y)
+            if i is None:
+                i = getattr(self, "spot_active", None)
+            self._remove_spot(len(self.spots) - 1 if i is None else i)
+            self._spot_note()
+            self.schedule_preview()
 
     def _spot_wheel(self, steps):
         lo, hi = getattr(self.tool, "spot_range", (3.0, 80.0))
-        self.spot_r = float(min(hi, max(lo, self.spot_r * (1.15 ** steps))))
-        self.choice_note.setText(f"Circle size {self.spot_r:.0f} px - click to mark one.")
+        k = 1.12 ** steps
+        i = getattr(self, "spot_active", None)
+        if i is not None and i < len(self.spots):
+            self.spots[i][2] = float(min(hi, max(lo, self.spots[i][2] * k)))
+            self.spot_r = self.spots[i][2]           # the next circle starts at this size
+            self._redraw_spot(i)
+            self.spot_wheel_timer.start()            # redraw the preview once the wheel stops
+        else:
+            self.spot_r = float(min(hi, max(lo, self.spot_r * k)))
+        self._update_hover_ring()
+        self._spot_note()
+
+    def _spot_hover(self, x, y):
+        self._hover_xy = (x, y)
+        self._update_hover_ring()
+
+    def _update_hover_ring(self):
+        xy = getattr(self, "_hover_xy", None)
+        if xy is None or self.tool is None or getattr(self.tool, "editor", None) != "spots":
+            return
+        f = getattr(self, "disp_factor", 1.0)
+        r = self.spot_r / f
+        if getattr(self, "hover_ring", None) is None or self.hover_ring.scene() is None:
+            self.hover_ring = QGraphicsEllipseItem()
+            self.hover_ring.setPen(QPen(QColor(255, 255, 255, 140), 0, Qt.DashLine))
+            self.view.scene().addItem(self.hover_ring)
+        over = self._spot_hit(*xy) is not None
+        self.hover_ring.setVisible(not over)
+        self.hover_ring.setRect(xy[0] - r, xy[1] - r, 2 * r, 2 * r)
+
+    def _drop_hover_ring(self):
+        hr = getattr(self, "hover_ring", None)
+        if hr is not None and hr.scene() is not None:
+            self.view.scene().removeItem(hr)
+        self.hover_ring = None
+        self._hover_xy = None
 
     def apply_choice(self):
         t, s = self.tool, self.state

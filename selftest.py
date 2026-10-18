@@ -1283,10 +1283,27 @@ def run(app, out_dir: Path) -> int:
                       "Tame Bright Core previews with 'Show what will change'")
                 shot("20_finish_tame_core_mask.png", fw)
             if key == "spotfix":
-                fw._spot_click(120.0, 90.0, Qt.LeftButton)
-                fw._spot_click(200.0, 150.0, Qt.LeftButton)
-                fw._spot_click(0, 0, Qt.RightButton)
-                check(len(fw.spots) == 1, "Spot Fix: click marks a spot, right-click removes the last")
+                fw._spot_drag(120.0, 90.0, "press")
+                fw._spot_drag(120.0, 90.0, "release")
+                _r0 = fw.spots[0][2]
+                fw._spot_wheel(3)                               # resize the circle just placed
+                _r1 = fw.spots[0][2]
+                _rect = fw.spot_items[0].rect()
+                fw._spot_drag(200.0, 150.0, "press")
+                fw._spot_drag(200.0, 150.0, "release")
+                _c1 = list(fw.spots[0][:2])
+                fw._spot_drag(120.0, 90.0, "press")             # pick the first again and drag it
+                fw._spot_drag(130.0, 95.0, "move")
+                fw._spot_drag(130.0, 95.0, "release")
+                _f = getattr(fw, "disp_factor", 1.0)
+                _moved = abs(fw.spots[0][0] - _c1[0] - 10 * _f) < 1e-3 and fw.spot_active == 0
+                fw._spot_hover(300.0, 200.0)
+                _ring = getattr(fw, "hover_ring", None) is not None and fw.hover_ring.isVisible()
+                fw._spot_click(200.0, 150.0, Qt.RightButton)    # right-click removes the circle under the mouse
+                check(len(fw.spots) == 1 and _r1 > _r0 * 1.3 and abs(_rect.width() * _f / 2 - _r1) < 1e-3
+                      and _moved and _ring,
+                      f"Spot Fix: click places a circle, the wheel resizes it at once ({_r0:.0f} -> {_r1:.0f} px), "
+                      "a circle can be picked and dragged, a dashed ring shows the size, right-click removes")
             fw.apply_choice()
         check("core" in fw.state.done and "local" in fw.state.done and "spotfix" in fw.state.done,
               "optional tools (Tame Bright Core, local contrast, Spot Fix) work")
