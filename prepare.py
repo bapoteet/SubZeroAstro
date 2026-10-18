@@ -389,30 +389,46 @@ def solve_hints(m: Master):
     return ra, dec, fov
 
 
-def solve_with_retries(astap, path, ra, dec, fov, radius, cancel=None, progress=None):
+def solve_with_retries(astap, path, ra, dec, fov, radius, cancel=None, progress=None, memo=None):
     """Plate solve, trying again when the field size from the header is wrong - the usual cause of
     'No solution found': binning not counted in the pixel size (field half or double the real one), or
-    a focal reducer / Barlow the header doesn't know about. Returns (cards, note); raises tools.ToolError
-    with a plain explanation when every try fails."""
-    tries = [(fov, radius if ra is not None else 180.0, "")]
-    if fov:
-        r2 = min(radius, 10.0) if ra is not None else 180.0
+    a focal reducer / Barlow the header doesn't know about - or missing (no FOCALLEN / XPIXSZ): then
+    typical field sizes are tried. memo (a dict shared by the masters of one run) remembers the field
+    size that worked, and that nothing worked, so the other masters don't repeat the search.
+    Returns (cards, note); raises tools.ToolError with a plain explanation when every try fails."""
+    memo = memo if memo is not None else {}
+    r_near = min(radius, 10.0) if ra is not None else 180.0
+    tries = []
+    if memo.get("fov"):
+        tries.append((memo["fov"], r_near, "the field size that solved the other masters"))
+    tries.append((fov, radius if ra is not None else 180.0, ""))
+    if memo.get("failed"):
+        tries = tries[:2]                         # the search already failed for a master of this run
+    elif fov:
         for k, why in ((0.5, "binning"), (2.0, "binning"), (0.7, "a focal extender"), (1.4, "a focal reducer"),
                        (0.25, "4x binning"), (4.0, "4x binning")):
-            tries.append((fov * k, r2, f"the field is {k:g}x what the header says ({why}?)"))
+            tries.append((fov * k, r_near, f"the field is {k:g}x what the header says ({why}?)"))
+    else:                                         # no focal length / pixel size in the header
+        for f in (0.25, 0.35, 0.5, 1.0, 1.4, 2.0, 3.0, 4.5):
+            tries.append((f, r_near, f"the header has no pixel scale; a field {f:g}° tall fits"))
     last = None
     for n, (f, r, why) in enumerate(tries):
         if n and progress:
             progress(f"retry {n} of {len(tries) - 1} - field {f:.2f}°")
         try:
             cards = astap.solve(path, ra, dec, f, radius=r, cancel=cancel)
-            return cards, (f"Plate solved on retry {n}: {why}" if n else "")
+            if f:
+                memo["fov"] = f
+            return cards, (f"Plate solved on retry {n}: {why}" if n and why else "")
         except tools.ToolCancelled:
             raise
         except tools.ToolError as e:
             last = e
+    memo["failed"] = True
     dbs = tools.astap_databases(getattr(astap, "exe", None))
     hint = []
+    if not fov:
+        hint.append("the header has no focal length / pixel size; fields from 0.25° to 4.5° tall were tried")
     if fov:
         hint.append(f"the header gives a field {fov:.2f}° tall; fields from {fov / 4:.2f}° to {fov * 4:.2f}° were tried")
     small = [d for d in dbs if tools.ASTAP_DB_FOV.get(d, 99) <= 0.3]
@@ -966,6 +982,7 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
             lg(f"Cropped {n} master(s) to {extra}")
         elif step == "solve":
             astap = tools.ASTAP(opts.astap)
+            solve_memo = {}
             for i, m in enumerate(masters):
                 pr(f"Plate solving {m.name}", s0 + ds * i / n)
                 ra, dec, fov = solve_hints(m)
@@ -973,7 +990,8 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                 _write_temp(m, tmp, mono=True)
                 try:
                     cards, note = solve_with_retries(astap, tmp, ra, dec, fov, opts.solve_radius, can,
-                                                     lambda t: pr(f"Plate solving {m.name}: {t}", s0 + ds * i / n))
+                                                     lambda t: pr(f"Plate solving {m.name}: {t}", s0 + ds * i / n),
+                                                     solve_memo)
                     if note:
                         lg(note)
                     apply_wcs(m, cards)

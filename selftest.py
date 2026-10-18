@@ -253,7 +253,7 @@ def run(app, out_dir: Path) -> int:
 
         def solve(self, path, ra, dec, fov, radius=30.0, cancel=None):
             self.calls.append(fov)
-            if fov and abs(fov - 0.355) < 0.03:
+            if fov and abs(fov - 0.355) < 0.03 or fov == 0.35:
                 return [("CRVAL1", 190.0, ""), ("CRVAL2", -11.6, "")]
             raise _tl.ToolError("ASTAP could not solve the image: No solution found!")
     _sa = _StubAstap()
@@ -263,6 +263,14 @@ def run(app, out_dir: Path) -> int:
         _fail_msg = ""
     except _tl.ToolError as _e:
         _fail_msg = str(_e)
+    _memo = {}
+    _s3 = _StubAstap()
+    _c3, _n3 = _pp.solve_with_retries(_s3, "x.fits", 190.0, -11.6, None, 30.0, memo=_memo)   # no scale in the header
+    _s4 = _StubAstap()
+    _pp.solve_with_retries(_s4, "y.fits", 190.0, -11.6, None, 30.0, memo=_memo)              # the next master
+    check(_c3 and "no pixel scale" in _n3 and _s4.calls[0] == 0.35 and len(_s4.calls) == 1,
+          f"no focal length / pixel size in the header: typical field sizes are tried ({_n3}) and the one that "
+          "worked is used first for the other masters")
     check(_cards and "binning" in _note and len(_sa.calls) == 2 and "were tried" in _fail_msg,
           f"plate solving retries other field sizes when the header's is wrong ({_note}); a final failure "
           "says what was tried")
