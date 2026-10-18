@@ -2623,6 +2623,31 @@ class Project:
 # Export
 # ==========================================================================
 
+def scope_names(sources) -> list:
+    """The telescope (rig) names in the masters' headers, in order, without repeats."""
+    import fits_core as core
+    out = []
+    for p in sources or []:
+        try:
+            _d, _c, look = core.read_fits(p, header_only=True)
+        except Exception:  # noqa: BLE001 - a missing or odd file just gives no name
+            continue
+        t = str(look.get("TELESCOP") or "").strip()
+        if t and t.lower() not in ("my scope", "unknown") and t not in out:
+            out.append(t)
+    return out
+
+
+def picture_folder_name(target: str, sources) -> str:
+    """'M101_RedCat51' - the folder that holds every file of one finished picture."""
+    import checkpoints as cp
+    name = cp.safe_name(target) if target else "Picture"
+    scopes = scope_names(sources)
+    if scopes:
+        name += "_" + "+".join(cp.safe_name(x) for x in scopes[:2])
+    return name
+
+
 def export(s: State, base: Path, formats=("tif", "jpg"), save_rgb8=None) -> list:
     """Write the current image. Stars still separated -> also a stars file and a
     combined preview."""

@@ -246,6 +246,10 @@ class ExportDialog(QDialog):
             self.boxes[key] = cb
             fr.addWidget(cb)
         form.addRow("Formats:", fr)
+        self.sub_note = QLabel()
+        self.sub_note.setStyleSheet("color:#9a9aa6;")
+        self.sub_note.setWordWrap(True)
+        form.addRow("", self.sub_note)
         self.chk_about = QCheckBox("Also save a short description of the target (from Wikipedia)")
         self.chk_about.setToolTip("The opening paragraphs of the target's Wikipedia article, saved as a text file "
                                   "next to the pictures. You see it (and can edit it) before it is saved. "
@@ -1663,9 +1667,13 @@ class FinishWindow(QMainWindow):
             QMessageBox.information(self, "Finish", "Combine the colour channels first.")
             return
         dlg = ExportDialog(self, self.settings, self.default_out_dir(), self.state.target)
+        sub = F.picture_folder_name(self.state.target, self.state.sources)
+        dlg.sub_note.setText(f"The pictures go in their own folder inside it: <b>{sub}</b>")
         if not dlg.exec():
             return
-        folder, fmts = Path(dlg.dir.text().strip()), dlg.formats()
+        fmts = dlg.formats()
+        # every file of this picture in one folder: <chosen folder>/<target>_<scope>/
+        folder = Path(dlg.dir.text().strip()) / F.picture_folder_name(self.state.target, self.state.sources)
         name = f"{cp.safe_name(self.state.target)}_{'finished' if not self.state.linear else 'linear'}"
         about = dlg.chk_about.isChecked()
         target = self.state.target

@@ -1586,6 +1586,9 @@ def run(app, out_dir: Path) -> int:
               f"Save the Picture: a new target starts in the folder used last time ({Path(_ed2.dir.text()).name})")
         _ed2.reject()
         _ed3.reject()
+        _pfn = F.picture_folder_name(fw2.state.target, fw2.state.sources)
+        check(_pfn.startswith(fw2.state.target.split()[0]) and "_" in _pfn and "/" not in _pfn,
+              f"Save the Picture puts every file of the picture in one folder named target_scope ({_pfn})")
         # Save Project As twice into the same folder (Mac report: the second save deleted the project)
         _pd = session.parent / "Final Astro Pics"
         _pd.mkdir(exist_ok=True)
