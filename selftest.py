@@ -241,6 +241,32 @@ def run(app, out_dir: Path) -> int:
     check(all(v is True for v in _xok.values()) and _xpure is not False,
           f"XISF with zlib, LZ4, LZ4-HC and Zstandard compression opens ({_xok}; built-in LZ4 decoder agrees: {_xpure})")
 
+    # --- plate solving retries when the header's field size is wrong (binning, reducer) -----------
+    import prepare as _pp
+    import tools as _tl
+
+    class _StubAstap:
+        exe = None
+
+        def __init__(self):
+            self.calls = []
+
+        def solve(self, path, ra, dec, fov, radius=30.0, cancel=None):
+            self.calls.append(fov)
+            if fov and abs(fov - 0.355) < 0.03:
+                return [("CRVAL1", 190.0, ""), ("CRVAL2", -11.6, "")]
+            raise _tl.ToolError("ASTAP could not solve the image: No solution found!")
+    _sa = _StubAstap()
+    _cards, _note = _pp.solve_with_retries(_sa, "x.fits", 190.0, -11.6, 0.71, 30.0)
+    try:
+        _pp.solve_with_retries(_StubAstap(), "x.fits", 190.0, -11.6, 3.0, 30.0)
+        _fail_msg = ""
+    except _tl.ToolError as _e:
+        _fail_msg = str(_e)
+    check(_cards and "binning" in _note and len(_sa.calls) == 2 and "were tried" in _fail_msg,
+          f"plate solving retries other field sizes when the header's is wrong ({_note}); a final failure "
+          "says what was tried")
+
     # --- Build Calibration Masters: one mixed folder of subframes -> masters in the library ----------
     import cal_builder as _cb
     _cr = np.random.default_rng(1)

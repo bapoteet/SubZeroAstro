@@ -479,7 +479,7 @@ table(["Problem", "What to do"], [
   ["Bright corners and dark rings", "Flats calibrated without bias/dark-flats, or flats that don't match. Check the ⚠ note on page 2 and add a bias or dark-flats (7.2)."],
   ["Filters of one target in separate rows on page 3", "Check that the target names match (OBJECT). Masters stacked in separate runs are lined up automatically."],
   ["No *Combine Colour Channels* on page 4", "The masters were not loaded together, or a filter name was not recognised - the log lists the filters it found."],
-  ["Plate solve failed", "Tick **Blind solve**; check that ASTAP has a star database installed."],
+  ["Plate solve failed", "SubZeroAstro already retries with other field sizes (wrong binning or a reducer in the header are the usual cause). If it still fails, read the log line: for small fields (under about 0.5°, e.g. galaxies with long focal lengths) ASTAP needs the **D50** or **D80** star database; with no pointing in the header tick **Search the whole sky**. A failed solve only means the picture has no sky coordinates - every other step works as usual."],
   ["Tools show *not found*", "Click **Browse…** and point at the program, or use **Settings › Your Tools…** (4.1)."],
   ["Amber banner on page 1", "A helper program is missing or not licensed. **Set Up…** fixes it; **Don't Remind Me** if you don't use it (4.1)."],
   ["An XTerminator says *not licensed*", "Click **RC-Astro Licences…** on page 3 and activate with the code from your rc-astro.com account (4.1)."],

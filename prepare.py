@@ -389,6 +389,43 @@ def solve_hints(m: Master):
     return ra, dec, fov
 
 
+def solve_with_retries(astap, path, ra, dec, fov, radius, cancel=None, progress=None):
+    """Plate solve, trying again when the field size from the header is wrong - the usual cause of
+    'No solution found': binning not counted in the pixel size (field half or double the real one), or
+    a focal reducer / Barlow the header doesn't know about. Returns (cards, note); raises tools.ToolError
+    with a plain explanation when every try fails."""
+    tries = [(fov, radius if ra is not None else 180.0, "")]
+    if fov:
+        r2 = min(radius, 10.0) if ra is not None else 180.0
+        for k, why in ((0.5, "binning"), (2.0, "binning"), (0.7, "a focal extender"), (1.4, "a focal reducer"),
+                       (0.25, "4x binning"), (4.0, "4x binning")):
+            tries.append((fov * k, r2, f"the field is {k:g}x what the header says ({why}?)"))
+    last = None
+    for n, (f, r, why) in enumerate(tries):
+        if n and progress:
+            progress(f"retry {n} of {len(tries) - 1} - field {f:.2f}°")
+        try:
+            cards = astap.solve(path, ra, dec, f, radius=r, cancel=cancel)
+            return cards, (f"Plate solved on retry {n}: {why}" if n else "")
+        except tools.ToolCancelled:
+            raise
+        except tools.ToolError as e:
+            last = e
+    dbs = tools.astap_databases(getattr(astap, "exe", None))
+    hint = []
+    if fov:
+        hint.append(f"the header gives a field {fov:.2f}° tall; fields from {fov / 4:.2f}° to {fov * 4:.2f}° were tried")
+    small = [d for d in dbs if tools.ASTAP_DB_FOV.get(d, 99) <= 0.3]
+    if dbs and not small and (fov is None or fov < 1.0):
+        hint.append(f"ASTAP has only the {', '.join(x.upper() for x in dbs)} star database(s), made for wide fields - "
+                    "install D50 (or D80) from the ASTAP website for small fields like this")
+    elif not dbs:
+        hint.append("no ASTAP star database was found - install D50 from the ASTAP website")
+    if ra is None:
+        hint.append("the header has no pointing (RA/Dec) - tick 'Search the whole sky'")
+    raise tools.ToolError(f"{last} - " + "; ".join(hint) if hint else str(last))
+
+
 def _num(v):
     try:
         return None if v in (None, "") else float(v)
@@ -935,8 +972,10 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                 tmp = work / f"solve_{i}.fits"
                 _write_temp(m, tmp, mono=True)
                 try:
-                    cards = astap.solve(tmp, ra, dec, fov, radius=opts.solve_radius if ra is not None else 180.0,
-                                        cancel=can)
+                    cards, note = solve_with_retries(astap, tmp, ra, dec, fov, opts.solve_radius, can,
+                                                     lambda t: pr(f"Plate solving {m.name}: {t}", s0 + ds * i / n))
+                    if note:
+                        lg(note)
                     apply_wcs(m, cards)
                     c = {k: v for k, v, _ in cards}
                     m.steps.append(("solve", f"Plate solved with ASTAP (RA {c.get('CRVAL1', 0):.4f}°, "

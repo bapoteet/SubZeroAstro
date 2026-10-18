@@ -539,6 +539,30 @@ def find_astap(configured: str | None = None) -> str | None:
     return shutil.which("astap_cli") or shutil.which("astap")
 
 
+ASTAP_DB_FOV = {"d80": 0.15, "d50": 0.2, "v50": 0.2, "d20": 0.3, "d05": 0.6, "h18": 0.25, "h17": 0.25,
+                "g18": 0.25, "g17": 0.25, "w08": 20.0, "h17_": 0.25}
+
+
+def astap_databases(exe: str | None) -> list:
+    """Star databases ASTAP has (d50, d80, w08 …) - found next to the program or in its usual places."""
+    places = []
+    if exe:
+        p = Path(exe)
+        places += [p.parent, p.parent.parent, p.parent.parent / "Resources"]
+    places += [Path("/usr/local/opt/astap"), Path("/opt/homebrew/opt/astap"), Path.home() / "astap",
+               Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "astap", Path(r"C:\Program Files\astap")]
+    found = set()
+    for d in places:
+        try:
+            for f in d.iterdir():
+                n = f.name.lower()
+                if f.suffix.lower() in (".1476", ".290", ".001", ".1") or n.endswith((".1476", ".290")):
+                    found.add(n.split("_")[0][:3])
+        except OSError:
+            continue
+    return sorted(found)
+
+
 def parse_header_text(text: str) -> list:
     """FITS header cards from a .wcs file (fixed 80-character cards, with or
     without line breaks)."""
