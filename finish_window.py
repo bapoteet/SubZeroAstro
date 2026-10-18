@@ -21,7 +21,7 @@ import numpy as np
 from PySide6.QtCore import QPointF, QSize, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QImage, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QFileDialog, QFormLayout, QFrame, QGraphicsEllipseItem, QGridLayout, QGroupBox,
+                               QFileDialog, QFormLayout, QFrame, QGraphicsEllipseItem, QGraphicsRectItem, QGridLayout, QGroupBox,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
                                QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSlider,
                                QSplitter, QToolButton, QVBoxLayout, QWidget)
@@ -31,6 +31,7 @@ import finish as F
 import tools
 from prepare_window import CropView, save_rgb8
 
+SIGN_DRAGGED = "Where I dragged it"
 STATUS_MARK = {"done": "✓", "next": "➜", "later": "○", "skipped": "⤼", "n/a": "–", "optional": "◇"}
 PREVIEW_SIDE = 1400                         # live preview size (fast, still sharp on screen)
 
@@ -243,6 +244,12 @@ class ExportDialog(QDialog):
             self.boxes[key] = cb
             fr.addWidget(cb)
         form.addRow("Formats:", fr)
+        self.chk_about = QCheckBox("Also save a short description of the target (from Wikipedia)")
+        self.chk_about.setToolTip("The opening paragraphs of the target's Wikipedia article, saved as a text file "
+                                  "next to the pictures. You see it (and can edit it) before it is saved. "
+                                  "Needs an internet connection.")
+        self.chk_about.setChecked(settings.value("finish/save_about", False, type=bool))
+        form.addRow("", self.chk_about)
         lay.addLayout(form)
         bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
@@ -262,7 +269,89 @@ class ExportDialog(QDialog):
         self.settings.setValue(self.key, self.dir.text().strip())
         for k, cb in self.boxes.items():
             self.settings.setValue(f"finish/fmt_{k}", cb.isChecked())
+        self.settings.setValue("finish/save_about", self.chk_about.isChecked())
         super().accept()
+
+
+class DescriptionDialog(QDialog):
+    """A short description of the target from Wikipedia: looked up, shown (editable), then saved as
+    <target>_about.txt next to the pictures."""
+
+    def __init__(self, parent, target, folder):
+        super().__init__(parent)
+        self.target, self.folder = target, Path(folder)
+        self.saved = None
+        self.setWindowTitle("Target Description")
+        self.setMinimumSize(640, 460)
+        lay = QVBoxLayout(self)
+        self.status = QLabel("Looking up the target on Wikipedia…")
+        self.status.setWordWrap(True)
+        lay.addWidget(self.status)
+        self.text = QPlainTextEdit()
+        self.text.setPlaceholderText("The description appears here - or type your own.")
+        lay.addWidget(self.text, 1)
+        row = QHBoxLayout()
+        row.addWidget(QLabel(f"<small>Saved as <i>{cp.safe_name(target) or 'target'}_about.txt</i> in "
+                             f"{self.folder}</small>"), 1)
+        b_skip = QPushButton("Don't Save")
+        b_skip.clicked.connect(self.reject)
+        self.b_save = QPushButton("Save Description")
+        self.b_save.setStyleSheet(__import__("ui_header").RUN_STYLE)
+        self.b_save.clicked.connect(self.save)
+        row.addWidget(b_skip)
+        row.addWidget(self.b_save)
+        lay.addLayout(row)
+        self.job = None
+
+    def start_lookup(self, sync=False):
+        import target_info as TI
+        t = self.target
+
+        def work():
+            return TI.lookup(t)
+        if sync:
+            try:
+                self._found(work())
+            except Exception as e:  # noqa: BLE001
+                self._failed(str(e))
+            return
+        self.job = Job(work)
+        self.job.ok.connect(self._found)
+        self.job.failed.connect(lambda m: self._failed(m.split("\n")[0]))
+        self.job.start()
+
+    def _found(self, res):
+        import target_info as TI
+        if not res:
+            self.status.setText(f"Wikipedia has no article that matches <b>{self.target}</b>. Type your own "
+                                "description if you like.")
+            return
+        title, text, url = res
+        self.status.setText(f"From Wikipedia: <b>{title}</b>. Edit it if you like, then save. "
+                            "(Wikipedia text may be reused with credit - the source line is included.)")
+        self.text.setPlainText(TI.note_text(self.target, title, text, url))
+
+    def _failed(self, msg):
+        self.status.setText("Could not reach Wikipedia (no internet connection?). Type your own description if "
+                            f"you like.<br><small>{msg[:200]}</small>")
+
+    def save(self):
+        import target_info as TI
+        content = self.text.toPlainText().strip()
+        if not content:
+            self.reject()
+            return
+        try:
+            self.saved = TI.save(self.folder, self.target, content + "\n")
+        except OSError as e:
+            QMessageBox.warning(self, "Target Description", f"Could not save the description:\n{e}")
+            return
+        self.accept()
+
+    def done(self, r):
+        if self.job is not None and self.job.isRunning():
+            self.job.wait(15000)
+        super().done(r)
 
 
 class AstroBinDialog(QDialog):
@@ -547,14 +636,23 @@ class FinishWindow(QMainWindow):
         self.sign_row = QWidget()
         sg = QFormLayout(self.sign_row)
         sg.setContentsMargins(0, 0, 0, 0)
+        self.sign_target = QLineEdit()
+        self.sign_target.setPlaceholderText('e.g. NGC 281 "Pacman Nebula" - leave empty for none')
+        self.sign_target.setToolTip("A line above your signature naming the object - remembered for each target")
+        sg.addRow("Target name:", self.sign_target)
         self.sign_text = QLineEdit(self.settings.value("finish/signature", "") or "")
         self.sign_text.setPlaceholderText("Type your name as you want it to appear")
         self.sign_text.setToolTip("What to write - remembered for next time")
         sg.addRow("Signature:", self.sign_text)
         self.sign_corner = QComboBox()
-        self.sign_corner.addItems([c.capitalize() for c in F.SIGN_CORNERS])
-        self.sign_corner.setCurrentText(str(self.settings.value("finish/sign_corner", "Bottom right")))
-        sg.addRow("Corner:", self.sign_corner)
+        self.sign_corner.addItems([c.capitalize() for c in F.SIGN_CORNERS] + [SIGN_DRAGGED])
+        corner0 = str(self.settings.value("finish/sign_corner", "Bottom right"))
+        self.sign_corner.setCurrentText(corner0 if corner0 != SIGN_DRAGGED else "Bottom right")
+        self.sign_corner.setToolTip("Pick a corner - or drag the signature on the picture to put it anywhere")
+        sg.addRow("Place:", self.sign_corner)
+        self.sign_pos = None                    # (fx, fy) top-left as fractions, once dragged
+        self.sign_rect = None                   # where the signature is on the preview (x, y, w, h)
+        self.sign_box_item = None
         self.sign_colour = QComboBox()
         self.sign_colour.addItems(list(F.SIGN_COLOURS))
         self.sign_colour.setCurrentText(str(self.settings.value("finish/sign_colour", "Soft white")))
@@ -582,7 +680,8 @@ class FinishWindow(QMainWindow):
         self.sign_timer.setInterval(450)
         self.sign_timer.timeout.connect(self._sign_changed)
         self.sign_text.textChanged.connect(lambda _t: self.sign_timer.start())
-        self.sign_corner.currentTextChanged.connect(lambda _t: self.sign_timer.start())
+        self.sign_target.textChanged.connect(lambda _t: self.sign_timer.start())
+        self.sign_corner.currentTextChanged.connect(self._sign_corner_picked)
         self.sign_colour.currentTextChanged.connect(lambda _t: self.sign_timer.start())
         sc = QScrollArea()
         sc.setWidgetResizable(True)
@@ -915,6 +1014,18 @@ class FinishWindow(QMainWindow):
         self.crop_row.setVisible(key == "final_crop")
         if key == "signature":
             F.TOOLS["signature"].thumb_corner = self.sign_corner.currentText().lower()
+            import targets as _tg
+            tgt = self.state.target if self.state else ""
+            self.sign_target.blockSignals(True)
+            self.sign_target.setText(str(self.settings.value(f"finish/sign_target/{cp.safe_name(tgt)}",
+                                                             _tg.display_name(tgt)) or ""))
+            self.sign_target.blockSignals(False)
+            self.sign_pos = None
+            self.sign_corner.blockSignals(True)
+            if self.sign_corner.currentText() == SIGN_DRAGGED:
+                self.sign_corner.setCurrentText("Bottom right")
+            self.sign_corner.blockSignals(False)
+            self.view.on_drag = self._sign_drag
         self.fine_box.blockSignals(True)
         self.fine_box.setChecked(False)
         self.fine_box.blockSignals(False)
@@ -954,6 +1065,8 @@ class FinishWindow(QMainWindow):
         self.tool_box.setVisible(False)
         self.view.on_click = None
         self.view.on_wheel = None
+        self.view.on_drag = None
+        self._drop_sign_box()
         for it in self.spot_items:
             self.view.scene().removeItem(it)
         self.spot_items = []
@@ -997,6 +1110,7 @@ class FinishWindow(QMainWindow):
             vs = t.variants(s, method, linked) if t.key == "stretch" else t.variants(s)
             small = F.thumb_state(t, s, 300)
             extra = self.extra_params()
+            extra.pop("pos", None)                      # font samples: shown in the corner view
             thumbs = [F.state_display(t.apply(small, {**v.params, **extra}),
                                       with_stars=True if t.shows_stars else None) for v in vs]
             return vs, thumbs
@@ -1129,12 +1243,66 @@ class FinishWindow(QMainWindow):
     def extra_params(self) -> dict:
         """Settings that live outside the picture choices (the signature's words, corner, colour)."""
         if self.tool is not None and self.tool.key == "signature":
-            return {"text": self.sign_text.text().strip(), "corner": self.sign_corner.currentText().lower(),
-                    "colour": self.sign_colour.currentText()}
+            corner = self.sign_corner.currentText().lower()
+            p = {"text": self.sign_text.text().strip(), "target_text": self.sign_target.text().strip(),
+                 "corner": corner if corner in F.SIGN_CORNERS else "bottom right",
+                 "colour": self.sign_colour.currentText()}
+            if self.sign_pos is not None:
+                p["pos"] = [float(self.sign_pos[0]), float(self.sign_pos[1])]
+            return p
         return {}
+
+    def _sign_corner_picked(self, text):
+        if text != SIGN_DRAGGED:
+            self.sign_pos = None                 # a corner again
+        self.sign_timer.start()
+
+    def _drop_sign_box(self):
+        if self.sign_box_item is not None and self.sign_box_item.scene() is not None:
+            self.view.scene().removeItem(self.sign_box_item)
+        self.sign_box_item = None
+
+    def _show_sign_box(self, rect):
+        """A dashed outline round the signature on the preview - drag it to move the signature."""
+        self.sign_rect = rect
+        self._drop_sign_box()
+        if rect is None:
+            return
+        x, y, w, h = rect
+        it = QGraphicsRectItem(x, y, w, h)
+        pen = QPen(QColor(255, 200, 60), 0, Qt.DashLine)
+        it.setPen(pen)
+        self.view.scene().addItem(it)
+        self.sign_box_item = it
+
+    def _sign_drag(self, x, y, phase):
+        """Drag the signature (or click anywhere to move it there)."""
+        if self.sign_rect is None or self.sign_box_item is None or not self.view.full[0]:
+            return
+        pw, ph = self.view.full
+        rx, ry, rw, rh = self.sign_rect
+        if phase == "press":
+            inside = rx <= x <= rx + rw and ry <= y <= ry + rh
+            self._sign_grab = (x - rx, y - ry) if inside else (rw / 2, rh / 2)
+            phase = "move"
+        gx, gy = getattr(self, "_sign_grab", (rw / 2, rh / 2))
+        nx = min(max(0.0, x - gx), max(0.0, pw - rw))
+        ny = min(max(0.0, y - gy), max(0.0, ph - rh))
+        self.sign_box_item.setRect(nx, ny, rw, rh)
+        if phase == "release":
+            self.sign_rect = (nx, ny, rw, rh)
+            self.sign_pos = (nx / pw, ny / ph)
+            self.sign_corner.blockSignals(True)
+            self.sign_corner.setCurrentText(SIGN_DRAGGED)
+            self.sign_corner.blockSignals(False)
+            self.preview_hint.setText("Signature moved - Apply to keep it there.")
+            self.schedule_preview()
 
     def _sign_changed(self):
         self.settings.setValue("finish/signature", self.sign_text.text().strip())
+        if self.state is not None:
+            self.settings.setValue(f"finish/sign_target/{cp.safe_name(self.state.target)}",
+                                   self.sign_target.text().strip())
         self.settings.setValue("finish/sign_corner", self.sign_corner.currentText())
         self.settings.setValue("finish/sign_colour", self.sign_colour.currentText())
         if self.tool is not None and self.tool.key == "signature":
@@ -1195,10 +1363,19 @@ class FinishWindow(QMainWindow):
             if getattr(t, "editor", None) == "spots":
                 f = max(s.shape) / max(ps.shape)
                 return F.state_display(t.apply(ps, {"spots": [[x / f, y / f, r / f] for x, y, r in params["spots"]]}))
+            if t.key == "signature":
+                b = t.block(ps.shape, params)
+                rect = None if b is None else (b[1], b[2], b[0].shape[1], b[0].shape[0])
+                return t.preview(ps, params), rect
             return t.preview(ps, params)
 
         def done(img):
+            rect = None
+            if t.key == "signature" and isinstance(img, tuple):
+                img, rect = img
             self.view.show_still(img)
+            if t.key == "signature":
+                self._show_sign_box(rect)
             for it in self.spot_items:                   # keep the spot circles on top
                 if it.scene() is None:
                     self.view.scene().addItem(it)
@@ -1253,9 +1430,9 @@ class FinishWindow(QMainWindow):
             return
         v = self.selected()
         params = self.current_params()
-        if t.key == "signature" and not params.get("text"):
+        if t.key == "signature" and not params.get("text") and not params.get("target_text"):
             if not self.synchronous:
-                QMessageBox.information(self, t.title, "Type your signature in the box first.")
+                QMessageBox.information(self, t.title, "Type your signature (or the target name) first.")
             return
         spots_tool = getattr(t, "editor", None) == "spots"
         if spots_tool and not params.get("spots"):
@@ -1319,12 +1496,24 @@ class FinishWindow(QMainWindow):
             return
         folder, fmts = Path(dlg.dir.text().strip()), dlg.formats()
         name = f"{cp.safe_name(self.state.target)}_{'finished' if not self.state.linear else 'linear'}"
+        about = dlg.chk_about.isChecked()
+        target = self.state.target
 
         def work():
             return F.export(self.state, folder / name, fmts, save_rgb8=save_rgb8)
-        self.run_job(work, lambda files: (self.log("Saved " + ", ".join(str(f) for f in files)),
-                                          setattr(self, "picture_saved", True),
-                                          tools.reveal(files)), "Saving the picture…")
+
+        def done(files):
+            self.log("Saved " + ", ".join(str(f) for f in files))
+            self.picture_saved = True
+            if about and not self.synchronous:
+                d = DescriptionDialog(self, target, folder)
+                d.start_lookup()
+                d.exec()
+                if d.saved:
+                    self.log(f"Saved the target description: {d.saved}")
+                    files = list(files) + [d.saved]
+            tools.reveal(files)
+        self.run_job(work, done, "Saving the picture…")
 
     def share_astrobin(self, auto_accept=False):
         """Picture + acquisition CSV for AstroBin's upload page (its API cannot upload)."""

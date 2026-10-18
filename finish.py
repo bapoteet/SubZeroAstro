@@ -500,7 +500,7 @@ class CombineChannels(Tool):
             out.append(Variant("RGB", {"palette": "RGB"}, "True colour", "L" not in f))
         if {"Ha", "OIII", "SII"} <= f:
             out += [Variant(*PALETTE_INFO[k][:1], {"palette": k}, PALETTE_INFO[k][1], k == "SHO")
-                    for k in ("SHO", "FORAXX", "HSO", "HOO+S")]
+                    for k in ("SHO", "FORAXX", "HSO", "HOO+S", "HOO")]
         elif {"Ha", "OIII"} <= f:
             out += [Variant(PALETTE_INFO[k][0], {"palette": k}, PALETTE_INFO[k][1], k == "HOO")
                     for k in ("HOO", "HOO+", "HHO", "FORAXX")]
@@ -1612,6 +1612,7 @@ SIGN_FONTS = ([("Elegant script", "Snell Roundhand", False), ("Handwritten", "Br
 SIGN_COLOURS = {"Soft white": (0.95, 0.95, 0.93), "Warm white": (1.0, 0.93, 0.82), "Light grey": (0.78, 0.80, 0.84),
                 "Ice blue": (0.74, 0.86, 1.0)}
 SIGN_CORNERS = ("bottom right", "bottom left", "top right", "top left")
+SIGN_TARGET_FONT = ("Georgia", True)          # the target name above the signature: clean and readable
 
 
 def signature_alpha(text, family, italic, px):
@@ -1679,26 +1680,60 @@ class SignPicture(Tool):
         cx = int(w * (0.80 if corner.endswith("right") else 0.20))
         return cy, cx
 
-    def apply(self, s, params):
-        s = s.copy()
-        text = str(params.get("text") or "").strip()
-        if not text:
-            s.done.append(self.key)
-            return s
-        h, w = s.shape
+    @staticmethod
+    def block(shape, params):
+        """The signature (and the target name above it) as one coverage mask, and where it goes:
+        (alpha (h, w), x0, y0) in pixels of an image of this shape - or None when there is no text.
+        params: text, target_text, font, italic, size, margin, corner, pos (fx, fy of the top-left
+        corner as fractions of the picture - set by dragging; overrides the corner)."""
+        h, w = shape
         short = min(h, w)
         px = short * float(params.get("size", 2.8)) / 100.0
-        a = signature_alpha(text, params.get("font", "Segoe Script"), params.get("italic", False), px)
+        text = str(params.get("text") or "").strip()
+        target = str(params.get("target_text") or "").strip()
+        if not text and not target:
+            return None
+        lines = []
+        if target:
+            lines.append(signature_alpha(target, SIGN_TARGET_FONT[0], SIGN_TARGET_FONT[1], px * 0.62))
+        if text:
+            lines.append(signature_alpha(text, params.get("font", "Segoe Script"), params.get("italic", False), px))
+        pos = params.get("pos")
+        corner = params.get("corner", "bottom right")
+        right = (float(pos[0]) > 0.5) if pos else corner.endswith("right")
+        gap = int(px * 0.25)
+        bw = max(a.shape[1] for a in lines)
+        bh = sum(a.shape[0] for a in lines) + gap * (len(lines) - 1)
+        a = np.zeros((bh, bw), np.float32)
+        y = 0
+        for ln in lines:
+            lh, lw = ln.shape
+            x = bw - lw if right else 0                      # lines line up on the side nearest the edge
+            a[y:y + lh, x:x + lw] = ln
+            y += lh + gap
         ah, aw = a.shape
         if ah >= h or aw >= w:                                  # never bigger than the picture
             k = min((h - 2) / ah, (w - 2) / aw)
             a = _resize(a, max(1, int(ah * k)), max(1, int(aw * k)))
             ah, aw = a.shape
-        m = int(short * float(params.get("margin", 2.5)) / 100.0)
-        corner = params.get("corner", "bottom right")
-        y0 = h - m - ah if corner.startswith("bottom") else m
-        x0 = w - m - aw if corner.endswith("right") else m
+        if pos:
+            x0, y0 = int(round(float(pos[0]) * w)), int(round(float(pos[1]) * h))
+        else:
+            m = int(short * float(params.get("margin", 2.5)) / 100.0)
+            y0 = h - m - ah if corner.startswith("bottom") else m
+            x0 = w - m - aw if corner.endswith("right") else m
         y0, x0 = max(0, min(h - ah, y0)), max(0, min(w - aw, x0))
+        return a, x0, y0
+
+    def apply(self, s, params):
+        s = s.copy()
+        b = self.block(s.shape, params)
+        if b is None:
+            s.done.append(self.key)
+            return s
+        a, x0, y0 = b
+        ah, aw = a.shape
+        px = min(s.shape) * float(params.get("size", 2.8)) / 100.0
         op = float(params.get("opacity", 0.85))
         col = np.asarray(SIGN_COLOURS.get(params.get("colour"), SIGN_COLOURS["Soft white"]), np.float32)
         rgb = s.rgb.copy()
@@ -1713,6 +1748,37 @@ class SignPicture(Tool):
         region[:] = region * (1 - op * a)[None] + c * (op * a)[None]
         rgb[:, y0:y0 + ah, x0:x0 + aw] = region
         s.rgb = np.clip(rgb, 0, 1).astype(np.float32)
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
+class FlipPicture(Tool):
+    key = "flip"
+    title = "Flip the Picture"
+    tip = ("Mirror the picture left to right, flip it upside down, or turn it half way round - for example "
+           "to match how the object looks in other pictures or charts. The saved pictures are flipped too.")
+    optional = True
+
+    def applicable(self, s):
+        if s.rgb is None and not s.channels:
+            return False, "Load masters first"
+        return True, ""
+
+    def variants(self, s):
+        return [Variant("Mirror left ↔ right", {"how": "lr"}, "Left and right swap places", True),
+                Variant("Flip upside down", {"how": "ud"}, "Top and bottom swap places"),
+                Variant("Turn 180°", {"how": "both"}, "Both at once - the picture turned half way round")]
+
+    def apply(self, s, params):
+        how = params.get("how", "lr")
+        if how == "lr":
+            fn = lambda a: np.ascontiguousarray(a[..., ::-1])        # noqa: E731
+        elif how == "ud":
+            fn = lambda a: np.ascontiguousarray(a[..., ::-1, :])     # noqa: E731
+        else:
+            fn = lambda a: np.ascontiguousarray(a[..., ::-1, ::-1])  # noqa: E731
+        s = s._map(fn)
         s.done.append(self.key)
         return s
 
@@ -2294,7 +2360,7 @@ class TameCore(Tool):
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
                             TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
                             StarColours(), PutStarsBack(),
-                            DustDonuts(), DarkenSky(), FinalNoise(), FinalCrop(), SpotFix(), SignPicture())}
+                            DustDonuts(), DarkenSky(), FinalNoise(), FlipPicture(), FinalCrop(), SpotFix(), SignPicture())}
 
 
 def thumb_state(tool: Tool, s: State, size=420) -> State:
@@ -2302,6 +2368,8 @@ def thumb_state(tool: Tool, s: State, size=420) -> State:
     if tool.key == "signature":                 # zoom into the corner where the signature goes
         sm = s.small(size * 2)
         corner = getattr(tool, "thumb_corner", "bottom right")
+        if corner not in SIGN_CORNERS:
+            corner = "bottom right"
         return sm.crop(int(size * 1.1), SignPicture.corner_focus(sm.shape, corner))
     if tool.spatial:
         return s.crop(size, busiest_spot(s, size))
@@ -2332,14 +2400,14 @@ def busiest_spot(s: State, size=420):
 _POLISH = ["core", "curves", "saturation", "local"]
 _STARS = ["star_stretch", "shrink", "star_color", "stars_back"]
 WORKFLOWS = {
-    "osc": ["balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "osc_dual": ["palette", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "osc_sho": ["combine", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "smart": ["balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "mono_nb": ["combine", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
-    "mono": ["dust", "stars_out", "stretch", "core", "curves", "local"] + _STARS + ["sky", "denoise", "final_crop", "spotfix", "signature"],
+    "osc": ["balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "osc_dual": ["palette", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "osc_sho": ["combine", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "smart": ["balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "mono_nb": ["combine", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "mono": ["dust", "stars_out", "stretch", "core", "curves", "local"] + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
 }
 
 WHY = {
@@ -2608,6 +2676,7 @@ PI_EQUIVALENT = {
     "star_color": "PixelMath on the stars image (colour from the R/(G+B) ratio), or Narrowband Normalization's star options",
         "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",
     "signature": "Annotation, or a PixelMath-blended signature image",
+    "flip": "FastRotation (Horizontal / Vertical Mirror, Rotate 180°)",
     "final_crop": "DynamicCrop",
     "dust": "A new flat is the real cure; otherwise DynamicBackgroundExtraction with samples around the donut "
             "(division), or a synthetic flat built in PixelMath",

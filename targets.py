@@ -111,3 +111,70 @@ def is_galaxy(name: str) -> bool:
 
 DESCRIBE = {GALAXY: "a galaxy", NEBULA: "a nebula", PLANETARY: "a planetary nebula", CLUSTER: "a star cluster",
             COMET: "a comet", UNKNOWN: ""}
+
+
+# Common names of popular targets, for the target line of the signature and the description lookup
+COMMON_NAMES = {
+    ("M", 1): "Crab Nebula", ("M", 8): "Lagoon Nebula", ("M", 13): "Hercules Cluster", ("M", 16): "Eagle Nebula",
+    ("M", 17): "Omega Nebula", ("M", 20): "Trifid Nebula", ("M", 27): "Dumbbell Nebula", ("M", 31): "Andromeda Galaxy",
+    ("M", 33): "Triangulum Galaxy", ("M", 42): "Orion Nebula", ("M", 44): "Beehive Cluster", ("M", 45): "Pleiades",
+    ("M", 51): "Whirlpool Galaxy", ("M", 57): "Ring Nebula", ("M", 63): "Sunflower Galaxy", ("M", 64): "Black Eye Galaxy",
+    ("M", 76): "Little Dumbbell Nebula", ("M", 78): "M78 Nebula", ("M", 81): "Bode's Galaxy", ("M", 82): "Cigar Galaxy",
+    ("M", 83): "Southern Pinwheel Galaxy", ("M", 97): "Owl Nebula", ("M", 101): "Pinwheel Galaxy",
+    ("M", 104): "Sombrero Galaxy", ("M", 106): "M106", ("NGC", 281): "Pacman Nebula", ("NGC", 891): "Silver Sliver Galaxy",
+    ("NGC", 1499): "California Nebula", ("NGC", 2237): "Rosette Nebula", ("NGC", 2244): "Rosette Cluster",
+    ("NGC", 2264): "Cone Nebula", ("NGC", 2359): "Thor's Helmet", ("NGC", 2392): "Eskimo Nebula",
+    ("NGC", 3372): "Carina Nebula", ("NGC", 6543): "Cat's Eye Nebula", ("NGC", 6888): "Crescent Nebula",
+    ("NGC", 6960): "Western Veil Nebula", ("NGC", 6992): "Eastern Veil Nebula", ("NGC", 6995): "Eastern Veil Nebula",
+    ("NGC", 7000): "North America Nebula", ("NGC", 7293): "Helix Nebula", ("NGC", 7380): "Wizard Nebula",
+    ("NGC", 7635): "Bubble Nebula", ("NGC", 6946): "Fireworks Galaxy", ("NGC", 4565): "Needle Galaxy",
+    ("NGC", 253): "Sculptor Galaxy", ("NGC", 5128): "Centaurus A", ("NGC", 1977): "Running Man Nebula",
+    ("NGC", 2024): "Flame Nebula", ("NGC", 6302): "Butterfly Nebula", ("NGC", 7023): "Iris Nebula",
+    ("IC", 434): "Horsehead Nebula", ("IC", 1396): "Elephant's Trunk Nebula", ("IC", 1805): "Heart Nebula",
+    ("IC", 1848): "Soul Nebula", ("IC", 5070): "Pelican Nebula", ("IC", 5146): "Cocoon Nebula",
+    ("IC", 2118): "Witch Head Nebula", ("IC", 443): "Jellyfish Nebula", ("IC", 405): "Flaming Star Nebula",
+    ("IC", 410): "Tadpoles Nebula", ("IC", 1318): "Butterfly Nebula (Sadr region)", ("IC", 63): "Ghost of Cassiopeia",
+    ("SH2", 129): "Flying Bat Nebula", ("SH2", 240): "Spaghetti Nebula", ("SH2", 155): "Cave Nebula",
+    ("SH2", 101): "Tulip Nebula",
+}
+
+
+def catalogue_name(name: str) -> str | None:
+    """'NGC281' -> 'NGC 281', 'M42' -> 'M42', 'Sh2155' -> 'Sh2-155', or None for other names."""
+    c = _cat(name)
+    if not c:
+        return None
+    cat, num = c
+    return {"M": f"M{num}", "NGC": f"NGC {num}", "IC": f"IC {num}", "SH2": f"Sh2-{num}"}[cat]
+
+
+def common_name(name: str) -> str | None:
+    c = _cat(name)
+    return COMMON_NAMES.get(c) if c else None
+
+
+def display_name(name: str) -> str:
+    """A readable target name for the picture: 'NGC 281 "Pacman Nebula"', 'Elephant's Trunk Nebula'…"""
+    n = (name or "").strip()
+    if not n:
+        return ""
+    cat = catalogue_name(n)
+    if cat:
+        com = common_name(n)
+        return f'{cat} "{com}"' if com and com != cat else cat
+    # capture programs often squeeze names together: ElephantsTrunkNebula -> Elephants Trunk Nebula
+    if " " not in n and re.search(r"[a-z][A-Z]", n):
+        n = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", n)
+    return n.replace("_", " ")
+
+
+def wiki_query(name: str) -> str:
+    """What to look up on Wikipedia for a target."""
+    n = (name or "").strip()
+    c = _cat(n)
+    if c:
+        cat, num = c
+        if (cat, num) in COMMON_NAMES and cat != "M":
+            return COMMON_NAMES[(cat, num)]
+        return {"M": f"Messier {num}", "NGC": f"NGC {num}", "IC": f"IC {num}", "SH2": f"Sh2-{num}"}[cat]
+    return display_name(n)

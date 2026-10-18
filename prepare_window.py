@@ -235,6 +235,8 @@ class CropView(QGraphicsView):
         self._drag = None
         self.locked = False                  # True while showing a saved step (no crop box)
         self.on_click = None                 # callable(x, y, button) while locked (e.g. Spot Fix)
+        self.on_drag = None                  # callable(x, y, phase) while locked: press / move / release
+        self._ext_drag = False
         self.on_wheel = None                 # callable(steps)
         self.message = "Select a master on the left"
 
@@ -283,6 +285,11 @@ class CropView(QGraphicsView):
         super().wheelEvent(e)
 
     def mousePressEvent(self, e):
+        if self.locked and self.on_drag and self.full[0] and e.button() == Qt.LeftButton:
+            p = self.mapToScene(e.position().toPoint())
+            self._ext_drag = True
+            self.on_drag(p.x(), p.y(), "press")
+            return
         if self.locked and self.on_click and self.full[0]:
             p = self.mapToScene(e.position().toPoint())
             self.on_click(p.x(), p.y(), e.button())
@@ -302,6 +309,10 @@ class CropView(QGraphicsView):
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e):
+        if self._ext_drag and self.on_drag:
+            p = self.mapToScene(e.position().toPoint())
+            self.on_drag(p.x(), p.y(), "move")
+            return
         if self._drag:
             kind, edges, p0, r0 = self._drag
             p = self.mapToScene(e.position().toPoint())
@@ -334,6 +345,12 @@ class CropView(QGraphicsView):
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e):
+        if self._ext_drag:
+            self._ext_drag = False
+            if self.on_drag:
+                p = self.mapToScene(e.position().toPoint())
+                self.on_drag(p.x(), p.y(), "release")
+            return
         self._drag = None
         super().mouseReleaseEvent(e)
 

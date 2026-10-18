@@ -1319,6 +1319,23 @@ def run(app, out_dir: Path) -> int:
         check(fw.sign_row.isVisibleTo(fw) and len(fw.variants) == 3,
               f"Sign Your Picture offers 3 fonts ({[v.label for v in fw.variants]})")
         shot("21_finish_signature.png", fw)
+        # the target name line, and dragging the signature somewhere else
+        _r0 = fw.sign_rect
+        _pw, _ph = fw.view.full
+        _tl = fw.sign_target.text()
+        if _r0 is not None:
+            fw._sign_drag(_r0[0] + _r0[2] / 2, _r0[1] + _r0[3] / 2, "press")
+            fw._sign_drag(0.1 * _pw + _r0[2] / 2, 0.1 * _ph + _r0[3] / 2, "release")
+            QApplication.processEvents()
+        _moved = fw.sign_pos is not None and abs(fw.sign_pos[0] - 0.1) < 0.02 and abs(fw.sign_pos[1] - 0.1) < 0.02
+        _r1 = fw.sign_rect
+        check(_tl.startswith("M33") and _r0 is not None and _moved and _r1 is not None and _r1[1] < 0.2 * _ph
+              and fw.sign_corner.currentText() == "Where I dragged it",
+              f"the signature carries the target name ('{_tl}') and can be dragged anywhere (now at {fw.sign_pos})")
+        shot("21b_finish_signature_dragged.png", fw)
+        fw.sign_corner.setCurrentText("Bottom right")          # back to the corner for the next check
+        fw._sign_changed()
+        QApplication.processEvents()
         fw.apply_choice()
         QApplication.processEvents()
         h_, w_ = fw.state.rgb.shape[1:]
@@ -1360,6 +1377,40 @@ def run(app, out_dir: Path) -> int:
                                                                         if k != "stars_out"],
               "Back to Start returns to the original masters")
         import finish as F
+        # HOO for Ha + OIII + SII sets, Flip the Picture, the two-line signature block, the description
+        _nb = {k: np.random.default_rng(1).random((40, 50)).astype(np.float32) for k in ("Ha", "OIII", "SII")}
+        _labels = [v.label for v in F.TOOLS["combine"].variants(F.State(channels=_nb, kind="mono_nb"))]
+        _fs = F.State(rgb=np.random.default_rng(2).random((3, 30, 40)).astype(np.float32), linear=False)
+        _lr = F.TOOLS["flip"].apply(_fs, {"how": "lr"}).rgb
+        _ud = F.TOOLS["flip"].apply(_fs, {"how": "ud"}).rgb
+        _bt = F.TOOLS["flip"].apply(_fs, {"how": "both"}).rgb
+        _flip_ok = (np.array_equal(_lr, _fs.rgb[:, :, ::-1]) and np.array_equal(_ud, _fs.rgb[:, ::-1, :])
+                    and np.array_equal(_bt, _fs.rgb[:, ::-1, ::-1]))
+        _wf = F.WORKFLOWS["mono_nb"]
+        check("HOO" in _labels and _flip_ok and _wf.index("flip") < _wf.index("final_crop") < _wf.index("signature"),
+              f"palettes for Ha+OIII+SII include HOO ({_labels}); Flip the Picture mirrors, flips and turns 180°, "
+              "before the signature")
+        _sp = {"text": "B. Poteet", "target_text": 'NGC 281 "Pacman Nebula"', "font": "Georgia", "size": 3.0}
+        _b1 = F.SignPicture.block((600, 900), _sp)
+        _b2 = F.SignPicture.block((600, 900), {**_sp, "target_text": ""})
+        _b3 = F.SignPicture.block((600, 900), {**_sp, "pos": [0.1, 0.05]})
+        check(_b1 is not None and _b2 is not None and _b1[0].shape[0] > _b2[0].shape[0] * 1.4
+              and _b1[1] + _b1[0].shape[1] <= 900 and _b1[2] > 450 and _b3[1] == 90 and _b3[2] == 30,
+              f"the target name sits above the signature (block {_b1[0].shape} vs {_b2[0].shape}) and a dragged "
+              f"position is kept ({_b3[1]}, {_b3[2]})")
+        import target_info as _ti
+        import targets as _tg2
+        _fake = {"query": {"pages": {"1": {"title": "Pacman Nebula", "index": 1,
+                                           "extract": "NGC 281 is an H II region in Cassiopeia.\nIt is known as "
+                                                      "the Pacman Nebula.\nThird paragraph."}}}}
+        _asked = []
+        _res = _ti.lookup("NGC281", getter=lambda p: (_asked.append(p), _fake)[1])
+        _note = _ti.note_text("NGC281", *_res) if _res else ""
+        check(_res is not None and _asked[0]["titles"] == "Pacman Nebula" and "Third" not in _res[1]
+              and "CC BY-SA" in _note and _note.startswith('NGC 281 "Pacman Nebula"')
+              and _tg2.display_name("ElephantsTrunkNebula") == "Elephants Trunk Nebula",
+              "the target description takes the first two paragraphs from Wikipedia, with the source credited")
+
         # Darken the Sky Background: sky darker, nebula / faint dust / stars keep their brightness above it
         _r = np.random.default_rng(7)
         _H, _W = 600, 900
