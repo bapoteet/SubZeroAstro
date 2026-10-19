@@ -10,7 +10,7 @@ if not exist ".venv\Scripts\python.exe" (
 )
 ".venv\Scripts\python.exe" -m pip install pyinstaller
 ".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --windowed ^
-    --name "SubZeroAstro" subzeroastro.py
+    --name "SubZeroAstro" --add-data "assets\icon_256.png;assets" --add-data "assets\splash_radiograph.png;assets" subzeroastro.py
 if errorlevel 1 (
     echo Build failed.
     pause

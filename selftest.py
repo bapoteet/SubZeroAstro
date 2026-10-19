@@ -557,6 +557,8 @@ def run(app, out_dir: Path) -> int:
         import splash as _sp
         sp = _sp.Splash("SubZeroAstro", "Brian A. Poteet", "From subs to masters - zero hassle.", "0.0 test")
         sp.show()
+        check(sp.xray_img is not None and sp.xray_img.width() > 100,
+              "intro animation finds its radiograph picture (assets/splash_radiograph.png)")
         for t_ in (0.5, 1.0, 1.5, 1.9, 2.2, 2.6, 3.0, 3.5, 4.0):
             sp.set_time(t_)
             QApplication.processEvents()

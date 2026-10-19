@@ -4,12 +4,14 @@ splash.py - the animated intro shown while SubZeroAstro starts.
 "The Great Dog" - where veterinary radiology meets the night sky (about 4 s, click to skip):
   0.1 - 1.4 s  subframes slide onto a lightbox like films; with every one stacked, a lateral
                radiograph of a dog rises out of the noise (stacking lowers noise - in both worlds)
-  1.6 - 2.7 s  the bones fade, and the joints glide onto the real stars of Canis Major, the
-               Great Dog; the constellation lines draw in and Sirius - the Dog Star - flares
+  1.6 - 2.7 s  points light up on the anatomy (skull, jaw, shoulder, elbow, spine), the film fades
+               and they glide onto the real stars of Canis Major, the Great Dog; the constellation
+               lines draw in and Sirius - the Dog Star - flares
   2.3 - 3.6 s  "SubZeroAstro", author and slogan; an ice-blue glint sweeps the title
   ...          fades away when the main window is ready
 
-Everything is drawn with QPainter (no image files). Turn it off in Settings.
+The radiograph is a real one (assets/splash_radiograph.png); everything else is drawn with
+QPainter. Turn it off in Settings.
 """
 
 from __future__ import annotations
@@ -17,9 +19,11 @@ from __future__ import annotations
 import math
 import random
 
+from pathlib import Path
+
 from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetricsF, QImage, QLinearGradient, QPainter, QPainterPath,
-                           QPen, QPolygonF, QRadialGradient, QTransform)
+                           QPen, QRadialGradient)
 from PySide6.QtWidgets import QApplication, QWidget
 
 W, H = 780, 440
@@ -40,22 +44,20 @@ LINES = [("theta", "iota"), ("Muliphein", "iota"), ("iota", "Sirius"), ("Sirius"
          ("Sirius", "omicron2"), ("omicron2", "Wezen"), ("Wezen", "Aludra"), ("Wezen", "sigma"),
          ("sigma", "Adhara"), ("Adhara", "kappa"), ("Adhara", "Furud")]
 
-# which joint of the skeleton becomes which star (dog-local coordinates: x towards the nose, y up)
-JOINTS = {
-    "theta": (0.835, 0.703),        # top of the skull
-    "Muliphein": (0.772, 0.655),    # occiput
-    "iota": (0.800, 0.572),         # angle of the jaw
-    "Sirius": (0.660, 0.428),       # point of the shoulder - the Dog Star at the dog's chest
-    "nu2": (0.615, 0.300),          # elbow
-    "Mirzam": (0.705, 0.004),       # front paw
-    "omicron2": (0.450, 0.545),     # mid back
-    "Wezen": (0.160, 0.530),        # lumbosacral junction
-    "sigma": (0.125, 0.470),        # hip
-    "Adhara": (0.175, 0.280),       # stifle
-    "kappa": (0.085, 0.132),        # hock
-    "Furud": (0.145, 0.004),        # hind paw
-    "Aludra": None,                 # tail tip (computed)
+# where each star of the Great Dog sits on the radiograph (fractions of the picture: x to the right,
+# y down; the dog lies with its head to the left). The hind quarters are off the film, so those
+# stars simply light up in the sky.
+LANDMARKS = {
+    "theta": (0.060, 0.040),        # top of the skull
+    "Muliphein": (0.162, 0.220),    # occiput
+    "iota": (0.090, 0.520),         # angle of the jaw
+    "Sirius": (0.327, 0.570),       # point of the shoulder - the Dog Star at the dog's chest
+    "nu2": (0.296, 0.910),          # elbow
+    "Mirzam": (0.183, 0.990),       # fore paw (leaving the film)
+    "omicron2": (0.625, 0.360),     # mid back
+    "Wezen": (0.985, 0.270),        # lumbar spine
 }
+RADIOGRAPH = "splash_radiograph.png"
 
 
 def _ease_out(x):
@@ -72,151 +74,29 @@ def _seg(t, a, b):
     return min(max((t - a) / (b - a), 0.0), 1.0) if b > a else float(t >= a)
 
 
-# --------------------------------------------------------------------------
-# A lateral radiograph of a dog, as bone shapes in dog-local units (body length ~1)
-# --------------------------------------------------------------------------
-
-def _lerp(a, b, k):
-    return (a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k)
-
-
-def _spine():
-    """Centres of the vertebral bodies: cervical, thoracic, lumbar, sacrum, tail."""
-    pts, kinds = [], []
-    for i in range(7):                                           # C1-C7
-        k = i / 6
-        pts.append((0.775 - 0.135 * k, 0.615 - 0.11 * k + 0.02 * math.sin(math.pi * k)))
-        kinds.append("C")
-    for i in range(13):                                          # T1-T13
-        k = i / 12
-        pts.append((0.625 - 0.29 * k, 0.502 + 0.04 * math.sin(math.pi * (0.2 + 0.7 * k))))
-        kinds.append("T")
-    for i in range(7):                                           # L1-L7
-        k = i / 6
-        pts.append((0.322 - 0.157 * k, 0.540 - 0.008 * k))
-        kinds.append("L")
-    pts += [(0.140, 0.526), (0.112, 0.519)]
-    kinds += ["S", "S"]
-    x, y, ang, step = 0.090, 0.515, math.radians(196), 0.021     # tail
-    for i in range(13):
-        pts.append((x, y))
-        kinds.append("Cd")
-        x += step * math.cos(ang)
-        y += step * math.sin(ang)
-        ang += math.radians(3.4)
-        step *= 0.94
-    return pts, kinds
+def _radiograph_path():
+    import sys
+    here = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    for p in (here / "assets" / RADIOGRAPH, Path(__file__).resolve().parent / "assets" / RADIOGRAPH):
+        if p.is_file():
+            return p
+    return None
 
 
-SPINE, SPINE_KIND = _spine()
-JOINTS["Aludra"] = SPINE[-1]
-
-
-def _bone_paths():
-    """(path, width, alpha, filled) in dog-local units."""
-    out = []
-
-    def line(*pts, w=0.02, a=1.0):
-        p = QPainterPath(QPointF(*pts[0]))
-        for q in pts[1:]:
-            p.lineTo(QPointF(*q))
-        out.append((p, w, a, False))
-
-    def poly(*pts, a=1.0, w=0.006):
-        p = QPainterPath()
-        p.addPolygon(QPolygonF([QPointF(*q) for q in pts]))
-        p.closeSubpath()
-        out.append((p, w, a, True))
-
-    def ell(c, rx, ry, a=1.0, w=0.006, filled=True):
-        p = QPainterPath()
-        p.addEllipse(QPointF(*c), rx, ry)
-        out.append((p, w, a, filled))
-
-    # skull (lateral, nose to the right) and mandible
-    poly((0.765, 0.618), (0.760, 0.655), (0.775, 0.688), (0.800, 0.705), (0.835, 0.712), (0.865, 0.703),
-         (0.888, 0.684), (0.905, 0.668), (0.940, 0.655), (0.975, 0.643), (1.005, 0.632), (1.018, 0.622),
-         (1.016, 0.604), (0.990, 0.598), (0.940, 0.596), (0.890, 0.598), (0.865, 0.606), (0.820, 0.612),
-         (0.790, 0.600), (0.775, 0.606), a=0.92)
-    ell((0.872, 0.652), 0.017, 0.015, a=0.0, w=0.004, filled=False)          # orbit
-    line((0.815, 0.621), (0.893, 0.626), w=0.006, a=1.0)                      # zygomatic arch
-    poly((0.800, 0.612), (0.822, 0.642), (0.838, 0.612), (0.990, 0.592), (1.002, 0.588), (0.995, 0.578),
-         (0.900, 0.572), (0.805, 0.576), (0.792, 0.584), a=0.88)                # mandible
-    for i in range(9):                                                        # teeth
-        x = 0.885 + i * 0.013
-        line((x, 0.592), (x + 0.002, 0.582), w=0.006, a=0.9)
-    line((0.982, 0.594), (0.986, 0.574), w=0.007, a=1.0)                      # canine
-    # vertebrae
-    for i, ((x, y), kind) in enumerate(zip(SPINE, SPINE_KIND)):
-        nx, ny = SPINE[min(i + 1, len(SPINE) - 1)]
-        px, py = SPINE[max(i - 1, 0)]
-        ang = math.atan2(ny - py, nx - px)
-        ln = (0.017 if kind in ("C", "T", "L") else 0.019 if kind == "S" else 0.016 * (0.96 ** (i - 29)))
-        ht = {"C": 0.024, "T": 0.022, "L": 0.026, "S": 0.028}.get(kind, 0.014 * (0.95 ** (i - 29)))
-        dx, dy = math.cos(ang) * ln / 2, math.sin(ang) * ln / 2
-        ox, oy = -math.sin(ang) * ht / 2, math.cos(ang) * ht / 2
-        poly((x - dx - ox, y - dy - oy), (x + dx - ox, y + dy - oy), (x + dx + ox, y + dy + oy),
-             (x - dx + ox, y - dy + oy), a=0.95)
-        if kind == "T":                                                       # spinous processes
-            j = i - 7
-            L = 0.075 - 0.0042 * j
-            line((x, y + 0.01), (x - 0.35 * L, y + 0.01 + L), w=0.006, a=0.85)
-        elif kind == "L":
-            line((x, y + 0.01), (x + 0.008, y + 0.04), w=0.007, a=0.8)
-        elif kind == "C" and i == 1:
-            line((x - 0.01, y + 0.018), (x - 0.04, y + 0.03), w=0.008, a=0.85)
-    # ribs and sternum
-    for j in range(13):
-        x, y = SPINE[7 + j]
-        end_y = 0.300 if j < 9 else 0.33 + 0.035 * (j - 9)
-        ex = x - 0.055 - 0.004 * j
-        p = QPainterPath(QPointF(x, y - 0.012))
-        p.quadTo(QPointF(x + 0.03, (y + end_y) / 2), QPointF(ex, end_y))
-        out.append((p, 0.0075, 0.75, False))
-        if j < 9:
-            line((ex, end_y), (ex + 0.025, 0.292 - 0.006 * j), w=0.005, a=0.35)  # costal cartilage
-    for i in range(8):
-        a_ = _lerp((0.640, 0.330), (0.420, 0.282), i / 7)
-        ell(a_, 0.012, 0.007, a=0.85)
-    # fore limbs (far one first, fainter)
-    for off, a in ((0.035, 0.45), (0.0, 1.0)):
-        poly((0.565 + off, 0.588), (0.628 + off, 0.598), (0.668 + off, 0.432), (0.645 + off, 0.424), a=0.8 * a)
-        line((0.656 + off, 0.428), (0.616 + off, 0.300), w=0.022, a=a)        # humerus
-        ell((0.655 + off, 0.430), 0.016, 0.016, a=a)
-        line((0.616 + off, 0.300), (0.633 + off, 0.085), w=0.016, a=a)        # radius / ulna
-        line((0.600 + off, 0.318), (0.618 + off, 0.270), w=0.012, a=a)        # olecranon
-        ell((0.636 + off, 0.075), 0.012, 0.010, a=a)                          # carpus
-        line((0.638 + off, 0.066), (0.662 + off, 0.024), (0.692 + off, 0.008), (0.705 + off, 0.004),
-             w=0.010, a=a)
-    # pelvis and hind limbs
-    for off, a in ((0.03, 0.45), (0.0, 1.0)):
-        line((0.192 + off, 0.588), (0.126 + off, 0.472), w=0.030, a=0.9 * a)  # ilium
-        line((0.126 + off, 0.472), (0.052 + off, 0.458), w=0.020, a=0.9 * a)  # ischium
-        ell((0.093 + off, 0.452), 0.020, 0.010, a=0.0, w=0.004, filled=False)
-        ell((0.125 + off, 0.470), 0.015, 0.015, a=a)
-        line((0.125 + off, 0.470), (0.176 + off, 0.282), w=0.022, a=a)        # femur
-        ell((0.190 + off, 0.292), 0.007, 0.012, a=a)                          # patella
-        line((0.176 + off, 0.282), (0.086 + off, 0.135), w=0.018, a=a)        # tibia
-        line((0.086 + off, 0.135), (0.058 + off, 0.158), w=0.012, a=a)        # calcaneus
-        ell((0.088 + off, 0.124), 0.012, 0.010, a=a)                          # tarsus
-        line((0.090 + off, 0.114), (0.105 + off, 0.030), (0.130 + off, 0.008), (0.145 + off, 0.004),
-             w=0.010, a=a)
-    return out
-
-
-def _soft_tissue():
-    pts = [(1.030, 0.604), (0.995, 0.556), (0.800, 0.520), (0.700, 0.430), (0.690, 0.200), (0.725, 0.000),
-           (0.600, 0.000), (0.590, 0.250), (0.420, 0.262), (0.250, 0.330), (0.215, 0.270), (0.160, 0.000),
-           (0.050, 0.000), (0.035, 0.170), (0.025, 0.470), (0.060, 0.560), (0.350, 0.598), (0.580, 0.660),
-           (0.745, 0.690), (0.810, 0.735), (0.900, 0.705)]
-    p = QPainterPath()
-    p.addPolygon(QPolygonF([QPointF(*q) for q in pts]))
-    p.closeSubpath()
-    return p
-
-
-BONES = _bone_paths()
-SOFT = _soft_tissue()
+def load_radiograph():
+    """The radiograph, toned a cool lightbox blue, or None when the file is missing."""
+    p = _radiograph_path()
+    if p is None:
+        return None
+    img = QImage(str(p))
+    if img.isNull():
+        return None
+    img = img.convertToFormat(QImage.Format_ARGB32_Premultiplied)
+    q = QPainter(img)
+    q.setCompositionMode(QPainter.CompositionMode_Multiply)
+    q.fillRect(img.rect(), QColor(206, 226, 255))
+    q.end()
+    return img
 
 
 # --------------------------------------------------------------------------
@@ -235,6 +115,7 @@ class Splash(QWidget):
         rnd = random.Random(1805)
         self.stars = [(rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(0.25, 1.0) ** 2,
                        rnd.uniform(0, 6.283), rnd.choice((0, 0, 0, 1, 2))) for _ in range(230)]
+        self.xray_img = load_radiograph()
         self._layout_constellation()
         self.films = []
         for i in range(9):
@@ -267,29 +148,13 @@ class Splash(QWidget):
         self.star_xy = {k: QPointF(box.center().x() + (x - cxr) * s, box.center().y() - (y - cyr) * s)
                         for k, (x, y) in raw.items()}
         self.star_mag = {k: m for k, (_r, _d, m) in STARS.items()}
-        # similarity fit in complex numbers: w = a z + b  (z: dog-local, y up; w: screen with y up)
-        zs = [complex(*JOINTS[k]) for k in JOINTS]
-        ws = [complex(self.star_xy[k].x(), -self.star_xy[k].y()) for k in JOINTS]
-        zm, wm = sum(zs) / len(zs), sum(ws) / len(ws)
-        num = sum((w - wm) * (z - zm).conjugate() for z, w in zip(zs, ws))
-        den = sum(abs(z - zm) ** 2 for z in zs)
-        a = num / den
-        b = wm - a * zm
-        self.dog_a, self.dog_b = a, b
-        self.dog_tf = QTransform(a.real, -a.imag, -a.imag, -a.real, b.real, -b.imag)
-        self.dog_scale = abs(a)
-        self.joint_xy = {k: self._to_screen(JOINTS[k]) for k in JOINTS}
-        pts = [self._to_screen(p) for p in ((0.0, 0.0), (1.05, 0.0), (1.05, 0.75), (0.0, 0.75),
-                                            (-0.25, 0.3))] + list(self.star_xy.values())
-        x0 = min(p.x() for p in pts) - 18
-        x1 = max(p.x() for p in pts) + 18
-        y0 = min(p.y() for p in pts) - 18
-        y1 = max(p.y() for p in pts) + 18
-        self.panel = QRectF(max(14, x0), max(14, y0), min(W * 0.47, x1) - max(14, x0), min(H - 40, y1) - max(14, y0))
-
-    def _to_screen(self, p):
-        w = self.dog_a * complex(*p) + self.dog_b
-        return QPointF(w.real, -w.imag)
+        # the lightbox with the radiograph, on the left; its anatomy lines up under the constellation
+        img_aspect = (self.xray_img.width() / self.xray_img.height()) if self.xray_img is not None else 1.48
+        pw = 350.0
+        self.panel = QRectF(20, (H - pw / img_aspect) / 2 - 6, pw, pw / img_aspect)
+        self.joint_xy = {k: QPointF(self.panel.left() + fx * self.panel.width(),
+                                    self.panel.top() + fy * self.panel.height())
+                         for k, (fx, fy) in LANDMARKS.items()}
 
     def _make_grain(self, rnd):
         gw, gh = 150, 170
@@ -404,39 +269,16 @@ class Splash(QWidget):
             p.setBrush(QBrush(g))
             p.setPen(QPen(QColor(120, 160, 210, int(90 * box_on)), 1.0))
             p.drawRoundedRect(panel, 6, 6)
-            p.setOpacity(box_on * (0.10 + 0.55 * (1 - stacked)))   # noise falls as frames stack
-            p.drawImage(panel, self.grain)
-            p.setOpacity(1.0)
-            # the lead side marker every radiograph carries
-            mk = QRectF(panel.left() + 10, panel.top() + 10, 20, 22)
-            p.setBrush(QColor(235, 240, 250, int(200 * box_on * _seg(t, 0.4, 0.8))))
-            p.setPen(Qt.NoPen)
-            p.drawRoundedRect(mk, 3, 3)
-            f = QFont("Segoe UI", 10, QFont.Bold)
-            p.setFont(f)
-            p.setPen(QColor(15, 20, 30, int(255 * box_on * _seg(t, 0.4, 0.8))))
-            p.drawText(mk, Qt.AlignCenter, "R")
-        if xray > 0.005:
+        if box_on > 0 or xray > 0.005:
             p.save()
-            p.setTransform(self.dog_tf, True)
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(150, 170, 190, int(42 * xray)))      # soft tissue
-            p.drawPath(SOFT)
-            for path, w, a, filled in BONES:
-                if a == 0.0:                                       # holes (orbit, obturator foramen)
-                    p.setPen(QPen(QColor(205, 222, 242, int(150 * xray)), w))
-                    p.setBrush(QColor(25, 33, 46, int(110 * xray)))
-                    p.drawPath(path)
-                    continue
-                glow = QPen(QColor(150, 200, 255, int(45 * a * xray)), w * 2.6, Qt.SolidLine, Qt.RoundCap,
-                            Qt.RoundJoin)
-                p.setPen(glow)
-                p.setBrush(Qt.NoBrush)
-                p.drawPath(path)
-                core = QPen(QColor(228, 238, 250, int(225 * a * xray)), w, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-                p.setPen(core)
-                p.setBrush(QColor(205, 222, 242, int(150 * a * xray)) if filled else Qt.NoBrush)
-                p.drawPath(path)
+            clip = QPainterPath()
+            clip.addRoundedRect(panel, 6, 6)
+            p.setClipPath(clip, Qt.IntersectClip)
+            if xray > 0.005 and self.xray_img is not None:        # the real radiograph
+                p.setOpacity(xray)
+                p.drawImage(panel, self.xray_img)
+            p.setOpacity(box_on * (0.08 + 0.55 * (1 - stacked)))   # noise falls as frames stack
+            p.drawImage(panel, self.grain)
             p.restore()
         for (x0, y0, rot, d), k in zip(self.films, land):        # films sliding onto the box
             if 0 < k < 1:
@@ -460,9 +302,15 @@ class Splash(QWidget):
         show = _ease_out(_seg(t, 1.55, 2.0))
         if show <= 0:
             return
-        pos = {k: QPointF(self.joint_xy[k].x() + (self.star_xy[k].x() - self.joint_xy[k].x()) * move,
-                          self.joint_xy[k].y() + (self.star_xy[k].y() - self.joint_xy[k].y()) * move)
-               for k in self.star_xy}
+        glide = self.xray_img is not None
+        pos, vis = {}, {}
+        for k, s in self.star_xy.items():
+            j = self.joint_xy.get(k) if glide else None
+            if j is None:                                          # off the film: lights up in place
+                pos[k], vis[k] = s, show * (move if glide else 1.0)
+            else:
+                pos[k] = QPointF(j.x() + (s.x() - j.x()) * move, j.y() + (s.y() - j.y()) * move)
+                vis[k] = show
         draw = _seg(t, 2.25, 2.95)                                 # lines draw in one after another
         n = len(LINES)
         for i, (a, b) in enumerate(LINES):
@@ -474,16 +322,19 @@ class Splash(QWidget):
             p.setPen(QPen(QColor(140, 190, 255, 120), 1.3, Qt.SolidLine, Qt.RoundCap))
             p.drawLine(pa, pe)
         for k, q in pos.items():
+            v = vis[k]
+            if v <= 0:
+                continue
             mag = self.star_mag[k]
             size = max(1.4, 4.6 - 0.95 * mag)
             tw = 0.85 + 0.15 * math.sin(t * 3 + q.x())
             glow = QRadialGradient(q, size * 4.5)
-            glow.setColorAt(0, QColor(170, 210, 255, int(150 * show * tw)))
+            glow.setColorAt(0, QColor(170, 210, 255, int(150 * v * tw)))
             glow.setColorAt(1, QColor(170, 210, 255, 0))
             p.setPen(Qt.NoPen)
             p.setBrush(QBrush(glow))
             p.drawEllipse(q, size * 4.5, size * 4.5)
-            p.setBrush(QColor(240, 248, 255, int(255 * show)))
+            p.setBrush(QColor(240, 248, 255, int(255 * v)))
             p.drawEllipse(q, size * 0.6, size * 0.6)
         # Sirius flares: the Dog Star
         fl = math.exp(-((t - 2.65) / 0.22) ** 2) + 0.35 * _seg(t, 2.6, 2.9)
