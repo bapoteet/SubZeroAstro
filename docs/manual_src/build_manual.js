@@ -379,13 +379,14 @@ p("Click **Continue to Finishing Touches ➜**, or **Stop Here – Continue in P
 
 ch(9, "Page 4 – Finishing Touches");
 img("15_finish_start.png", "Finishing Touches: the workflow (left), the recommended next step and the picture (example data)");
-sec("9.1", "How it works", ["Recommended next", "Do It", "Skip", "Pick the one you like", "Fine-tune", "Apply", "Cancel", "Workflow list", "Several masters per filter", "Field distortion", "Double stars"]);
+sec("9.1", "How it works", ["Recommended next", "Do It", "Do It Again", "Skip", "Pick the one you like", "Fine-tune", "Apply", "Cancel", "Workflow list", "Several masters per filter", "Field distortion", "Double stars"]);
 steps([
   "The **workflow list** on the left shows every step for your kind of data: ✓ done, ➜ next, ○ later, – not needed, ◇ optional.",
   "The card at the top says what is **Recommended next** and why. Click **Do It** (or click any step in the list).",
   "Pick a version: each step shows 3-5 small pictures of **your** image - gentle to strong, or different colour mixes. ★ marks the suggestion. **Clicking only previews it big** - nothing changes yet.",
   "Optional: tick **Fine-tune** and move the plain-language sliders; the preview follows. **Reset** returns to the version you picked.",
   "Press **Apply** to keep it - or **Cancel** to leave the picture exactly as it was.",
+  "Not quite enough? Many steps can be run again on their own result: after one of them the card shows **↻ Do It Again** (and a ✓ step in the list can be clicked to run it again). That works for Balance Colours, Remove Green Cast, Tame Bright Core, Curves, Saturation, Bring Out Hidden Structure, Shrink Stars, Star Colours, Mote Buster, Darken the Sky Background, Final Noise Reduction, Flip, Final Crop and Spot Fix. One-way steps - combining, brightening, taking the stars out or putting them back, signing - are not repeated; use **Go Back to Here** to redo those.",
 ]);
 img("17_finish_brighten_choices.png", "Picking a version: Brighten the Image offers five strengths (example data)");
 p("**Several masters per filter, or masters from different setups.** When you load more than one master of the same filter (other nights, other cameras or telescopes), all of them are used: they are brought to the same brightness and averaged, the less noisy ones counting more. Every master is first matched star by star to one reference master. Masters from another camera or telescope are bent slightly differently by their optics - most at the edges, which would give coloured double stars in the corners - so SubZeroAstro measures that distortion from hundreds of stars and corrects it. A master whose stars cannot be matched to the others is left out (when its filter has other masters), so it can't cause double stars, and the picture is cropped to the area all masters cover. The note under the title says how many masters were combined, corrected or left out.");
