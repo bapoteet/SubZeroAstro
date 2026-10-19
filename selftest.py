@@ -1340,7 +1340,19 @@ def run(app, out_dir: Path) -> int:
                 fw.run_preview()
                 check(len(fw.spots) >= 1 and len(fw.spot_items) == len(fw.spots),
                       "a circle can be added for a donut SubZeroAstro did not find")
-                fw.close_tool()
+                n0 = len(fw.project.steps)
+                fw.apply_choice()
+                QApplication.processEvents()
+                r1 = (fw.tool is not None and fw.tool.key == "dust" and fw.btn_done_tool.isVisibleTo(fw)
+                      and not fw.spots and "new picture" in fw.choice_note.text())
+                fw._add_spot(fw.state.shape[1] * 0.3, fw.state.shape[0] * 0.3, 30.0)
+                fw.apply_choice()
+                QApplication.processEvents()
+                r2 = fw.tool is not None and fw.tool.key == "dust" and len(fw.project.steps) == n0 + 2
+                fw.done_tool()
+                check(r1 and r2 and fw.tool is None and "dust" in fw.state.done
+                      and F.next_step(fw.state) is not None and F.next_step(fw.state).key == "stretch",
+                      "Mote Buster can be run again on the fixed picture; Done – Next Step moves on")
             fw.open_tool(t.key)
             if t.key == "stretch":
                 shot("17_finish_brighten_choices.png", fw)

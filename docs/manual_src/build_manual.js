@@ -428,7 +428,7 @@ p("Dust on a filter or on the camera window casts round shadows - **dust donuts*
 bullets([
   "Open **Mote Buster** while the picture is still unstretched (it comes before *Take Stars Out*). The donuts it finds in the sky are already circled in yellow.",
   "Donuts on bright nebulosity are not searched automatically (a gap between filaments could look like one) - **click** those yourself. Click to place a circle, then **turn the mouse wheel to size that circle** while you watch (just cover the donut). Click a circle to pick it again (it turns blue) and drag to move it; right-click removes it. A dashed ring follows the mouse to show the size of the next circle. Clicks need not be exact: each circle is centred on its donut automatically.",
-  "Check the preview, then **Apply**. For small specks (hot pixels, satellite remnants) use **Spot Fix** instead.",
+  "Check the preview, then press the fix button. Mote Buster stays open on the **fixed picture**, so you can circle any donuts that are left and fix again - as many rounds as you like (each round is its own step; *Undo Last Step* takes back the last one). Press **Done – Next Step ➜** when you are happy. Spot Fix works the same way. For small specks (hot pixels, satellite remnants) use **Spot Fix** instead.",
 ]);
 sec("9.5", "Stars: take out, brighten, colour, put back", ["Stars workflow", "Starless"]);
 p("Stars and nebula look best when processed separately. **Take Stars Out** hides the stars (the picture shows the nebula alone); the nebula steps follow; then **Brighten Stars Separately**, **Shrink Stars** and **Star Colours** work on the stars (their previews show the stars); **Put Stars Back** recombines them. If you **Skip** Take Stars Out, the stars simply stay in the picture.");

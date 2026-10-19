@@ -491,6 +491,7 @@ class Tool:
     optional = False               # offered, but not pushed by "Recommended next"
     editor = None                  # "curve" -> the window also shows a curve you can drag
     shows_stars = False            # previews show the stars too (star steps)
+    repeatable = False             # may be run again after it is done (each run is its own step)
 
     def __init_subclass__(cls, **kw):
         super().__init_subclass__(**kw)
@@ -1625,6 +1626,7 @@ class DustDonuts(Tool):
     pick = False
     optional = True
     editor = "spots"                 # circles on the picture: click to add, right-click to remove
+    repeatable = True                # fix some, look again, fix more
     spot_range = (8.0, 700.0)
     spot_start = 60.0
 
@@ -2277,6 +2279,7 @@ class SpotFix(Tool):
            "surroundings. (PixInsight: CloneStamp)")
     pick = False
     optional = True
+    repeatable = True
 
     def applicable(self, s):
         return (True, "") if s.rgb is not None else (False, "Combine the colour channels first")

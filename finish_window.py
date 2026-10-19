@@ -781,9 +781,14 @@ class FinishWindow(QMainWindow):
         self.btn_close_tool = QPushButton("Cancel")
         self.btn_close_tool.setToolTip("Close without changing anything - the picture goes back to how it was")
         self.btn_close_tool.clicked.connect(self.cancel_tool)
+        self.btn_done_tool = QPushButton("Done – Next Step  ➜")
+        self.btn_done_tool.setToolTip("Finished with this tool - the fixes so far are kept; go on to the next step")
+        self.btn_done_tool.clicked.connect(self.done_tool)
+        self.btn_done_tool.setVisible(False)
         br.addStretch(1)
         br.addWidget(self.btn_close_tool)
         br.addWidget(self.btn_apply)
+        br.addWidget(self.btn_done_tool)
         tl.addLayout(br)
         split.addWidget(self.tool_box)
         split.setSizes([270, 760, 470])
@@ -1025,7 +1030,7 @@ class FinishWindow(QMainWindow):
         key = item.data(Qt.UserRole)
         t = F.TOOLS[key]
         ok, why = t.applicable(self.state)
-        if key in self.state.done:
+        if key in self.state.done and not getattr(t, "repeatable", False):
             QMessageBox.information(self, t.title, "Already done. To redo it, pick the step before it under "
                                     "“Show:” and click Go Back to Here.")
             return
@@ -1042,7 +1047,8 @@ class FinishWindow(QMainWindow):
         s.skipped.append(t.key)
         self.commit(s, t.key + "_skip", f"Skipped {t.title}")
 
-    def open_tool(self, key):
+    def open_tool(self, key, again=False):
+        """again: the tool was just applied and stays open on the new picture (Spot Fix, Mote Buster)."""
         self.close_tool()
         self.tool = F.TOOLS[key]
         self.tool_box.setVisible(True)
@@ -1099,7 +1105,11 @@ class FinishWindow(QMainWindow):
             self.spot_active = None
             spot_note = ("Click a blemish to circle it, then turn the mouse wheel to size that circle. Click a "
                          "circle to pick it again (drag to move); right-click removes it.")
-            if hasattr(self.tool, "found_spots"):
+            if again:
+                spot_note = ("<b>Fixed - this is the new picture.</b> Circle any spots that are left and press "
+                             "the button again, or press <b>Done – Next Step</b> when you are happy. "
+                             "(Undo Last Step takes back the last round.)")
+            elif hasattr(self.tool, "found_spots"):
                 try:
                     found = self.tool.found_spots(self.state)
                 except Exception as e:  # noqa: BLE001 - finding is a help, never a blocker
@@ -1114,11 +1124,15 @@ class FinishWindow(QMainWindow):
         self.render_choices()
         if getattr(self.tool, "editor", None) == "spots":
             self.choice_note.setText(spot_note)
+            self.btn_done_tool.setVisible(again or key in self.state.done)
+            self.btn_close_tool.setText("Close" if again else "Cancel")
         if key == "final_crop":
             self._set_crop_box("found")
 
     def close_tool(self):
         self.tool = None
+        self.btn_done_tool.setVisible(False)
+        self.btn_close_tool.setText("Cancel")
         self.variants = []
         self.tool_box.setVisible(False)
         self.view.on_click = None
@@ -1133,6 +1147,15 @@ class FinishWindow(QMainWindow):
         self.spot_items = []
         self.spots = []
         self.preview_timer.stop()
+
+    def done_tool(self):
+        """Finished with a tool that can be run several times: keep what was done and move on."""
+        was = self.tool
+        self.close_tool()
+        self.show_current()
+        self.refresh()
+        if was:
+            self.log(f"{was.title}: done")
 
     def cancel_tool(self):
         """Close the tool without changing anything; the picture goes back to how it was."""
@@ -1622,8 +1645,9 @@ class FinishWindow(QMainWindow):
             t0 = time.time()
             new = t.apply(s, params)
             return new, time.time() - t0
+        again = (lambda: self.open_tool(t.key, again=True)) if getattr(t, "repeatable", False) else None
         self.run_job(work, lambda r: (self.log(f"{t.title}: {label}  ({r[1]:.1f} s)"),
-                                      self.commit(r[0], t.key, f"{t.title} — {label}", params)),
+                                      self.commit(r[0], t.key, f"{t.title} — {label}", params, then=again)),
                      f"{t.title}…")
 
     # ------------------------------------------------------------ undo
@@ -1649,13 +1673,14 @@ class FinishWindow(QMainWindow):
         self.log("Back to the start - all steps undone")
         self.after_change()
 
-    def commit(self, new_state, key, label, params=None):
+    def commit(self, new_state, key, label, params=None, then=None):
+        """then: called after the step is saved and the window updated (e.g. reopen the tool)."""
         self.state = new_state
 
         def work():
             self.project.save(new_state, key, label, params)
             return True
-        self.run_job(work, lambda _r: self.after_change(), "Saving the step…")
+        self.run_job(work, lambda _r: (self.after_change(), then() if then else None), "Saving the step…")
 
     # ------------------------------------------------------------ output
     def default_out_dir(self) -> Path:
