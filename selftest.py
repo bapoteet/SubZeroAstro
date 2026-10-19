@@ -1353,6 +1353,13 @@ def run(app, out_dir: Path) -> int:
                 check(r1 and r2 and fw.tool is None and "dust" in fw.state.done
                       and F.next_step(fw.state) is not None and F.next_step(fw.state).key == "stretch",
                       "Mote Buster can be run again on the fixed picture; Done – Next Step moves on")
+                again_ok = fw.btn_again.isVisibleTo(fw) and "Mote Buster" in fw.btn_again.toolTip()
+                fw.do_again()
+                QApplication.processEvents()
+                again_ok = again_ok and fw.tool is not None and fw.tool.key == "dust"
+                fw.cancel_tool()
+                check(again_ok and F.TOOLS["curves"].repeatable and not F.TOOLS["stretch"].repeatable,
+                      "↻ Do It Again reopens the last step (for steps that can be repeated)")
             fw.open_tool(t.key)
             if t.key == "stretch":
                 shot("17_finish_brighten_choices.png", fw)

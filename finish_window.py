@@ -584,6 +584,10 @@ class FinishWindow(QMainWindow):
         self.btn_skip = QPushButton("Skip")
         self.btn_skip.setToolTip("Leave this step out and move on")
         self.btn_skip.clicked.connect(self.skip_next)
+        self.btn_again = QPushButton("↻ Do It Again")
+        self.btn_again.clicked.connect(self.do_again)
+        self.btn_again.setVisible(False)
+        cl.addWidget(self.btn_again)
         cl.addWidget(self.btn_do)
         cl.addWidget(self.btn_skip)
         ml.addWidget(self.card)
@@ -962,8 +966,16 @@ class FinishWindow(QMainWindow):
         nxt = F.next_step(s)
         self.btn_do.setVisible(nxt is not None)
         self.btn_skip.setVisible(nxt is not None)
+        again = self.again_tool()
+        self.btn_again.setVisible(again is not None)
+        again_note = ""
+        if again is not None:
+            self.btn_again.setToolTip(f"Run {again.title} once more, on the picture as it is now "
+                                      "(Undo Last Step takes it back)")
+            again_note = (f"<br><i>Not quite enough? <b>↻ Do It Again</b> runs {again.title} once more on "
+                          "this picture.</i>")
         if nxt:
-            self.card_text.setText(f"<b>Recommended next: {nxt.title}</b><br>{F.why_next(s, nxt)}")
+            self.card_text.setText(f"<b>Recommended next: {nxt.title}</b><br>{F.why_next(s, nxt)}" + again_note)
         else:
             self.card_text.setText("<b>Your picture is finished.</b><br>Save it with <i>Save the Picture…</i>, "
                                    "or continue polishing in PixInsight (curves, local contrast, a final noise "
@@ -1038,6 +1050,20 @@ class FinishWindow(QMainWindow):
             QMessageBox.information(self, t.title, why)
             return
         self.open_tool(key)
+
+    def again_tool(self):
+        """The tool of the last step, when it can be run again on the picture as it is now."""
+        if not self.project or len(self.project.steps) <= 1 or self.state is None:
+            return None
+        t = F.TOOLS.get(self.project.steps[-1].get("tool", ""))
+        if t is None or not getattr(t, "repeatable", False) or not t.applicable(self.state)[0]:
+            return None
+        return t
+
+    def do_again(self):
+        t = self.again_tool()
+        if t is not None:
+            self.open_tool(t.key)
 
     def skip_next(self):
         t = F.next_step(self.state)

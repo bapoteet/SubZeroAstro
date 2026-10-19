@@ -2485,6 +2485,13 @@ TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), Bala
                             StarColours(), PutStarsBack(),
                             DustDonuts(), DarkenSky(), FinalNoise(), FlipPicture(), FinalCrop(), SpotFix(), SignPicture())}
 
+# steps that can sensibly be run again on their own result ("Do It Again"); one-way steps (combining,
+# brightening, taking the stars out or putting them back, signing …) are not on the list
+REPEATABLE = ("balance", "scnr", "core", "curves", "saturation", "local", "shrink", "star_color", "dust",
+              "sky", "denoise", "flip", "final_crop", "spotfix")
+for _k in REPEATABLE:
+    TOOLS[_k].repeatable = True
+
 
 def thumb_state(tool: Tool, s: State, size=420) -> State:
     """The small image a tool's choices are rendered on."""
@@ -2780,7 +2787,7 @@ def export(s: State, base: Path, formats=("tif", "jpg"), save_rgb8=None) -> list
     img = np.clip(img, 0, 1).astype(np.float32)
     files = []
     hdr = [("OBJECT", s.target, ""), ("SWCREATE", "SubZeroAstro", ""),
-           ("HISTORY", "SubZeroAstro finish: " + ", ".join(TOOLS[k].title for k in s.done if k in TOOLS), "")]
+           ("HISTORY", "SubZeroAstro finish: " + ", ".join(TOOLS[k].title for k in dict.fromkeys(s.done) if k in TOOLS), "")]
     data = img[0] if img.shape[0] == 1 else img
     for f in formats:
         p = base.with_name(base.name + "." + f)
@@ -2872,7 +2879,7 @@ def export_for_pixinsight(s: State, folder: Path) -> list:
         remaining = [t for t, st_ in workflow(s) if st_ in ("next", "later")]
     finally:
         sxt.runner = had
-    done = [TOOLS[k].title for k in s.done if k in TOOLS]
+    done = [TOOLS[k].title for k in dict.fromkeys(s.done) if k in TOOLS]
     lines = [f"{s.target} - continue in PixInsight", "=" * 40, "",
              f"Data: {KIND_LABEL.get(s.kind, s.kind)}, currently {stage.upper()}"
              + (" (still linear - use an STF auto-stretch to view it)" if s.linear else ""), "",
