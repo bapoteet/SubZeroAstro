@@ -259,6 +259,7 @@ bullets([
   "**Page 2**: each master is noted as soon as it is saved; an interrupted run offers **Continue With the Rest**.",
   "**Page 3**: the image is saved after every step; **Go Back & Redo This Step** and **Start Fresh** are under the preview.",
   "**Page 4**: every step is saved: **Undo** (Ctrl+Z), **Go Back to Here**, **Back to Start**, and reopening the same masters later resumes the project.",
+  "**Clear everything and start from scratch**: **File › Clear Everything – Start From Scratch…** forgets the saved quality measurements (page 1 measures every frame again), deletes all saved progress (stacking resume points, page 3 and page 4 step histories, the last session) can move your existing master lights aside into an *Old masters <date>* folder, so a new stack starts truly from nothing, and can reset all settings to factory defaults (your folders, tool locations, rig names and signature are kept) - like PixInsight's *Reset Engine*. Your images, calibration library and masters are never deleted. Then load your light frames again.",
 ]);
 sec("5.4", "Stop Here – Continue in PixInsight", ["Stop Here – Continue in PixInsight", "PixInsight hand-over"]);
 p("The purple **Stop Here – Continue in PixInsight** button (pages 2, 3 and 4) saves the image exactly as it is right now as PixInsight-ready XISF, writes a short note listing the PixInsight processes to use next, and opens the folder with the files selected.");

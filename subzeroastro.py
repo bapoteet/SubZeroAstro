@@ -13,6 +13,7 @@ REJECTED subfolder. The culling view was inspired by Tom van Peer's FITS Blaster
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 import traceback
@@ -42,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.51 beta"
+APP_VERSION = "0.9.52 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -352,6 +353,65 @@ class CheckpointDialog(QDialog):
         self.settings.setValue("checkpoints/days", self.days.value())
         cp.set_root(d)
         self.accept()
+
+
+# settings that say where things are or who you are: kept by "reset all settings to factory defaults"
+KEEP_ON_RESET = re.compile(r"(dir|root|folder|path|rcastro|graxpert|astap|tools|rigs|signature|bortle|sqm|"
+                           r"geometry|window/)", re.I)
+
+
+def reset_settings(settings) -> int:
+    """All settings back to factory defaults, except folders, tool locations, rig names and the like."""
+    keep = {k: settings.value(k) for k in settings.allKeys() if KEEP_ON_RESET.search(k)}
+    n = len(settings.allKeys()) - len(keep)
+    settings.clear()
+    for k, v in keep.items():
+        settings.setValue(k, v)
+    settings.sync()
+    return n
+
+
+class StartFreshDialog(QDialog):
+    """What 'Clear Everything – Start From Scratch' clears. Nothing here deletes your images or masters."""
+
+    def __init__(self, parent, settings):
+        super().__init__(parent)
+        self.setWindowTitle("Clear Everything – Start From Scratch")
+        lay = QVBoxLayout(self)
+        head = QLabel("<b>Start from scratch, as if SubZeroAstro had never seen your data.</b><br>"
+                      "Your images, your calibration library and your masters are never deleted.")
+        head.setWordWrap(True)
+        lay.addWidget(head)
+        self.chk_measure = QCheckBox("Forget the saved quality measurements (page 1 measures every frame again)")
+        self.chk_measure.setChecked(True)
+        lay.addWidget(self.chk_measure)
+        self.chk_progress = QCheckBox("Delete all saved progress: stacking resume points, the Astro Image "
+                                      "Processing step history, Finishing Touches projects, the last session")
+        self.chk_progress.setChecked(True)
+        lay.addWidget(self.chk_progress)
+        self.masters_root = str(settings.value("stack/masters_root", "") or "").strip()
+        ok = bool(self.masters_root) and Path(self.masters_root).is_dir()
+        self.chk_masters = QCheckBox("Move the existing master lights aside, into an 'Old masters <date>' folder "
+                                     f"inside {self.masters_root}" if ok else
+                                     "Move the existing master lights aside (no master lights folder is set on "
+                                     "page 2 - masters are saved next to your light frames; move those yourself)")
+        self.chk_masters.setChecked(False)
+        self.chk_masters.setEnabled(ok)
+        self.chk_masters.setToolTip("New stacks never overwrite masters (they are saved as _2, _3 …). Moving "
+                                    "the old ones aside means pages 3 and 4 only find the new ones.")
+        lay.addWidget(self.chk_masters)
+        self.chk_settings = QCheckBox("Reset all settings to factory defaults (your folders, tool locations, rig "
+                                      "names and signature are kept)")
+        self.chk_settings.setChecked(False)
+        lay.addWidget(self.chk_settings)
+        note = QLabel("<i>Rejected frames stay in their REJECTED folders.</i>")
+        lay.addWidget(note)
+        bb = QDialogButtonBox(QDialogButtonBox.Cancel)
+        go = bb.addButton("Clear Everything", QDialogButtonBox.AcceptRole)
+        go.setDefault(True)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
 
 
 class AutoFlagDialog(QDialog):
@@ -1162,6 +1222,9 @@ class MainWindow(QMainWindow):
         self.act_start_over = act("Start Over – Load New Data…", self.start_over, "Ctrl+N",
                                   QStyle.SP_BrowserReload,
                                   "Clear this session and open a new folder (Ctrl+N)")
+        self.act_fresh = act("Clear Everything – Start From Scratch…", self.start_fresh, None, QStyle.SP_TrashIcon,
+                             "Forget saved measurements and progress (and optionally move old masters aside), "
+                             "then load data again - like starting the app for the first time")
         self.preset_actions = {}
         for key, p in core.CULL_PRESETS.items():
             a = QAction(p["label"], self)
@@ -1228,8 +1291,8 @@ class MainWindow(QMainWindow):
 
         mb = self.menuBar()
         m = mb.addMenu("&File")
-        for a in (self.act_load, self.act_open, self.act_reopen, self.act_start_over, self.act_reload,
-                  self.act_remeasure):
+        for a in (self.act_load, self.act_open, self.act_reopen, self.act_start_over, self.act_fresh,
+                  self.act_reload, self.act_remeasure):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_export)
@@ -2411,6 +2474,39 @@ class MainWindow(QMainWindow):
                 if QMessageBox.question(self, APP_NAME, msg) != QMessageBox.StandardButton.Yes:
                     return
         self.reset_session()
+        self.load_data()
+
+    def start_fresh(self):
+        """Clear everything SubZeroAstro remembers and start from page 1 (your files are kept)."""
+        pages = [getattr(self, a, None) for a in ("stack_win", "prep_win", "finish_win")]
+        pages = [w for w in pages if ui_header.alive(w)]
+        if any(ui_header.busy(w) for w in pages):
+            QMessageBox.information(self, "Clear Everything", "A page is still working (stacking or processing). "
+                                    "Let it finish or cancel it first.")
+            return
+        dlg = StartFreshDialog(self, self.settings)
+        if not dlg.exec():
+            return
+        for w in pages:
+            w.close()
+        self.reset_session()
+        res = cp.fresh_start(core.cache_dir() if dlg.chk_measure.isChecked() else None,
+                             progress=dlg.chk_progress.isChecked(),
+                             masters_root=dlg.masters_root if dlg.chk_masters.isChecked() else None)
+        done = []
+        if dlg.chk_settings.isChecked():
+            n = reset_settings(self.settings)
+            done.append(f"{n} setting(s) back to factory defaults (folders and tool locations kept)")
+        if dlg.chk_measure.isChecked():
+            done.append("saved quality measurements forgotten (frames are measured again)")
+        if dlg.chk_progress.isChecked():
+            done.append(f"saved progress deleted ({cp.human(res['progress'])} freed)")
+        if res["moved"]:
+            done.append(f"{res['moved']} item(s) of old masters moved to {res['moved_to']}")
+        self.statusBar().showMessage("Cleared: " + "; ".join(done), 15000)
+        QMessageBox.information(self, "Clear Everything", "Done:\n\n• " + "\n• ".join(done or ["nothing to clear"])
+                                + "\n\nYour images, calibration library and masters were not deleted. "
+                                "Now load your light frames.")
         self.load_data()
 
     def reset_session(self):

@@ -617,6 +617,34 @@ def run(app, out_dir: Path) -> int:
         log(f"screenshot {name}: {'saved' if ok else 'FAILED'} ({pm.width()}x{pm.height()})")
 
     def start():
+        # Start Fresh: forgets measurements and progress, moves old masters aside - never deletes images
+        import tempfile as _tf
+        _fd = Path(_tf.mkdtemp())
+        (_fd / "c").mkdir()
+        (_fd / "c" / "x.cache").write_bytes(b"0" * 64)
+        (_fd / "m" / "NGC2359").mkdir(parents=True)
+        (_fd / "m" / "NGC2359" / "master.fits").write_text("m")
+        _res = __import__("checkpoints").fresh_start(_fd / "c", progress=False, masters_root=_fd / "m")
+        _dlg = __import__("subzeroastro").StartFreshDialog(w, w.settings) if hasattr(
+            __import__("subzeroastro"), "StartFreshDialog") else None
+        _ok_dlg = _dlg is not None and _dlg.chk_measure.isChecked() and _dlg.chk_progress.isChecked() \
+            and not _dlg.chk_masters.isChecked()
+        if _dlg is not None:
+            _dlg.close()
+        check(_res["measurements"] == 64 and not list((_fd / "c").glob("*.cache")) and _res["moved"] == 1
+              and (Path(_res["moved_to"]) / "NGC2359" / "master.fits").exists() and _ok_dlg
+              and w.act_fresh in w.menuBar().actions()[0].menu().actions(),
+              "File › Clear Everything – Start From Scratch clears saved measurements and progress and moves old masters aside "
+              "(nothing deleted)")
+        from PySide6.QtCore import QSettings as _QS
+        _qs = _QS(str(_fd / "s.ini"), _QS.IniFormat)
+        for _k, _v in (("stack/kappa", 2.0), ("stack/masters_root", "/x/masters"), ("prep/rcastro", "/rc"),
+                       ("ui/splash", False), ("stack/rigs", "[]"), ("finish/signature", "B. Poteet")):
+            _qs.setValue(_k, _v)
+        __import__("subzeroastro").reset_settings(_qs)
+        check(sorted(_qs.allKeys()) == ["finish/signature", "prep/rcastro", "stack/masters_root", "stack/rigs"],
+              "reset all settings to factory defaults keeps folders, tool locations, rigs and signature")
+    def start():
         # the intro animation: frames at set moments, and it closes by itself
         import splash as _sp
         sp = _sp.Splash("SubZeroAstro", "Brian A. Poteet", "From subs to masters - zero hassle.", "0.0 test")

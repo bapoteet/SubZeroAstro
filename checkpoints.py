@@ -155,6 +155,31 @@ def clear_all(keep_session=True) -> int:
     return freed
 
 
+def fresh_start(measurements_dir=None, progress=True, masters_root=None) -> dict:
+    """'Start Fresh': forget saved measurements (*.cache files in measurements_dir), delete all saved
+    progress (stacking resume points, Prepare history, Finishing Touches projects, the culling
+    session) and move existing master lights aside into 'Old masters <date>' inside masters_root.
+    Nothing is deleted from your images or masters. Returns what was done."""
+    out = {"measurements": 0, "progress": 0, "moved": 0, "moved_to": None}
+    if measurements_dir is not None and Path(measurements_dir).is_dir():
+        for p in Path(measurements_dir).glob("*.cache"):
+            out["measurements"] += _size(p)
+            remove(p)
+    if progress:
+        out["progress"] = clear_all(keep_session=False)
+    if masters_root and Path(masters_root).is_dir():
+        root_ = Path(masters_root)
+        items = [p for p in root_.iterdir() if not p.name.startswith(("Old masters", "."))]
+        if items:
+            dest = root_ / f"Old masters {time.strftime('%Y-%m-%d %H-%M')}"
+            dest.mkdir(parents=True, exist_ok=True)
+            for p in items:
+                shutil.move(str(p), str(dest / p.name))
+                out["moved"] += 1
+            out["moved_to"] = dest
+    return out
+
+
 def remove(p: Path):
     p = Path(p)
     if p.is_dir():
