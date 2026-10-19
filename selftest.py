@@ -1458,6 +1458,44 @@ def run(app, out_dir: Path) -> int:
                                                                         if k != "stars_out"],
               "Back to Start returns to the original masters")
         import finish as F
+        # masters from different setups: every master used, and lined up WITH the field distortion
+        import types as _types
+        import stacking as _stg
+        _rg = np.random.default_rng(5)
+        _RH = 600
+        _rstars = [(_rg.uniform(5, _RH - 5), _rg.uniform(5, _RH - 5), _rg.uniform(300, 8000)) for _ in range(350)]
+
+        def _rend(fn, gain=1.0, off=500.0, noise=8.0):
+            _yy, _xx = np.mgrid[:_RH, :_RH].astype(np.float32)
+            im = np.full((_RH, _RH), off, np.float32) + _rg.normal(0, noise, (_RH, _RH)).astype(np.float32)
+            for _x, _y, _a in _rstars:
+                X, Y = fn(_x, _y)
+                if 4 < X < _RH - 4 and 4 < Y < _RH - 4:
+                    sl = (slice(int(Y) - 5, int(Y) + 6), slice(int(X) - 5, int(X) + 6))
+                    im[sl] += gain * _a * np.exp(-((_xx[sl] - X) ** 2 + (_yy[sl] - Y) ** 2) / (2 * 1.6 ** 2))
+            return im
+
+        def _dist(x, y, k=6e-7, rot=0.003, dx=1.3, dy=-0.7):
+            c = _RH / 2
+            u, v = x - c, y - c
+            q = 1 + k * (u * u + v * v)
+            u, v = u * q, v * q
+            return u * np.cos(rot) - v * np.sin(rot) + c + dx, u * np.sin(rot) + v * np.cos(rot) + c + dy
+        _ms = [_types.SimpleNamespace(filter=f, data=d[None], path=Path(n)) for f, d, n in (
+            ("Ha", _rend(lambda x, y: (x, y)), "ha"), ("OIII", _rend(_dist, 0.6, 300.0), "o3a"),
+            ("OIII", _rend(lambda x, y: _dist(x, y, 4e-7, -0.002, -2, 1), noise=12.0), "o3b"),
+            ("SII", _rend(lambda x, y: (x, y), 0.4), "s2"))]
+        _ch, _cs, _notes = F.assemble_mono(_ms)
+        _rp = _stg.find_stars(_ch["Ha"] * 65535, 1, 250)[0]
+        _op = _stg.find_stars(_ch["OIII"] * 65535, 1, 250)[0]
+        _dd = np.sqrt(((_rp[:, None] - _op[None]) ** 2).sum(-1)).min(1)
+        _far = np.hypot(_rp[:, 0] - _RH / 2, _rp[:, 1] - _RH / 2) > 220
+        _corner = float(np.median(_dd[_far & (_dd < 5)]))
+        check(set(_ch) == {"Ha", "OIII", "SII"} and any("2 OIII masters combined" in x for x in _notes)
+              and any("distortion" in x for x in _notes) and _corner < 0.3,
+              f"masters from other setups are all used and lined up with their field distortion (corner stars "
+              f"{_corner:.2f} px apart; {'; '.join(_notes)})")
+
         # HOO for Ha + OIII + SII sets, Flip the Picture, the two-line signature block, the description
         _nb = {k: np.random.default_rng(1).random((40, 50)).astype(np.float32) for k in ("Ha", "OIII", "SII")}
         _labels = [v.label for v in F.TOOLS["combine"].variants(F.State(channels=_nb, kind="mono_nb"))]

@@ -1518,6 +1518,110 @@ def match_frames(ref_pts, tgt_pts, tol=3.0):
     raise last or ValueError("could not match the star field")
 
 
+# --------------------------------------------------------------------------
+# Distortion-correcting registration: images from different cameras / telescopes don't line up
+# with a shift-rotate-scale alone - the optics bend the field a little differently, most at the
+# edges. A smooth polynomial fitted to many matched stars takes that out.
+# --------------------------------------------------------------------------
+
+def _poly_terms(order):
+    return [(i, j) for n in range(order + 1) for i in range(n + 1) for j in [n - i]]
+
+
+def _poly_design(x, y, order, norm):
+    cx, cy, sc = norm
+    u, v = (x - cx) / sc, (y - cy) / sc
+    return np.stack([u ** i * v ** j for i, j in _poly_terms(order)], axis=-1)
+
+
+def fit_poly(src, dst, order, shape):
+    """dst ≈ P(src): a polynomial of the given order (1 = affine), coordinates normalised to the
+    image size so higher orders stay well-behaved."""
+    h, w = shape
+    norm = (w / 2.0, h / 2.0, max(w, h) / 2.0)
+    D = _poly_design(src[:, 0], src[:, 1], order, norm)
+    cxy, *_ = np.linalg.lstsq(D, dst, rcond=None)
+    return {"order": order, "norm": norm, "coef": cxy}
+
+
+def poly_apply(model, pts):
+    D = _poly_design(pts[:, 0], pts[:, 1], model["order"], model["norm"])
+    return D @ model["coef"]
+
+
+def warp_poly(planes, model, out_shape, rows=256) -> list:
+    """Resample so each output (reference) pixel takes its value from where model(ref xy) says it
+    is in the image (bilinear; NaN outside)."""
+    h, w = out_shape
+    H, W = planes[0].shape
+    flats = [np.ascontiguousarray(p, dtype=np.float32).ravel() for p in planes]
+    outs = [np.empty((h, w), np.float32) for _ in planes]
+    xs = np.arange(w, dtype=np.float64)
+    for r0 in range(0, h, rows):
+        r1 = min(r0 + rows, h)
+        yy, xx = np.meshgrid(np.arange(r0, r1, dtype=np.float64), xs, indexing="ij")
+        D = _poly_design(xx.ravel(), yy.ravel(), model["order"], model["norm"])
+        sxy = D @ model["coef"]
+        sx = sxy[:, 0].reshape(r1 - r0, w).astype(np.float32)
+        sy = sxy[:, 1].reshape(r1 - r0, w).astype(np.float32)
+        x0 = np.floor(sx)
+        y0 = np.floor(sy)
+        fx, fy = sx - x0, sy - y0
+        x0 = x0.astype(np.int32)
+        y0 = y0.astype(np.int32)
+        valid = (x0 >= 0) & (y0 >= 0) & (x0 < W - 1) & (y0 < H - 1)
+        idx = np.clip(y0, 0, H - 2) * W + np.clip(x0, 0, W - 2)
+        w11 = fx * fy
+        w10 = fy - w11
+        w01 = fx - w11
+        w00 = 1 - fx - fy + w11
+        for f, o in zip(flats, outs):
+            v = f[idx] * w00 + f[idx + 1] * w01 + f[idx + W] * w10 + f[idx + W + 1] * w11
+            o[r0:r1] = np.where(valid, v, np.nan)
+    return outs
+
+
+def register_distortion(ref_lum, img_lum, ref_shape, factor=2, max_stars=400):
+    """How img lines up with ref, with distortion: (model ref->img, info). info: stars matched, rms
+    of a plain (affine) fit and of the distortion fit, and the largest affine error at the edge.
+    Raises ValueError when the star fields can't be matched."""
+    def binned(a):
+        h, w = a.shape
+        return a[:h // factor * factor, :w // factor * factor].reshape(h // factor, factor, w // factor,
+                                                                         factor).mean(axis=(1, 3))
+    rp, _ = find_stars(binned(ref_lum).astype(np.float32), factor, max_stars=max_stars)
+    tp, _ = find_stars(binned(img_lum).astype(np.float32), factor, max_stars=max_stars)
+    T, n, rms, ok, j = match_frames(rp, tp, tol=4.0)
+    Ti = np.linalg.inv(np.vstack([T, [0, 0, 1]]))[:2]           # ref -> img
+    # pair every star through the transform (edge stars an affine fit misses come in on later rounds)
+    model = {"order": 1, "norm": (ref_shape[1] / 2.0, ref_shape[0] / 2.0, max(ref_shape) / 2.0)}
+    model["coef"] = fit_poly(rp[j[ok]], tp[ok], 1, ref_shape)["coef"]
+    aff = dict(model)
+    pairs = None
+    for step, order in enumerate((1, 2, 3, 3, 3)):
+        pred = poly_apply(model, rp)
+        d = np.sqrt(((pred[:, None, :] - tp[None, :, :]) ** 2).sum(-1))
+        k = np.argmin(d, axis=1)
+        good = d[np.arange(len(k)), k] < (6.0, 4.0, 2.5, 1.5, 1.0)[step]
+        if good.sum() < 12:
+            break
+        need = {1: 3, 2: 20, 3: 40}[order]
+        use = order if good.sum() >= need else 1
+        model = fit_poly(rp[good], tp[k[good]], use, ref_shape)
+        if order == 1:
+            aff = model
+        pairs = (rp[good], tp[k[good]])
+    if pairs is None:
+        raise ValueError("too few stars to measure the distortion")
+    src, dst = pairs
+    r_aff = np.sqrt(((poly_apply(aff, src) - dst) ** 2).sum(1))
+    r_pol = np.sqrt(((poly_apply(model, src) - dst) ** 2).sum(1))
+    info = {"stars": int(len(src)), "rms_affine": float(np.sqrt(np.mean(r_aff ** 2))),
+            "rms": float(np.sqrt(np.mean(r_pol ** 2))), "edge_affine": float(np.percentile(r_aff, 95)),
+            "order": model["order"], "shift": float(np.median(np.sqrt(((src - dst) ** 2).sum(1))))}
+    return model, info
+
+
 def is_mirrored(T) -> bool:
     return float(np.linalg.det(np.asarray(T)[:, :2])) < 0
 

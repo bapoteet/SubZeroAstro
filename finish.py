@@ -130,6 +130,96 @@ def dual_band_filter(filter_name, look=None) -> bool:
     return smart.startswith("Seestar") and str(filter_name or "").strip().upper() == "LP"
 
 
+def _sky_noise(x):
+    """Robust (median, noise) of the sky in a plane."""
+    sm = x[::4, ::4]
+    med = float(np.median(sm))
+    d = (sm[:, 1:] - sm[:, :-1]).ravel()
+    return med, float(np.median(np.abs(d - np.median(d)))) * 1.4826 / np.sqrt(2) + 1e-9
+
+
+def assemble_mono(masters, stars_of=lambda m: None, log=None):
+    """Mono masters -> one plane per filter, all on ONE pixel grid.
+    * Every master is checked against a reference master by its stars. Masters from another
+      camera or telescope are bent a little differently by their optics, most at the edges; a
+      polynomial fitted to the matched stars puts them exactly on the reference grid (no coloured
+      double stars in the corners).
+    * Several masters of the same filter (other nights, other setups) are all used: brought to the
+      same brightness scale and averaged, the less noisy ones counting more.
+    Returns (channels, channel_stars, notes)."""
+    import stacking as st
+    lg = log or (lambda t: None)
+    notes = []
+    pref = ("L", "Ha", "G", "R", "OIII", "SII", "B")
+    order = sorted(range(len(masters)), key=lambda i: (pref.index(masters[i].filter)
+                                                       if masters[i].filter in pref else 9, i))
+    ref = masters[order[0]]
+    ref_plane = np.clip(ref.data[0], 0, None).astype(np.float32)
+    shape = ref_plane.shape
+    planes = {}          # filter -> [(plane, stars or None, weight)]
+    fixed, failed = [], []
+    worst = 0.0
+    for i in order:
+        m = masters[i]
+        img = np.clip(m.data[0], 0, None).astype(np.float32)
+        stars = stars_of(m)
+        star_plane = stars[0] * 65535.0 if stars is not None else None        # same units as the data
+        if m is not ref:
+            try:
+                model, info = st.register_distortion(ref_plane, img, shape)
+                off = max(info["shift"], info["edge_affine"]) if img.shape != shape else info["edge_affine"]
+                if img.shape != shape or info["shift"] > 0.25 or info["edge_affine"] > 0.6:
+                    warped = st.warp_poly([img] + ([star_plane] if star_plane is not None else []), model, shape)
+                    img = np.nan_to_num(warped[0], nan=0.0)
+                    if star_plane is not None:
+                        star_plane = np.nan_to_num(warped[1], nan=0.0)
+                    fixed.append(f"{m.filter} ({m.path.stem if hasattr(m, 'path') else m.filter}: off by up to "
+                                 f"{off:.1f} px, now {info['rms']:.2f} px)")
+                    worst = max(worst, off)
+            except ValueError as e:
+                if img.shape != shape:
+                    failed.append(f"{m.filter}: could not be lined up ({e}) and has another size - left out")
+                    continue
+                failed.append(f"{m.filter}: could not be checked against the others ({e}) - used as it is")
+        elif star_plane is not None and star_plane.shape != shape:
+            star_plane = None
+        planes.setdefault(m.filter, []).append((img, star_plane))
+    chans, cstars = {}, {}
+    for filt, items in planes.items():
+        if len(items) == 1:
+            img, stp = items[0]
+        else:
+            # same brightness scale as the first of this filter, then a noise-weighted average
+            b0, n0 = _sky_noise(items[0][0])
+            s0 = float(np.percentile(items[0][0][::4, ::4], 99.5)) - b0
+            acc = np.zeros(shape, np.float64)
+            accs = np.zeros(shape, np.float64) if all(x[1] is not None for x in items) else None
+            wsum = 0.0
+            for img, stp in items:
+                b, n = _sky_noise(img)
+                sc = s0 / max(float(np.percentile(img[::4, ::4], 99.5)) - b, 1e-6)
+                wgt = 1.0 / max(n * sc, 1e-9) ** 2
+                acc += wgt * ((img - b) * sc + b0)
+                if accs is not None:
+                    accs += wgt * (stp * sc)
+                wsum += wgt
+            img = (acc / wsum).astype(np.float32)
+            stp = (accs / wsum).astype(np.float32) if accs is not None else None
+            notes.append(f"{len(items)} {filt} masters combined")
+        chans[filt] = np.clip(img / 65535.0, 0, None).astype(np.float32)
+        if stp is not None:
+            cstars[filt] = np.clip(stp / 65535.0, 0, None).astype(np.float32)
+    if len(cstars) != len(chans):
+        cstars = {}
+    if fixed:
+        notes.append(f"{len(fixed)} master(s) corrected for a different field distortion (edges were off by up to "
+                     f"{worst:.1f} px)")
+        for x in fixed:
+            lg("Lined up with distortion correction: " + x)
+    notes += failed
+    return chans, cstars, notes
+
+
 def load_state(paths) -> State:
     """Build the starting state from one target's masters (prepared or not)."""
     import prepare as P
@@ -185,11 +275,10 @@ def load_state(paths) -> State:
             s.done.append("stars_out")
             s.stars_missing = True
         return s
-    for m in masters:
-        s.channels[m.filter] = np.clip(m.data[0] / 65535.0, 0, None).astype(np.float32)
-        st_img = stars_of(m)
-        if st_img is not None:
-            s.channel_stars[m.filter] = st_img[0]
+    chans, cstars, notes = assemble_mono(masters, stars_of)
+    s.channels, s.channel_stars = chans, cstars
+    if notes:
+        s.load_note = "; ".join(notes)
     f = set(s.channels)
     known = {"Ha", "OIII", "SII", "Hβ", "L", "R", "G", "B"}
     unknown = sorted(f - known)

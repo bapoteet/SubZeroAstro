@@ -378,7 +378,7 @@ p("Click **Continue to Finishing Touches ➜**, or **Stop Here – Continue in P
 
 ch(9, "Page 4 – Finishing Touches");
 img("15_finish_start.png", "Finishing Touches: the workflow (left), the recommended next step and the picture (example data)");
-sec("9.1", "How it works", ["Recommended next", "Do It", "Skip", "Pick the one you like", "Fine-tune", "Apply", "Cancel", "Workflow list"]);
+sec("9.1", "How it works", ["Recommended next", "Do It", "Skip", "Pick the one you like", "Fine-tune", "Apply", "Cancel", "Workflow list", "Several masters per filter", "Field distortion", "Double stars"]);
 steps([
   "The **workflow list** on the left shows every step for your kind of data: ✓ done, ➜ next, ○ later, – not needed, ◇ optional.",
   "The card at the top says what is **Recommended next** and why. Click **Do It** (or click any step in the list).",
@@ -387,6 +387,7 @@ steps([
   "Press **Apply** to keep it - or **Cancel** to leave the picture exactly as it was.",
 ]);
 img("17_finish_brighten_choices.png", "Picking a version: Brighten the Image offers five strengths (example data)");
+p("**Several masters per filter, or masters from different setups.** When you load more than one master of the same filter (other nights, other cameras or telescopes), all of them are used: they are brought to the same brightness and averaged, the less noisy ones counting more. Every master is first matched star by star to one reference master. Masters from another camera or telescope are bent slightly differently by their optics - most at the edges, which would give coloured double stars in the corners - so SubZeroAstro measures that distortion from hundreds of stars and corrects it. The note under the title says how many masters were combined and corrected.");
 sec("9.2", "Going back", ["Undo", "Go Back to Here", "Back to Start", "Hold for Before (Finishing Touches)"]);
 bullets([
   "**Undo** (Ctrl+Z) removes the last step.",
