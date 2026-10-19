@@ -100,21 +100,21 @@ function img(file, caption, maxW = 600) {
     children: [new TextRun({ text: caption, italics: true, size: 18, color: GREY })] }));
 }
 const BORDER = { style: BorderStyle.SINGLE, size: 4, color: "BFBFBF" };
-function table(headers, rows, widths) {
+function table(headers, rows, widths, out = body, size = undefined) {
   const total = widths.reduce((a, b) => a + b, 0);
   const cell = (text, head, w) => new TableCell({
     width: { size: w, type: WidthType.DXA },
     borders: { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER },
     shading: head ? { type: ShadingType.CLEAR, fill: "DCE6F2", color: "auto" } : undefined,
-    margins: { top: 60, bottom: 60, left: 100, right: 100 },
-    children: [new Paragraph({ children: runs(text, head ? { bold: true } : {}) })],
+    margins: size ? { top: 30, bottom: 30, left: 90, right: 90 } : { top: 60, bottom: 60, left: 100, right: 100 },
+    children: [new Paragraph({ children: runs(text, { ...(head ? { bold: true } : {}), ...(size ? { size } : {}) }) })],
   });
-  body.push(new Table({
+  out.push(new Table({
     width: { size: total, type: WidthType.DXA }, columnWidths: widths,
     rows: [new TableRow({ tableHeader: true, children: headers.map((h, i) => cell(h, true, widths[i])) }),
       ...rows.map((r) => new TableRow({ cantSplit: true, children: r.map((c, i) => cell(c, false, widths[i])) }))],
   }));
-  body.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
+  out.push(new Paragraph({ spacing: { after: 120 }, children: [] }));
 }
 
 // ================================================================== THE MANUAL
@@ -391,7 +391,7 @@ steps([
   "Not quite enough? Many steps can be run again on their own result: after one of them the card shows **↻ Do It Again** (and a ✓ step in the list can be clicked to run it again). That works for Balance Colours, Remove Green Cast, Tame Bright Core, Curves, Saturation, Bring Out Hidden Structure, Shrink Stars, Star Colours, Mote Buster, Darken the Sky Background, Final Noise Reduction, Flip, Final Crop and Spot Fix. One-way steps - combining, brightening, taking the stars out or putting them back, signing - are not repeated; use **Go Back to Here** to redo those.",
 ]);
 img("17_finish_brighten_choices.png", "Picking a version: Brighten the Image offers five strengths (example data)");
-p("**Several masters per filter, or masters from different setups.** When you load more than one master of the same filter (other nights, other cameras or telescopes), all of them are used: they are brought to the same brightness and averaged, the less noisy ones counting more. Every master is first matched star by star to one reference master. Masters from another camera or telescope are bent slightly differently by their optics - most at the edges, which would give coloured double stars in the corners - so SubZeroAstro measures that distortion from hundreds of stars and corrects it. A master whose stars cannot be matched to the others is left out (when its filter has other masters), so it can't cause double stars, and the picture is cropped to the area all masters cover. The note under the title says how many masters were combined, corrected or left out.");
+p("**Several masters per filter, or masters from different setups.** When you load more than one master of the same filter (other nights, other cameras or telescopes), all of them are used: they are brought to the same brightness and averaged, the less noisy ones counting more. Every master is first matched star by star to one reference master. Masters from another camera or telescope are bent slightly differently by their optics - most at the edges, which would give coloured double stars in the corners - so SubZeroAstro measures that distortion from hundreds of stars and corrects it. When the masters carry a plate solution (data from remote observatories usually does, and page 3 adds one with ASTAP), it guides the match: the masters are lined up from where they point on the sky and the stars fine-tune it, so even masters with few stars in common line up. A master whose stars cannot be matched to the others is left out (when its filter has other masters), so it can't cause double stars, and the picture is cropped to the area all masters cover. The note under the title says how many masters were combined, corrected or left out.");
 sec("9.2", "Going back", ["Undo", "Go Back to Here", "Back to Start", "Hold for Before (Finishing Touches)"]);
 bullets([
   "**Undo** (Ctrl+Z) removes the last step.",
@@ -589,6 +589,59 @@ const cover = [
   new Paragraph({ alignment: AlignmentType.CENTER,
     children: [new TextRun({ text: "by Brian A. Poteet  ·  October 2026", size: 22, color: GREY })] }),
 ];
+// ------------------------------------------------------------------ highlights (after the cover, before the contents)
+const HIGHLIGHTS = [
+  ["Across the whole app", [
+    ["Ready-made data recognised", "Telescope Live (PROC = True), MaxIm DL (CALSTAT), PixInsight and Siril calibration notes, and _cal / _c file names mark lights as already calibrated: no double calibration, no SkyFlat, no false warnings", "0.9.49"],
+    ["Damaged-file detection", "Spots FITS files whose picture data was turned into text by a bad download or copy, and says so instead of stacking noise", "0.9.50"],
+    ["Clear Everything – Start From Scratch", "One menu item, like PixInsight's Reset Engine: forgets measurements and progress, moves old masters aside, optionally resets settings (keeps folders and tools)", "0.9.52"],
+    ["Crash recovery", "Every page saves as it goes; after a crash or restart the app offers to bring you back to the same page", "0.6"],
+    ["Stop Here – Continue in PixInsight", "From pages 2, 3 or 4, hands the image over as PixInsight-ready XISF with a note of the processes to use next", "0.7"],
+    ["Smart telescopes", "Seestar, DWARF, Vespera, Stellina and eVscope raw subs and stacks are recognised and handled without calibration frames", "0.6"],
+    ["XISF everywhere", "Reads PixInsight XISF light frames, including every compression (zlib, LZ4, LZ4-HC, Zstandard)", "0.9.28"],
+    ["Windows and Apple-silicon Mac", "Both builds run a full self-test on real hardware before every release", "0.9.0"],
+  ]],
+  ["Page 1 – Quality & Cull", [
+    ["Star quality on every frame", "FWHM, eccentricity, SNR, star count and background, with a badge and a score against frames of the same camera and filter", "Stage 2"],
+    ["Session chart", "One dot per frame in capture order, nights separated; click to jump, drag a range to flag or reject", "Stage 2"],
+    ["Auto-cull presets", "Three strengths flag frames from FWHM, stars, SNR (catches thin cloud) and eccentricity; you review before rejecting, and it can be undone", "0.3.0"],
+    ["Fast measuring over a NAS", "Reads about a quarter of each file, 3–4× faster on network drives; results are saved, so reopening is nearly instant", "Stage 2"],
+  ]],
+  ["Page 2 – Calibrate & Stack", [
+    ["Automatic calibration matching", "Bias, darks and flats picked by camera, gain, offset, temperature, exposure, filter, rig and nearest date, with ✓ ⚠ ✗ and a plain reason", "0.4.0"],
+    ["SkyFlats (Mote Buster)", "No flats? A flat is built from your own light frames; a poor one stops and asks before it is used", "0.9.22"],
+    ["Build Calibration Masters", "One folder of mixed bias, dark, flat and dark-flat subs is sorted, checked and turned into masters, no lights needed", "0.9.24"],
+    ["Field-distortion correction", "Meridian flips and other setups get a distortion model per frame, so corner stars stay sharp", "0.9.43"],
+    ["Hot-pixel-proof star matching", "Single-pixel spikes are ignored, so frames with hundreds of hot pixels line up on the sky, not the sensor", "0.9.51"],
+    ["Plate-solution guided alignment", "Frames and masters that carry a plate solution are lined up from where they point on the sky, with the stars fine-tuning it - rescues matches that fail and catches ones that are wrong", "0.9.53"],
+    ["Comet stacking", "A second stack follows the comet; stars and comet are both sharp in the final master", "0.9.22"],
+  ]],
+  ["Page 3 – Astro Image Processing", [
+    ["One run for every filter", "Auto-crop, plate solve, gradient removal and the RC-Astro tools on every master of the target, with the same crop", "0.5.0"],
+    ["RC-Astro without a terminal", "BlurXTerminator, NoiseXTerminator and StarXTerminator through the RC-Astro CLI, on the fast GPU, licences activated with a pasted code", "0.5.0"],
+    ["Persistent plate solving", "ASTAP retries other field sizes and works when the header has no focal length", "0.9.37"],
+    ["PixInsight next steps", "Linear XISF/FITS plus a plan of the PixInsight processes still to run, with done steps ticked", "0.5.0"],
+  ]],
+  ["Page 4 – Finishing Touches", [
+    ["Recommended next step", "Tailored to your data (colour, mono, narrowband, smart scope) and the target (galaxy, nebula, cluster, comet)", "0.7"],
+    ["Pick from your own image, then fine-tune", "Small versions of your picture to choose from; clicking previews big without applying; plain-language sliders fine-tune it, and the app says how much of the picture they change", "0.7 / 0.9.48"],
+    ["Do It Again", "Repeatable steps (curves, saturation, noise, Mote Buster …) can be run once more on their own result", "0.9.48"],
+    ["Mote Buster – Fix Dust Donuts", "Measures each dust shadow ring by ring and divides it out with a synthetic flat, so the detail underneath comes back; run it in rounds", "0.9.22 / 0.9.47"],
+    ["Every master used", "Several masters per filter averaged (less noisy ones count more), other setups bent onto one grid, unmatched ones left out", "0.9.41"],
+    ["Target description", "A short write-up from Wikipedia plus SIMBAD facts, credited, saved next to your picture", "0.9.34"],
+  ]],
+];
+const highlights = [
+  new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: true,
+    children: [new TextRun("Highlights – what makes SubZeroAstro special")] }),
+  new Paragraph({ spacing: { after: 160 }, children: runs(
+    "The features that set SubZeroAstro apart, grouped by page, with the version each arrived in. Each one is explained in its chapter.") }),
+];
+for (const [group, rows] of HIGHLIGHTS) {
+  highlights.push(new Paragraph({ heading: HeadingLevel.HEADING_3, children: [new TextRun(group)] }));
+  table(["Feature", "What it does", "Since"], rows, [2500, 5960, 900], highlights, 18);
+}
+
 const contents = [
   new Paragraph({ heading: HeadingLevel.HEADING_1, pageBreakBefore: true, children: [new TextRun("Contents")] }),
 ];
@@ -633,7 +686,7 @@ const doc = new Document({
         children: [new TextRun({ text: "SubZeroAstro User Manual", size: 16, color: GREY })] })] }) },
       footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER,
         children: [new TextRun({ children: [PageNumber.CURRENT], size: 18, color: GREY })] })] }) },
-      children: [...cover, ...contents, ...body] },
+      children: [...cover, ...highlights, ...contents, ...body] },
     { properties: { type: "continuous", page: { size: { width: 12240, height: 15840 },
         margin: { top: 1300, bottom: 1300, left: 1440, right: 1440 } }, column: { count: 2, space: 720 } },
       headers: { default: new Header({ children: [new Paragraph({ alignment: AlignmentType.RIGHT,

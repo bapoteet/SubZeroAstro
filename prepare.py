@@ -214,15 +214,26 @@ def line_up(masters, log=None):
     lg = log or (lambda t: None)
     if len(masters) < 2 or not needs_line_up(masters):
         return None
-    ref = masters[0]
+    def depth(m):                         # the deepest master is the best reference (most stars, least noise)
+        for k in ("EXPTOTAL", "NCOMBINE"):
+            try:
+                v = float(m.get(k) or m.look.get(k) or 0)
+            except (TypeError, ValueError):
+                v = 0
+            if v > 0:
+                return v
+        return 0.0
+    ref = max(masters, key=depth) if any(depth(m) > 0 for m in masters) else masters[0]
+    ref_look = core.cards_to_dict(ref.cards)
     ref_pts, _ = st.find_stars(_binned_lum(ref), 2, max_stars=200)
     overlap = tuple(ref.autocrop) if ref.autocrop else None
-    for m in masters[1:]:
-        if m.alignref and m.alignref == ref.alignref:
+    for m in masters:
+        if m is ref or (m.alignref and m.alignref == ref.alignref):
             continue
         pts, _ = st.find_stars(_binned_lum(m), 2, max_stars=200)
         try:
-            T, n_in, rms, *_rest = st.match_frames(ref_pts, pts, tol=4.0)
+            T, n_in, rms, _ok, _j, how = st.match_frames_wcs(ref_pts, pts, ref_look, core.cards_to_dict(m.cards),
+                                                             m.shape, tol=4.0)
         except ValueError as e:
             lg(f"Could not line up {m.name} with {ref.name} ({e}) — it is used as it is")
             continue
@@ -246,10 +257,12 @@ def line_up(masters, log=None):
         m.alignref = ref.alignref or str(ref.path)
         m.autocrop = ref.autocrop
         m.cards = [c for c in m.cards if not _WCS_KEYS.match(str(c[0]))]   # its old plate solution no longer fits
+        m.cards += [c for c in ref.cards if _WCS_KEYS.match(str(c[0]))]    # it now sits on the reference's grid
         m.solved = False
         m.steps.append(("align", f"Lined up with the {ref.filter} master ({n_in} stars matched, "
                                  f"{rms:.2f} px)"))
-        lg(f"Lined up {m.name} with {ref.name}: {n_in} stars matched, accuracy {rms:.2f} px")
+        lg(f"Lined up {m.name} with {ref.name}: {n_in} stars matched, accuracy {rms:.2f} px"
+           + (" (guided by the plate solutions)" if how != "stars" else ""))
     return overlap
 
 

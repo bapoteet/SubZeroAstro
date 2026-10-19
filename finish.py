@@ -138,6 +138,15 @@ def _sky_noise(x):
     return med, float(np.median(np.abs(d - np.median(d)))) * 1.4826 / np.sqrt(2) + 1e-9
 
 
+def _cards_look(m) -> dict:
+    """A master's header as a dict (for its plate solution), or {}."""
+    try:
+        import fits_core as _core
+        return _core.cards_to_dict(getattr(m, "cards", None) or []) or dict(getattr(m, "look", None) or {})
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def assemble_mono(masters, stars_of=lambda m: None, log=None):
     """Mono masters -> one plane per filter, all on ONE pixel grid.
     * Every master is checked against a reference master by its stars. Masters from another
@@ -166,7 +175,8 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
         star_plane = stars[0] * 65535.0 if stars is not None else None        # same units as the data
         if m is not ref:
             try:
-                model, info = st.register_distortion(ref_plane, img, shape)
+                model, info = st.register_distortion(ref_plane, img, shape,
+                                                     ref_look=_cards_look(ref), img_look=_cards_look(m))
                 off = max(info["shift"], info["edge_affine"]) if img.shape != shape else info["edge_affine"]
                 if img.shape != shape or info["shift"] > 0.25 or info["edge_affine"] > 0.6:
                     warped = st.warp_poly([img] + ([star_plane] if star_plane is not None else []), model, shape)

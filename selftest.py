@@ -176,6 +176,30 @@ def run(app, out_dir: Path) -> int:
     check(_nspk >= 1400 and _real > 0.75 and abs(_Th[0, 2] - 40) < 0.3 and abs(_Th[1, 2] + 3) < 0.3 and _rmsh < 0.3,
           f"hot pixels are not taken for stars ({_nspk} removed, {_real:.0%} of the star list real): frames "
           f"with many hot pixels line up on the sky ({_nh} stars, {_rmsh:.2f} px)")
+    # plate solutions line frames up when the star pattern can't (few stars in common, many strays),
+    # and a star match that disagrees with them is caught
+    import math as _m
+
+    def _wlook(cx, cy, rot, s_=1.7228e-4):
+        r_ = _m.radians(rot)
+        return {"CTYPE1": "RA---TAN", "CTYPE2": "DEC--TAN", "CRVAL1": 109.63, "CRVAL2": -13.23, "CRPIX1": cx,
+                "CRPIX2": cy, "CD1_1": -s_ * _m.cos(r_), "CD1_2": s_ * _m.sin(r_), "CD2_1": -s_ * _m.sin(r_),
+                "CD2_2": -s_ * _m.cos(r_)}
+    _wa, _wb = _wlook(1528, 1528, 0.0), _wlook(1578, 1508, 1.0)
+    _Tw = _stk.wcs_transform(_wa, _wb, (3056, 3056))
+    _rsw = np.random.default_rng(3)
+    _refp = _rsw.uniform(50, 3000, (200, 2))
+    _Tiw = np.linalg.inv(np.vstack([_Tw, [0, 0, 1]]))[:2]
+    _tgtp = np.vstack([_stk._apply(_Tiw, _refp[:50]), _rsw.uniform(50, 3000, (150, 2))])
+    _Tg, _ng, _rg, _o, _j, _how = _stk.match_frames_wcs(_refp, _tgtp, _wa, _wb, (3056, 3056))
+    _gap_id = _stk._corner_gap(np.array([[1.0, 0, 0], [0, 1.0, 0]]), _Tw, (3056, 3056))
+    _Toff = _Tw + np.array([[0, 0, 9.0], [0, 0, -6.0]])        # a plate solution that is 11 px out
+    _Tg2, _ng2, *_r2 = _stk.match_guided(_refp, _tgtp, _Toff)
+    check(_ng >= 45 and float(np.abs(_Tg - _Tw).max()) < 0.01 and _ng2 >= 45
+          and float(np.abs(_Tg2 - _Tw).max()) < 0.01 and _gap_id > 40
+          and _stk.wcs_of({}) is None,
+          f"plate solutions guide the star match ({_ng2} stars confirm it even from 11 px out), "
+          f"and a zero-shift match {_gap_id:.0f} px away from the plate solutions would be caught")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)

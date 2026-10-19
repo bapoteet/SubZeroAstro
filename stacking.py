@@ -1564,6 +1564,124 @@ def match_frames(ref_pts, tgt_pts, tol=3.0):
 
 
 # --------------------------------------------------------------------------
+# Plate solutions as a guide: many frames carry one (PinPoint at remote observatories writes it into
+# every frame; our masters copy the reference frame's; ASTAP adds one on page 3). Where it says each
+# pixel points on the sky, two frames can be lined up without any star pattern - the stars then only
+# fine-tune it. Used when star matching fails, and to catch a star match that is plainly wrong.
+# --------------------------------------------------------------------------
+
+def wcs_of(look: dict):
+    """Linear (TAN) plate solution from a header, or None."""
+    try:
+        ct = str(look.get("CTYPE1", "RA---TAN") or "RA---TAN").upper()
+        if "RA" not in ct:
+            return None
+        crval = (float(look["CRVAL1"]), float(look["CRVAL2"]))
+        crpix = (float(look["CRPIX1"]), float(look["CRPIX2"]))
+        if look.get("CD1_1") not in (None, ""):
+            cd = np.array([[float(look["CD1_1"]), float(look.get("CD1_2") or 0.0)],
+                           [float(look.get("CD2_1") or 0.0), float(look["CD2_2"])]])
+        else:
+            c1, c2 = float(look["CDELT1"]), float(look["CDELT2"])
+            r = np.radians(float(look.get("CROTA2") or 0.0))
+            cd = np.array([[c1 * np.cos(r), -c2 * np.sin(r)], [c1 * np.sin(r), c2 * np.cos(r)]])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not np.all(np.isfinite(cd)) or abs(np.linalg.det(cd)) < 1e-14:
+        return None
+    return {"crval": np.radians(crval), "crpix": np.array(crpix), "cd": cd}
+
+
+def _wcs_sky(w, x, y):
+    """0-based pixel (x, y) -> (ra, dec) radians, gnomonic projection."""
+    xi, eta = np.radians(w["cd"] @ np.vstack([x + 1 - w["crpix"][0], y + 1 - w["crpix"][1]]))
+    a0, d0 = w["crval"]
+    den = np.cos(d0) - eta * np.sin(d0)
+    return a0 + np.arctan2(xi, den), np.arctan2(np.sin(d0) + eta * np.cos(d0), np.hypot(xi, den))
+
+
+def _wcs_pix(w, ra, dec):
+    a0, d0 = w["crval"]
+    cosc = np.sin(d0) * np.sin(dec) + np.cos(d0) * np.cos(dec) * np.cos(ra - a0)
+    xi = np.cos(dec) * np.sin(ra - a0) / cosc
+    eta = (np.cos(d0) * np.sin(dec) - np.sin(d0) * np.cos(dec) * np.cos(ra - a0)) / cosc
+    p = np.linalg.solve(w["cd"], np.degrees(np.vstack([xi, eta])))
+    return p[0] + w["crpix"][0] - 1, p[1] + w["crpix"][1] - 1
+
+
+def wcs_transform(ref_look: dict, look: dict, shape):
+    """T (2x3) mapping this frame's pixels to the reference frame's, from the two plate solutions;
+    None when either has none."""
+    wr, wi = wcs_of(ref_look or {}), wcs_of(look or {})
+    if wr is None or wi is None:
+        return None
+    h, w = shape[-2], shape[-1]
+    gx, gy = np.meshgrid(np.linspace(0, w - 1, 5), np.linspace(0, h - 1, 5))
+    x, y = gx.ravel(), gy.ravel()
+    ra, dec = _wcs_sky(wi, x, y)
+    xr, yr = _wcs_pix(wr, ra, dec)
+    if not (np.all(np.isfinite(xr)) and np.all(np.isfinite(yr))):
+        return None
+    return _fit_affine(np.c_[x, y], np.c_[xr, yr])
+
+
+def _corner_gap(T1, T2, shape) -> float:
+    h, w = shape[-2], shape[-1]
+    c = np.array([[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1], [w / 2, h / 2]], dtype=np.float64)
+    return float(np.max(np.hypot(*(_apply(T1, c) - _apply(T2, c)).T)))
+
+
+def match_guided(ref_pts, tgt_pts, T0, tols=(15.0, 8.0, 4.0, 2.5, 1.8)):
+    """Star match that starts from a known transform (a plate solution): pair each star with the
+    nearest reference star through it, refit, tighten. Same results as match_frames."""
+    ref_pts, tgt_pts = np.asarray(ref_pts, float), np.asarray(tgt_pts, float)
+    if len(ref_pts) < 6 or len(tgt_pts) < 6:
+        raise ValueError("too few stars")
+    T = np.asarray(T0, float)
+    ok = np.zeros(len(tgt_pts), bool)
+    j = np.zeros(len(tgt_pts), int)
+    for tol in tols:
+        p = _apply(T, tgt_pts)
+        d = np.hypot(p[:, None, 0] - ref_pts[None, :, 0], p[:, None, 1] - ref_pts[None, :, 1])
+        j = d.argmin(1)
+        ok = d[np.arange(len(p)), j] < tol
+        if ok.sum() < 6:
+            raise ValueError(f"the plate solutions point the same way, but too few stars agree ({int(ok.sum())})")
+        T = _fit_affine(tgt_pts[ok], ref_pts[j[ok]])
+    res = np.hypot(*(_apply(T, tgt_pts[ok]) - ref_pts[j[ok]]).T)
+    rms = float(np.sqrt(np.mean(res ** 2)))
+    n = int(ok.sum())
+    if n < max(8, int(0.06 * min(len(ref_pts), len(tgt_pts)))) or rms > 1.2:
+        raise ValueError(f"too few stars agree with the plate solutions ({n}, {rms:.2f} px)")
+    return T, n, rms, ok, j
+
+
+def match_frames_wcs(ref_pts, tgt_pts, ref_look=None, look=None, shape=None, tol=3.0):
+    """match_frames, checked against (and rescued by) the plate solutions when both frames have one.
+    Returns (T, inliers, rms, ok, j, how) - how is "stars", or "plate solution" when the plate
+    solutions found it (star matching failed, or agreed with a false pattern)."""
+    Tw = wcs_transform(ref_look, look, shape) if shape is not None else None
+    try:
+        T, n, rms, ok, j = match_frames(ref_pts, tgt_pts, tol=tol)
+        err = None
+    except ValueError as e:
+        T, err = None, e
+    if Tw is None:
+        if T is None:
+            raise err
+        return T, n, rms, ok, j, "stars"
+    if T is not None and _corner_gap(T, Tw, shape) <= 15.0:
+        return T, n, rms, ok, j, "stars"
+    try:
+        Tg, ng, rmsg, okg, jg = match_guided(ref_pts, tgt_pts, Tw)
+        return Tg, ng, rmsg, okg, jg, "plate solution"
+    except ValueError as e2:
+        if T is not None:
+            return T, n, rms, ok, j, "stars"
+        raise ValueError(f"{err}; {e2}")
+
+
+# --------------------------------------------------------------------------
 # Distortion-correcting registration: images from different cameras / telescopes don't line up
 # with a shift-rotate-scale alone - the optics bend the field a little differently, most at the
 # edges. A smooth polynomial fitted to many matched stars takes that out.
@@ -1673,7 +1791,7 @@ def distortion_model(ref_all, frame_all, T, T_ref_out, C_plane, out_shape):
     return pol
 
 
-def register_distortion(ref_lum, img_lum, ref_shape, factor=2, max_stars=400):
+def register_distortion(ref_lum, img_lum, ref_shape, factor=2, max_stars=400, ref_look=None, img_look=None):
     """How img lines up with ref, with distortion: (model ref->img, info). info: stars matched, rms
     of a plain (affine) fit and of the distortion fit, and the largest affine error at the edge.
     Raises ValueError when the star fields can't be matched."""
@@ -1684,7 +1802,7 @@ def register_distortion(ref_lum, img_lum, ref_shape, factor=2, max_stars=400):
                                                                          factor).mean(axis=(1, 3))
     rp, _ = find_stars(binned(ref_lum).astype(np.float32), factor, max_stars=max_stars)
     tp, _ = find_stars(binned(img_lum).astype(np.float32), factor, max_stars=max_stars)
-    T, n, rms, ok, j = match_frames(rp, tp, tol=4.0)
+    T, n, rms, ok, j, _how = match_frames_wcs(rp, tp, ref_look, img_look, np.shape(img_lum), tol=4.0)
     Ti = np.linalg.inv(np.vstack([T, [0, 0, 1]]))[:2]           # ref -> img
     # pair every star through the transform (edge stars an affine fit misses come in on later rounds)
     model = {"order": 1, "norm": (ref_shape[1] / 2.0, ref_shape[0] / 2.0, max(ref_shape) / 2.0)}
@@ -1994,11 +2112,24 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     del ref_cal
     res.ref_path = ref_info.path
     T_g2c = None
+    looks = {}
+
+    def look_of(path):
+        k = str(path)
+        if k not in looks:
+            try:
+                looks[k] = ImageSource(path).look
+            except Exception:  # noqa: BLE001 - a header is only a guide here
+                looks[k] = {}
+        return looks[k]
+    ref_shape = (out_h * 2, out_w * 2) if half else (out_h, out_w)
     if common and common.get("name") != ref_info.path.name:
         try:
-            T_g2c, inl, rms, _ok, _j = match_frames(common["pts"], ref_pts)
+            T_g2c, inl, rms, _ok, _j, how = match_frames_wcs(common["pts"], ref_pts, look_of(common["path"]),
+                                                             look_of(ref_info.path), ref_shape)
             log.append(f"Aligned to the common reference {common['name']} (stars matched {inl}, rms {rms:.2f} px"
-                       + (", mirror image of it" if is_mirrored(T_g2c) else "") + ") "
+                       + (", mirror image of it" if is_mirrored(T_g2c) else "")
+                       + (", guided by the plate solutions" if how != "stars" else "") + ") "
                        "so all masters of this target line up")
             res.ref_path = common.get("path", ref_info.path)
         except ValueError as e:
@@ -2036,6 +2167,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     ref_bg = None
     entries = []          # (info, output transform, scale k, bg list, weight)
     distortion_fixed = []  # frames lined up with a distortion model (edge error it removed)
+    wcs_used = []          # frames lined up with the help of their plate solutions
     last_model = [None]
     frame_models = []      # per entry: the distortion model, or None
 
@@ -2049,7 +2181,10 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             k_phot = 1.0
             inl, rms = len(pts), 0.0
         else:
-            T, inl, rms, ok, j = match_frames(ref_pts, pts)
+            T, inl, rms, ok, j, how = match_frames_wcs(ref_pts, pts, look_of(ref_info.path), look_of(info.path),
+                                                       img.shape[-2:])
+            if how != "stars":
+                wcs_used.append(info.path.name)
             # photometric scale from matched stars
             pr, pt = ref_peaks[j[ok]], peaks[ok]
             good = (pr > 0) & (pt > 0)
@@ -2126,6 +2261,9 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         log.append(f"Field distortion corrected in {len(distortion_fixed)} of {len(entries)} frames (their stars "
                    f"were up to {max(distortion_fixed):.1f} px off at the edges with a plain alignment - e.g. after "
                    "a meridian flip, or another night's setup)")
+    if wcs_used:
+        log.append(f"Lined up with the help of their plate solutions: {len(wcs_used)} frame(s) whose star match "
+                   "failed or disagreed with where the telescope was pointing")
     res.used = len(entries)
     try:
         res.autocrop = auto_crop_rect([e[1] for e in entries], (out_h, out_w), (out_h, out_w))
