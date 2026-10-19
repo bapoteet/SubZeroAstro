@@ -1,13 +1,15 @@
 """
 splash.py - the animated intro shown while SubZeroAstro starts.
 
-"The Great Dog" - where veterinary radiology meets the night sky (about 5 s, click to skip):
-  0.1 - 1.4 s  subframes slide onto a lightbox like films; with every one stacked, a lateral
+"The Great Dog" - where veterinary radiology meets the night sky (about 5.5 s, click to skip):
+  0.1 - 1.6 s  subframes slide onto a lightbox like films; with every one stacked, a lateral
                radiograph of a dog rises out of the noise (stacking lowers noise - in both worlds)
-  1.6 - 3.6 s  points light up on the anatomy (skull, jaw, shoulder, elbow, spine), the film fades
-               and they glide onto the real stars of Canis Major, the Great Dog; the constellation
-               lines draw in and Sirius - the Dog Star - flares
-  2.6 - 4.0 s  "SubZeroAstro", author and slogan; an ice-blue glint sweeps the title
+  1.7 - 3.2 s  the film (shown mirrored, as Canis Major faces the other way) lifts off the lightbox,
+               turns about 73 degrees anticlockwise and shrinks until the dog lies along the stars
+  3.0 - 4.6 s  points light up on the anatomy (skull, jaw, shoulder, elbow, spine) and settle onto
+               the real stars of Canis Major, the Great Dog; the lines connect the dots, the picture
+               fades away and Sirius - the Dog Star - flares
+  3.0 - 4.5 s  "SubZeroAstro", author and slogan; an ice-blue glint sweeps the title
   ...          fades away when the main window is ready
 
 The radiograph is a real one (assets/splash_radiograph.png); everything else is drawn with
@@ -23,12 +25,19 @@ from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetricsF, QImage, QLinearGradient, QPainter, QPainterPath,
-                           QPen, QRadialGradient)
+                           QPen, QRadialGradient, QTransform)
 from PySide6.QtWidgets import QApplication, QWidget
 
 W, H = 780, 440
-DURATION = 4.9          # seconds before the splash may close (it waits for the app if that is slower)
+DURATION = 5.3          # seconds before the splash may close (it waits for the app if that is slower)
 FADE = 0.45
+# the film's journey (seconds)
+T_LIFT = 1.7                # the film lifts off the lightbox ...
+T_MOVE = (1.8, 3.15)        # ... turns, shrinks and lies down along the constellation
+T_DOTS = (2.95, 3.25)       # points light up on the anatomy
+T_SNAP = (3.25, 3.7)        # ... and settle onto the stars
+T_LINES = (3.55, 4.2)       # the lines connect the dots
+T_FADE = (3.75, 4.5)        # the picture fades away
 
 # --------------------------------------------------------------------------
 # Canis Major: RA (hours), Dec (degrees) - J2000
@@ -152,9 +161,34 @@ class Splash(QWidget):
         img_aspect = (self.xray_img.width() / self.xray_img.height()) if self.xray_img is not None else 1.48
         pw = 350.0
         self.panel = QRectF(20, (H - pw / img_aspect) / 2 - 6, pw, pw / img_aspect)
-        self.joint_xy = {k: QPointF(self.panel.left() + fx * self.panel.width(),
-                                    self.panel.top() + fy * self.panel.height())
-                         for k, (fx, fy) in LANDMARKS.items()}
+        # where the film ends up: the similarity (turn + size + place) of the turned-over picture that
+        # lays its anatomy best over the stars (least squares, in complex numbers: w = a z + b)
+        pw_, ph_ = self.panel.width(), self.panel.height()
+        zs = [complex(-(fx - 0.5) * pw_, (fy - 0.5) * ph_) for (fx, fy) in LANDMARKS.values()]
+        ws = [complex(self.star_xy[k].x(), self.star_xy[k].y()) for k in LANDMARKS]
+        zm, wm = sum(zs) / len(zs), sum(ws) / len(ws)
+        a = sum((w - wm) * (z - zm).conjugate() for z, w in zip(zs, ws)) / sum(abs(z - zm) ** 2 for z in zs)
+        b = wm - a * zm
+        self.fit_scale, self.fit_angle, self.fit_centre = abs(a), math.degrees(math.atan2(a.imag, a.real)), b
+
+    def film_transform(self, t):
+        """Film (picture pixels scaled to the panel) -> splash, at time t."""
+        pw_, ph_ = self.panel.width(), self.panel.height()
+        m = _ease_in_out(_seg(t, *T_MOVE))
+        c0 = self.panel.center()
+        cx = c0.x() + (self.fit_centre.real - c0.x()) * m
+        cy = c0.y() + (self.fit_centre.imag - c0.y()) * m
+        k = 1.0 + (self.fit_scale - 1.0) * m
+        tf = QTransform()
+        tf.translate(cx, cy)
+        tf.rotate(self.fit_angle * m)
+        tf.scale(-k, k)                                   # shown mirrored: Canis Major faces right
+        tf.translate(-pw_ / 2, -ph_ / 2)
+        return tf
+
+    def landmark_xy(self, name, t):
+        fx, fy = LANDMARKS[name]
+        return self.film_transform(t).map(QPointF(fx * self.panel.width(), fy * self.panel.height()))
 
     def _make_grain(self, rnd):
         gw, gh = 150, 170
@@ -235,7 +269,7 @@ class Splash(QWidget):
         bg.setColorAt(0.55, QColor(8, 12, 26))
         bg.setColorAt(1.0, QColor(3, 4, 10))
         p.fillRect(rect, QBrush(bg))
-        bloom = 0.3 + 0.7 * _ease_out(_seg(t, 1.9, 3.5))
+        bloom = 0.3 + 0.7 * _ease_out(_seg(t, 2.2, 4.0))
         breathe = 1.0 + 0.04 * math.sin(t * 1.7)
         for (x, y, r, col, a) in ((560, 230, 240, (190, 40, 70), 55), (650, 150, 230, (20, 140, 150), 50),
                                   (470, 300, 170, (230, 150, 60), 26), (200, 200, 230, (60, 80, 170), 40)):
@@ -247,8 +281,8 @@ class Splash(QWidget):
         fade_in = _ease_out(_seg(t, 0.0, 0.6))
         for (sx, sy, mag, ph, tint) in self.stars:
             x, y = W / 2 + sx * W * 0.52, H / 2 + sy * H * 0.52
-            if self.panel.adjusted(-6, -6, 6, 6).contains(QPointF(x, y)) and t < 3.0:
-                mag *= 0.25 + 0.75 * _seg(t, 2.0, 3.0)              # keep the lightbox area clean at first
+            if self.panel.adjusted(-6, -6, 6, 6).contains(QPointF(x, y)) and t < 3.6:
+                mag *= 0.25 + 0.75 * _seg(t, 2.4, 3.6)              # keep the lightbox area clean at first
             tw = 0.75 + 0.25 * math.sin(t * (2 + mag * 3) + ph)
             alpha = int(255 * mag * tw * fade_in)
             col = (QColor(200, 220, 255, alpha), QColor(255, 225, 200, alpha), QColor(170, 240, 255, alpha))[tint]
@@ -260,25 +294,38 @@ class Splash(QWidget):
         panel = self.panel
         land = [_seg(t, d, d + 0.55) for (_x, _y, _r, d) in self.films]
         stacked = sum(1 for k in land if k >= 1.0) / len(land)
-        xray = _ease_out(stacked) * (1.0 - _ease_in_out(_seg(t, 1.8, 3.1)))
-        box_on = _ease_out(_seg(t, 0.1, 0.5)) * (1.0 - _ease_in_out(_seg(t, 1.85, 3.0)))
-        if box_on > 0:                                             # the lightbox / film
+        lifted = _seg(t, T_LIFT, T_LIFT + 0.6)
+        box_on = _ease_out(_seg(t, 0.1, 0.5)) * (1.0 - _ease_in_out(lifted))
+        if box_on > 0:                                             # the lightbox
             g = QLinearGradient(panel.topLeft(), panel.bottomRight())
             g.setColorAt(0, QColor(22, 30, 42, int(235 * box_on)))
             g.setColorAt(1, QColor(10, 14, 22, int(235 * box_on)))
             p.setBrush(QBrush(g))
             p.setPen(QPen(QColor(120, 160, 210, int(90 * box_on)), 1.0))
             p.drawRoundedRect(panel, 6, 6)
-        if box_on > 0 or xray > 0.005:
+        has = self.xray_img is not None
+        xray = (_ease_out(stacked) * (1.0 - _ease_in_out(_seg(t, *T_FADE)))) if has else 0.0
+        noise = box_on * (0.08 + 0.55 * (1 - stacked))
+        if xray > 0.005 or noise > 0.005:                          # the film itself, wherever it is
+            local = QRectF(0, 0, panel.width(), panel.height())
             p.save()
+            p.setTransform(self.film_transform(t) if has else QTransform().translate(panel.left(), panel.top()),
+                           True)
             clip = QPainterPath()
-            clip.addRoundedRect(panel, 6, 6)
+            clip.addRoundedRect(local, 6, 6)
             p.setClipPath(clip, Qt.IntersectClip)
-            if xray > 0.005 and self.xray_img is not None:        # the real radiograph
+            if xray > 0.005:
                 p.setOpacity(xray)
-                p.drawImage(panel, self.xray_img)
-            p.setOpacity(box_on * (0.08 + 0.55 * (1 - stacked)))   # noise falls as frames stack
-            p.drawImage(panel, self.grain)
+                p.drawImage(local, self.xray_img)
+            if noise > 0.005:                                      # noise falls as frames stack
+                p.setOpacity(noise)
+                p.drawImage(local, self.grain)
+            p.setClipping(False)
+            if xray > 0.005 and lifted > 0:                        # a faint edge once it is off the box
+                p.setOpacity(1.0)
+                p.setBrush(Qt.NoBrush)
+                p.setPen(QPen(QColor(150, 195, 255, int(110 * xray * lifted)), 1.2))
+                p.drawRoundedRect(local, 6, 6)
             p.restore()
         for (x0, y0, rot, d), k in zip(self.films, land):        # films sliding onto the box
             if 0 < k < 1:
@@ -298,20 +345,20 @@ class Splash(QWidget):
                 p.restore()
 
     def _constellation(self, p, t):
-        move = _ease_in_out(_seg(t, 1.95, 3.2))
-        show = _ease_out(_seg(t, 1.55, 2.0))
+        show = _ease_out(_seg(t, *T_DOTS))
         if show <= 0:
             return
+        snap = _ease_in_out(_seg(t, *T_SNAP))
         glide = self.xray_img is not None
         pos, vis = {}, {}
         for k, s in self.star_xy.items():
-            j = self.joint_xy.get(k) if glide else None
-            if j is None:                                          # off the film: lights up in place
-                pos[k], vis[k] = s, show * (move if glide else 1.0)
+            if not glide or k not in LANDMARKS:                    # off the film: lights up in place
+                pos[k], vis[k] = s, show * (snap if glide else 1.0)
             else:
-                pos[k] = QPointF(j.x() + (s.x() - j.x()) * move, j.y() + (s.y() - j.y()) * move)
+                j = self.landmark_xy(k, t)                         # rides on the film, then settles
+                pos[k] = QPointF(j.x() + (s.x() - j.x()) * snap, j.y() + (s.y() - j.y()) * snap)
                 vis[k] = show
-        draw = _seg(t, 2.9, 3.6)                                 # lines draw in one after another
+        draw = _seg(t, *T_LINES)                                   # lines draw in one after another
         n = len(LINES)
         for i, (a, b) in enumerate(LINES):
             k = _seg(draw * n, i, i + 1)
@@ -337,7 +384,7 @@ class Splash(QWidget):
             p.setBrush(QColor(240, 248, 255, int(255 * v)))
             p.drawEllipse(q, size * 0.6, size * 0.6)
         # Sirius flares: the Dog Star
-        fl = math.exp(-((t - 3.35) / 0.22) ** 2) + 0.35 * _seg(t, 3.3, 3.6)
+        fl = math.exp(-((t - 4.25) / 0.22) ** 2) + 0.35 * _seg(t, 4.2, 4.5)
         if fl > 0.02:
             q = pos["Sirius"]
             for ang, L in ((0, 34), (90, 34), (45, 16), (135, 16)):
@@ -353,7 +400,7 @@ class Splash(QWidget):
                                    q.y() - L * fl * math.sin(math.radians(ang))),
                            QPointF(q.x() + L * fl * math.cos(math.radians(ang)),
                                    q.y() + L * fl * math.sin(math.radians(ang))))
-        lab = _ease_out(_seg(t, 3.4, 3.9))
+        lab = _ease_out(_seg(t, 4.2, 4.65))
         if lab > 0:
             f = QFont("Segoe UI", 8)
             f.setItalic(True)
@@ -366,7 +413,7 @@ class Splash(QWidget):
 
     def _titles(self, p, t):
         cx, cy = 560, H / 2 - 22
-        k = _ease_out(_seg(t, 2.6, 3.3))
+        k = _ease_out(_seg(t, 3.0, 3.7))
         if k > 0:
             f = QFont("Segoe UI", 38, QFont.Bold)
             f.setLetterSpacing(QFont.AbsoluteSpacing, 1 + 16 * (1 - k))
@@ -391,7 +438,7 @@ class Splash(QWidget):
                 p.setBrush(c)
                 p.drawPath(path)
                 x += fm.horizontalAdvance(s)
-            g = _seg(t, 3.3, 4.0)
+            g = _seg(t, 3.8, 4.5)
             if 0 < g < 1:
                 gx = cx - total / 2 - 60 + (total + 120) * _ease_in_out(g)
                 sweep = QLinearGradient(QPointF(gx - 40, 0), QPointF(gx + 40, 0))
@@ -402,14 +449,14 @@ class Splash(QWidget):
                 p.drawPath(tpath)
                 self._crystal(p, QPointF(gx, base - fm.ascent() * 0.62), 9 * math.sin(math.pi * g),
                               int(230 * math.sin(math.pi * g)))
-        a1 = _ease_out(_seg(t, 3.0, 3.5))
+        a1 = _ease_out(_seg(t, 3.4, 3.9))
         if a1 > 0:
             f = QFont("Segoe UI", 10)
             f.setItalic(True)
             p.setFont(f)
             p.setPen(QColor(150, 162, 186, int(255 * a1)))
             p.drawText(QRectF(cx - 200, cy + 30, 400, 22), Qt.AlignHCenter | Qt.AlignVCenter, f"by {self.author}")
-        a2 = _ease_out(_seg(t, 3.3, 3.85))
+        a2 = _ease_out(_seg(t, 3.7, 4.25))
         if a2 > 0:
             f = QFont("Segoe UI", 12, QFont.DemiBold)
             p.setFont(f)
