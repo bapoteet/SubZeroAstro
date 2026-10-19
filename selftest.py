@@ -644,7 +644,6 @@ def run(app, out_dir: Path) -> int:
         __import__("subzeroastro").reset_settings(_qs)
         check(sorted(_qs.allKeys()) == ["finish/signature", "prep/rcastro", "stack/masters_root", "stack/rigs"],
               "reset all settings to factory defaults keeps folders, tool locations, rigs and signature")
-    def start():
         # the intro animation: frames at set moments, and it closes by itself
         import splash as _sp
         sp = _sp.Splash("SubZeroAstro", "Brian A. Poteet", "From subs to masters - zero hassle.", "0.0 test")
