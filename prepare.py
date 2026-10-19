@@ -171,7 +171,7 @@ _WCS_KEYS = re.compile(r"^(CTYPE\d|CRVAL\d|CRPIX\d|CD\d_\d|CDELT\d|CROTA\d|PC\d_
 
 
 def _binned_lum(m, f=2):
-    lum = m.data.mean(axis=0) if m.data.shape[0] > 1 else m.data[0]
+    lum = m.data.mean(axis=0) if m.data.shape[0] > 1 else st.despike(np.asarray(m.data[0], np.float32))[0]
     h, w = lum.shape
     return lum[:h // f * f, :w // f * f].reshape(h // f, f, w // f, f).mean(axis=(1, 3)).astype(np.float32)
 

@@ -1284,8 +1284,42 @@ def debayer_bilinear(cfa: np.ndarray, bayer: str) -> list:
     return [out["R"], out["G"], out["B"]]
 
 
+def despike(a: np.ndarray, ratio: float = 0.2, k: float = 8.0) -> tuple[np.ndarray, int]:
+    """Hot pixels and other single-pixel spikes replaced by their brightest neighbour, for finding
+    stars. A real star always spills light into the next pixel (even a sharp one keeps 30-70% of its
+    peak there); a hot pixel has none. Without this, sensors with many hot pixels (calibrated
+    frames from remote observatories) give star lists that are mostly sensor defects - which sit
+    in the same place in every frame and can make the matcher line up the sensor instead of the
+    sky. Returns (cleaned, number replaced). Mono data only (in a Bayer mosaic the neighbours are
+    other colours)."""
+    h, w = a.shape
+    if h < 3 or w < 3:
+        return a, 0
+    p = np.pad(a, 1, mode="edge")
+    nb = None
+    for dy in (0, 1, 2):
+        for dx in (0, 1, 2):
+            if dy == 1 and dx == 1:
+                continue
+            v = p[dy:dy + h, dx:dx + w]
+            nb = v.copy() if nb is None else np.maximum(nb, v, out=nb)
+    sub = a[::7, ::7]
+    med = float(np.median(sub))
+    sig = float(np.median(np.abs(sub - med)) * 1.4826) + 1e-6
+    peak = a - med
+    spike = (peak > k * sig) & ((nb - med) < ratio * peak)
+    n = int(spike.sum())
+    if n == 0:
+        return a, 0
+    out = a.copy()
+    out[spike] = nb[spike]
+    return out, n
+
+
 def luminance(cal: np.ndarray, bayer: bool) -> tuple[np.ndarray, int]:
     """Image used for finding stars, and its scale factor to full resolution."""
+    if not bayer and cal.ndim == 2:
+        cal = despike(cal.astype(np.float32, copy=False))[0]
     h2, w2 = cal.shape[0] // 2 * 2, cal.shape[1] // 2 * 2
     return cal[:h2, :w2].reshape(h2 // 2, 2, w2 // 2, 2).mean(axis=(1, 3)), 2
 
@@ -1644,6 +1678,7 @@ def register_distortion(ref_lum, img_lum, ref_shape, factor=2, max_stars=400):
     of a plain (affine) fit and of the distortion fit, and the largest affine error at the edge.
     Raises ValueError when the star fields can't be matched."""
     def binned(a):
+        a = despike(np.asarray(a, np.float32))[0]           # hot pixels are not stars (see despike)
         h, w = a.shape
         return a[:h // factor * factor, :w // factor * factor].reshape(h // factor, factor, w // factor,
                                                                          factor).mean(axis=(1, 3))

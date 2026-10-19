@@ -146,6 +146,36 @@ def run(app, out_dir: Path) -> int:
     check(_pl.flat is not None and _pl.flat.sky and not any(k == "flat" for k, _ in _pl.warnings)
           and "SkyFlat (Mote Buster)" in " ".join(_pl.notes) and "SkyFlat (Mote Buster)" in _pl.flat.label(),
           "no flats for a filter: page 2 plans a sky flat from the light frames")
+    # hot pixels are not stars: with many of them (calibrated remote-observatory frames, no dithering)
+    # the star list was mostly sensor defects, fixed on the sensor - the matcher could line up the
+    # sensor instead of the sky (doubled stars). Spikes are removed before stars are looked for.
+    _rh = np.random.default_rng(7)
+    _H = 900
+    _hot = np.c_[_rh.integers(5, _H - 5, 1500), _rh.integers(5, _H - 5, 1500)]
+    _hv = _rh.uniform(2e4, 6e4, 1500)
+    _st_xy = np.c_[_rh.uniform(60, _H - 60, 60), _rh.uniform(60, _H - 60, 60)]
+    _st_f = _rh.uniform(1e4, 6e4, 60)
+    _yy2, _xx2 = np.mgrid[:_H, :_H]
+
+    def _hp_frame(dx, dy, seed):
+        r = np.random.default_rng(seed)
+        img = 100 + r.normal(0, 5, (_H, _H))
+        sg = 1.9 / 2.355
+        for (x, y), f in zip(_st_xy, _st_f):
+            x, y = x + dx, y + dy
+            sl = (slice(int(y) - 5, int(y) + 6), slice(int(x) - 5, int(x) + 6))
+            img[sl] += f * np.exp(-((_xx2[sl] - x) ** 2 + (_yy2[sl] - y) ** 2) / (2 * sg * sg))
+        img[_hot[:, 1], _hot[:, 0]] += _hv * r.uniform(0.97, 1.03, len(_hv))
+        return img.astype(np.float32)
+    _hA, _hB = _hp_frame(0, 0, 1), _hp_frame(-40, 3, 2)
+    _nspk = _stk.despike(_hA)[1]
+    _pa = _stk.find_stars(*_stk.luminance(_hA, False))[0]
+    _pb = _stk.find_stars(*_stk.luminance(_hB, False))[0]
+    _real = float(np.mean(np.hypot(_pa[:, None, 0] - _st_xy[None, :, 0], _pa[:, None, 1] - _st_xy[None, :, 1]).min(1) < 1.5))
+    _Th, _nh, _rmsh, *_r = _stk.match_frames(_pa, _pb)
+    check(_nspk >= 1400 and _real > 0.75 and abs(_Th[0, 2] - 40) < 0.3 and abs(_Th[1, 2] + 3) < 0.3 and _rmsh < 0.3,
+          f"hot pixels are not taken for stars ({_nspk} removed, {_real:.0%} of the star list real): frames "
+          f"with many hot pixels line up on the sky ({_nh} stars, {_rmsh:.2f} px)")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)
