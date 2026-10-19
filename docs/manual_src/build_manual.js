@@ -384,7 +384,7 @@ steps([
   "The **workflow list** on the left shows every step for your kind of data: ✓ done, ➜ next, ○ later, – not needed, ◇ optional.",
   "The card at the top says what is **Recommended next** and why. Click **Do It** (or click any step in the list).",
   "Pick a version: each step shows 3-5 small pictures of **your** image - gentle to strong, or different colour mixes. ★ marks the suggestion. **Clicking only previews it big** - nothing changes yet.",
-  "Optional: tick **Fine-tune** and move the plain-language sliders; the preview follows. **Reset** returns to the version you picked.",
+  "Optional: tick **Fine-tune** and move the plain-language sliders; the preview follows. **Reset** returns to the version you picked. Under the sliders the app says how much of the picture the setting visibly changes - if it says *This barely changes your picture*, there is little for that step to do on this target (no green cast to remove, no burnt-out core to tame), so the sliders have almost nothing to work on.",
   "Press **Apply** to keep it - or **Cancel** to leave the picture exactly as it was.",
   "Not quite enough? Many steps can be run again on their own result: after one of them the card shows **↻ Do It Again** (and a ✓ step in the list can be clicked to run it again). That works for Balance Colours, Remove Green Cast, Tame Bright Core, Curves, Saturation, Bring Out Hidden Structure, Shrink Stars, Star Colours, Mote Buster, Darken the Sky Background, Final Noise Reduction, Flip, Final Crop and Spot Fix. One-way steps - combining, brightening, taking the stars out or putting them back, signing - are not repeated; use **Go Back to Here** to redo those.",
 ]);

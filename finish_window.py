@@ -110,6 +110,14 @@ def to_pixmap(rgb8: np.ndarray) -> QPixmap:
     return QPixmap.fromImage(QImage(a.data, w, h, 3 * w, QImage.Format_RGB888).copy())
 
 
+def changed_share(a: np.ndarray, b: np.ndarray, levels: int = 3) -> float:
+    """Share of pixels whose displayed colour differs by more than a few levels (0..1)."""
+    if a is None or b is None or a.shape != b.shape:
+        return 1.0
+    d = np.abs(a.astype(np.int16) - b.astype(np.int16)).max(axis=-1)
+    return float(np.mean(d > levels))
+
+
 class Job(QThread):
     """Run one function off the GUI thread."""
     ok = Signal(object)
@@ -773,6 +781,7 @@ class FinishWindow(QMainWindow):
         self.preview_timer.timeout.connect(self.run_preview)
         self.preview_job = None
         self.preview_pending = False
+        self._before_cache = {}
         self.sliders = {}
         self.fine_values = {}
         self.spots = []
@@ -1479,12 +1488,23 @@ class FinishWindow(QMainWindow):
                 b = t.block(ps.shape, params)
                 rect = None if b is None else (b[1], b[2], b[0].shape[1], b[0].shape[0])
                 return t.preview(ps, params), rect
-            return t.preview(ps, params)
+            img = t.preview(ps, params)
+            if params.get("show_mask"):
+                return img
+            key = (t.key, id(s), t.spatial)
+            base = self._before_cache.get(key)
+            if base is None:                             # the picture as it is now, at the same size
+                base = F.state_display(ps, with_stars=True if t.shows_stars else None)
+                self._before_cache = {key: base}
+            return img, changed_share(base, img)
 
         def done(img):
             rect = None
+            change = None
             if t.key == "signature" and isinstance(img, tuple):
                 img, rect = img
+            elif isinstance(img, tuple):
+                img, change = img
             self.view.show_still(img)
             if t.key == "signature":
                 self._show_sign_box(rect)
@@ -1494,8 +1514,15 @@ class FinishWindow(QMainWindow):
             v = self.selected()
             name = "your marked circles" if getattr(t, "editor", None) == "spots" else f"“{v.label}”" + (" (fine-tuned)" if tuned else "")
             where = " — full-size view of a small area" if t.spatial else ""
+            how = ""
+            if change is not None:
+                if change < 0.005:
+                    how = (" <b>This barely changes your picture</b> (under 0.5% of it visibly) - there is "
+                           "little for this step to do here.")
+                else:
+                    how = f" It visibly changes about {change * 100:.0f}% of the picture."
             self.preview_hint.setText(f"Preview of {name}{where} — not applied yet. Apply to keep it, "
-                                      "Cancel to go back.")
+                                      "Cancel to go back." + how)
             if self.preview_pending:
                 self.preview_pending = False
                 self.schedule_preview()
