@@ -1361,6 +1361,41 @@ def run(app, out_dir: Path) -> int:
                 check(again_ok and F.TOOLS["curves"].repeatable and not F.TOOLS["stretch"].repeatable,
                       "↻ Do It Again reopens the last step (for steps that can be repeated)")
             fw.open_tool(t.key)
+            if t.key in ("core", "scnr", "stretch") and fw.sliders and not state.get("live_" + t.key):
+                # the real app previews in a background thread after a short pause: test that path too
+                state["live_" + t.key] = True
+
+                def _sig():
+                    QApplication.processEvents()
+                    im = fw.view.pix.pixmap().toImage()
+                    return (im.width(), im.height(), hash(bytes(im.constBits())[: im.sizeInBytes()]))
+                before = _sig()
+                fw.synchronous = False
+                try:
+                    name_, (sl_, sp_) = next(iter(fw.sliders.items()))
+                    target_ = sl_.minimum() if sl_.value() > (sl_.minimum() + sl_.maximum()) / 2 else sl_.maximum()
+                    for v_ in range(sl_.value(), target_, 1 if target_ > sl_.value() else -1):
+                        sl_.setValue(v_)                      # like dragging: many small moves
+                        QApplication.processEvents()
+                    sl_.setValue(target_)
+                    t_end = time.time() + 30
+                    while time.time() < t_end:
+                        QApplication.processEvents()
+                        busy = (fw.preview_timer.isActive() or fw.preview_pending
+                                or (fw.preview_job is not None and fw.preview_job.isRunning()))
+                        if not busy:
+                            break
+                        time.sleep(0.02)
+                    for _ in range(20):
+                        QApplication.processEvents()
+                        time.sleep(0.01)
+                    after = _sig()
+                finally:
+                    fw.synchronous = True
+                log(f"live preview {t.key}: slider {name_} -> {target_}, before {before[:2]}, after {after[:2]}, "
+                    f"hint: {fw.preview_hint.text()[:80]}")
+                check(after != before and "fine-tuned" in fw.preview_hint.text(),
+                      f"{t.title}: moving a fine-tune slider changes the big picture (live, as in the app)")
             if t.key == "stretch":
                 shot("17_finish_brighten_choices.png", fw)
                 check(len(fw.variants) == 5, "Brighten offers 5 strengths to pick from")
