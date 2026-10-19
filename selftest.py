@@ -146,6 +146,22 @@ def run(app, out_dir: Path) -> int:
     check(_pl.flat is not None and _pl.flat.sky and not any(k == "flat" for k, _ in _pl.warnings)
           and "SkyFlat (Mote Buster)" in " ".join(_pl.notes) and "SkyFlat (Mote Buster)" in _pl.flat.label(),
           "no flats for a filter: page 2 plans a sky flat from the light frames")
+    # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
+    _okf = _sfd / "intact.fits"
+    core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)
+    _raw_b = _okf.read_bytes()
+    _badf = _sfd / "mangled.fits"
+    _badf.write_bytes(_raw_b[:2880] + _raw_b[2880:].decode("utf-8", "replace").encode("utf-8"))
+    try:
+        with open(_badf, "rb") as _fh:
+            core.read_layout(_fh)
+        _mang = ""
+    except ValueError as _e:
+        _mang = str(_e)
+    with open(_okf, "rb") as _fh:
+        _okl = core.read_layout(_fh)
+    check("converted to text" in _mang and _okl.shape == (200, 200),
+          "a FITS file damaged by a text-mode download is reported as damaged (intact files read normally)")
     # ready-made data (Telescope Live and the like) is already calibrated: nothing is applied again
     _tl = []
     for _i in range(14):

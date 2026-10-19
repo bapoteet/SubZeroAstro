@@ -491,6 +491,7 @@ table(["Problem", "What to do"], [
   ["XTerminators very slow", "Choose your graphics card under **RC-Astro device** (4.1)."],
   ["Slow on a network drive", "Use *Star measurement: Fast*; hide the image (Ctrl+I); results are cached for next time."],
   ["Something went wrong mid-run", "Restart: SubZeroAstro offers to resume from its saved progress."],
+  ["A frame shows *This file is damaged: its picture data was converted to text*", "The file was downloaded or copied in a way that treated it as text: every byte the text conversion didn't understand was replaced, so the file is about twice its proper size (a 3056×3056 16-bit frame should be about 18.7 MB) and the picture is noise - while the header still reads fine. Such frames can never be aligned or stacked. Download them again (another browser, or as a zip) and check the file size."],
   ["Half the frames show *unreadable*, names starting with `._`", "Those are hidden macOS copies (AppleDouble files) that a Mac writes next to every file on a NAS or external drive - not pictures. Version 0.9.31 and later ignore them; with an older version, delete the `._` files or turn off *Include subfolders*."],
 ], [3300, 6060]);
 sec("11.2", "Getting help and reporting problems", ["Support", "Reporting problems", "Zip My Logs", "Logs", "Self-test"]);

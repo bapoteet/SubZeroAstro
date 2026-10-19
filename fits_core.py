@@ -198,8 +198,35 @@ def read_layout(f) -> Layout:
         raise ValueError(f"Unsupported BITPIX {bitpix}")
     naxis = int(look["NAXIS"])
     shape = tuple(int(look[f"NAXIS{i}"]) for i in range(naxis, 0, -1))
-    return Layout(cards, look, f.tell(), shape, bitpix,
+    offset = f.tell()
+    _check_not_text_mangled(f, offset, _data_nbytes(look))
+    return Layout(cards, look, offset, shape, bitpix,
                   float(look.get("BSCALE", 1.0) or 1.0), float(look.get("BZERO", 0.0) or 0.0))
+
+
+TEXT_MANGLED = ("This file is damaged: its picture data was converted to text somewhere along the way (a "
+                "download or copy that treated it as text), so the image is scrambled - the header still "
+                "reads fine, which hides the damage. Download or copy the file again.")
+
+
+def _check_not_text_mangled(f, offset: int, nbytes: int):
+    """Binary data saved as UTF-8 text: every byte above 127 became the 3-byte replacement character
+    EF BF BD, so the file grows by more than half and the pixels are noise. Seen with downloaded
+    calibrated subframes. Raises ValueError with a plain explanation."""
+    try:
+        size = os.fstat(f.fileno()).st_size
+    except (OSError, AttributeError, ValueError):
+        return
+    if nbytes <= 0 or size < offset + nbytes * 1.3:
+        return
+    here = f.tell()
+    try:
+        f.seek(offset)
+        chunk = f.read(65536)
+    finally:
+        f.seek(here)
+    if chunk.count(b"\xef\xbf\xbd") * 3 > 0.25 * max(len(chunk), 1):
+        raise ValueError(TEXT_MANGLED)
 
 
 def _decode(raw: bytes, lay: Layout, shape) -> np.ndarray:
