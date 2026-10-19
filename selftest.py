@@ -146,6 +146,24 @@ def run(app, out_dir: Path) -> int:
     check(_pl.flat is not None and _pl.flat.sky and not any(k == "flat" for k, _ in _pl.warnings)
           and "SkyFlat (Mote Buster)" in " ".join(_pl.notes) and "SkyFlat (Mote Buster)" in _pl.flat.label(),
           "no flats for a filter: page 2 plans a sky flat from the light frames")
+    # ready-made data (Telescope Live and the like) is already calibrated: nothing is applied again
+    _tl = []
+    for _i in range(14):
+        _fp = _sfd / f"CHI-1-CCD_2019-12-02T05-36-{_i:02d}_NGC_2359_Halpha_300s_{_i}_cal.fits"
+        core.write_fits(_fp, np.full((_sh, _sw), 1000, np.uint16),
+                        {"IMAGETYP": "Light Frame", "FILTER": "L", "EXPTIME": 60.0, "OBJECT": "Field0",
+                         "INSTRUME": "Test Camera", "PROC": "True", "COMMENT": "Processed 0.5 on 2020-07-10"},
+                        bitpix=16)
+        _tl.append(_stk.LightFrame(_stk.read_info(_fp)))
+    _tlg = _stk.LightGroup("Field0", "L", "Test Camera", "TestRig", _tl)
+    _tlp = _stk.plan_group(_tlg, [], sky_pool=_pool + [f.info for f in _tl])
+    _rawp = _stk.plan_group(_grp, [], sky_pool=[f.info for f in _tl])
+    check(_tl[0].info.precal and "Telescope Live" in _tl[0].info.precal and _tlp.precal and not _tlp.warnings
+          and _tlp.flat is None and _tlp.dark is None and _tlp.bias is None
+          and _stk.sky_flat_frames(_grp, [f.info for f in _tl]) == [] and _lfs[0].info.precal is None
+          and (_rawp.flat is None or not _rawp.flat.sky),
+          f"ready-made data is recognised as already calibrated ({_tl[0].info.precal}): no calibration, "
+          "no SkyFlat, no missing-calibration warnings - and it is never used to make a SkyFlat")
     _built = _stk.build_sky_flat(_pl.flat, np.full((_sh, _sw), 300.0, np.float32))
     _vt = _true[10:30, 10:30].mean() / _true[135:155, 200:220].mean()
     _vb = _built[10:30, 10:30].mean() / _built[135:155, 200:220].mean()

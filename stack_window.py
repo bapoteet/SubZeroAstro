@@ -42,7 +42,7 @@ def lights_from_session(frames) -> tuple[list, list]:
             skipped.append(f.name)
             continue
         w, h = int(look.get("NAXIS1", 0) or 0), int(look.get("NAXIS2", 0) or 0)
-        info = st.info_from_look(f.path, look, w, h, "light")
+        info = st.info_from_look(f.path, look, w, h, "light", cards=f.cards)
         if getattr(f, "filter_override", None):
             info.filter = f.filter_override          # the user said which filter was really used
         lights.append(st.LightFrame(info, f.score, (f.metrics or {}).get("fwhm")))
@@ -588,6 +588,8 @@ class StackWindow(QMainWindow):
             self.cal_list.addItem(it)
 
     def status_cell(self, plan: st.CalPlan, kind):
+        if plan.precal:
+            return OK, f"not needed - the lights are already calibrated ({plan.precal})"
         if kind == "bias":
             if plan.bias:
                 return OK, plan.bias.label()

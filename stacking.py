@@ -165,6 +165,7 @@ class ImgInfo:
     stackcnt: int | None = None         # frames inside a smart-telescope stack
     totalexp: float | None = None
     smart: str | None = None
+    precal: str | None = None           # already calibrated (ready-made data): why we think so
 
     @property
     def exposure_total(self) -> float:
@@ -183,7 +184,7 @@ def _num(v):
         return None
 
 
-def info_from_look(path, look, w, h, typ=None, master=False, planes=1) -> ImgInfo:
+def info_from_look(path, look, w, h, typ=None, master=False, planes=1, cards=None) -> ImgInfo:
     fi = core.frame_info(look)
     xb = _num(look.get("XBINNING") or look.get("CCDXBIN"))
     return ImgInfo(
@@ -202,7 +203,9 @@ def info_from_look(path, look, w, h, typ=None, master=False, planes=1) -> ImgInf
         roworder=(str(look.get("ROWORDER")).strip().upper() if look.get("ROWORDER") else None),
         ncombine=int(look["NCOMBINE"]) if isinstance(look.get("NCOMBINE"), int) else None,
         planes=int(planes or 1), stackcnt=int(_num(fi.get("stackcnt"))) if _num(fi.get("stackcnt")) else None,
-        totalexp=_num(fi.get("totalexp")), smart=fi.get("smart"))
+        totalexp=_num(fi.get("totalexp")), smart=fi.get("smart"),
+        precal=(core.precalibrated(cards, look, Path(path).name) if (typ in (None, "light") and not master)
+                else None))
 
 
 _FOLDER_KIND = [("darkflat", r"\b(dark[\s_-]*flats?|flat[\s_-]*darks?)\b"), ("flat", r"\bflats?\b"),
@@ -223,7 +226,7 @@ def read_info(path) -> ImgInfo:
     typ, master = frame_type(src.look, src.path.name)
     if typ is None:                      # no IMAGETYP and nothing in the file name: the folder may say
         typ = folder_kind(src.path.parent.name)
-    return info_from_look(path, src.look, src.w, src.h, typ, master, planes=src.channels)
+    return info_from_look(path, src.look, src.w, src.h, typ, master, planes=src.channels, cards=src.cards)
 
 
 # ==========================================================================
@@ -477,7 +480,7 @@ def group_lights(lights: list[LightFrame], rigs: Rigs) -> list[LightGroup]:
     for lf in lights:
         i = lf.info
         key = (target_name(i.target), i.filter, (i.camera or "").lower(), bool(i.bayer) or i.planes > 1,
-               i.w, i.h, i.x0, i.y0, i.binning, rigs.name_for(i))
+               i.w, i.h, i.x0, i.y0, i.binning, rigs.name_for(i), bool(i.precal))
         groups.setdefault(key, []).append(lf)
     out = []
     for key, lst in groups.items():
@@ -497,6 +500,7 @@ class CalPlan:
     flat_dark: CalItem | None = None
     notes: list = field(default_factory=list)
     warnings: list = field(default_factory=list)     # (kind, text) kind in bias/dark/flat/other
+    precal: str | None = None           # the lights are already calibrated: nothing is applied
 
     def missing(self):
         return [k for k, _ in self.warnings]
@@ -545,7 +549,7 @@ def sky_flat_frames(g: "LightGroup", pool) -> list:
     for i in pool or []:
         if (_same_cam(i.camera, L.camera) and i.filter == L.filter and i.w == L.w and i.h == L.h
                 and (i.x0 or 0) == (L.x0 or 0) and (i.y0 or 0) == (L.y0 or 0) and i.binning == L.binning
-                and bool(i.bayer) == bool(L.bayer) and not i.smart and i.planes == 1
+                and bool(i.bayer) == bool(L.bayer) and not i.smart and not i.precal and i.planes == 1
                 and getattr(i, "_rig", g.rig) == g.rig):
             out.append(i)
     return out
@@ -554,6 +558,13 @@ def sky_flat_frames(g: "LightGroup", pool) -> list:
 def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
     L = g.ref
     p = CalPlan()
+    if L.precal:
+        # ready-made data (Telescope Live and the like): calibrating again would subtract the dark
+        # twice and divide by the flat twice, and a SkyFlat would correct what is already corrected
+        p.precal = L.precal
+        p.notes.append(f"These lights are already calibrated ({L.precal}) - no bias, darks, flats or "
+                       "SkyFlat are applied again.")
+        return p
     cam_items = [c for c in items if _same_cam(c.camera, L.camera) and geometry_ok(c, L)]
 
     def pick(cands, key):

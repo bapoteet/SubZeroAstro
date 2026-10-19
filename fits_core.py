@@ -361,6 +361,30 @@ def is_bayer(look: dict) -> bool:
     return pat in {"RGGB", "BGGR", "GRBG", "GBRG"}
 
 
+def precalibrated(cards, look: dict, name: str = "") -> str | None:
+    """Why these light frames look already calibrated (ready-made data from Telescope Live and the
+    like, or lights calibrated by other software), or None. A short reason for the user."""
+    texts = " ".join(str(c[2] if c[1] is None else c[1]) for c in (cards or [])
+                     if c and c[0] in ("HISTORY", "COMMENT")).lower()
+    calstat = str(look.get("CALSTAT", "") or "").strip().upper()
+    if calstat and any(ch in calstat for ch in "BDF"):
+        return f"MaxIm DL: CALSTAT = '{calstat}'"
+    proc = str(look.get("PROC", "") or "").strip().lower()
+    stem = Path(name).stem.lower() if name else ""
+    cal_name = bool(re.search(r"(^|[_\-. ])(cal|calibrated)$", stem) or re.match(r"(pp|cal)_", stem)
+                    or re.search(r"_c(_cc)?(_d)?$", stem))          # PixInsight WBPP: name_c, name_c_cc_d
+    if proc in ("true", "t", "1", "yes"):
+        tl = "processed" in texts or cal_name
+        return ("Telescope Live: " if tl else "") + "PROC = True"
+    if "imagecalibration" in texts:
+        return "calibrated in PixInsight (ImageCalibration)"
+    if re.search(r"\bcalibrat(ed|ion)\b|dark[- ]?subtract|flat[- ]?field(ed|ing)?\b", texts):
+        return "calibration noted in the header (HISTORY)"
+    if cal_name:
+        return "the file name marks it as calibrated"
+    return None
+
+
 def smart_scope(look: dict) -> str | None:
     """Model name of a smart telescope (Seestar, DWARF, Vespera, Stellina, eVscope), else None."""
     text = " ".join(str(look.get(k) or "") for k in ("INSTRUME", "TELESCOP", "CREATOR", "ORIGIN", "PRODUCER",
