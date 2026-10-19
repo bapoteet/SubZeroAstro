@@ -1581,6 +1581,53 @@ def warp_poly(planes, model, out_shape, rows=256) -> list:
     return outs
 
 
+def distortion_model(ref_all, frame_all, T, T_ref_out, C_plane, out_shape):
+    """For stacking: a polynomial from output pixels to the frame's plane pixels, fitted to the stars
+    - or None when the plain (affine) alignment T (frame -> reference) is already good at the edges.
+    Stars are paired again through T with a wider tolerance, so edge stars that a plain alignment
+    puts a few pixels off still count. T_ref_out: reference -> output; C_plane: full-resolution ->
+    plane coordinates (half-size colour), or None."""
+    ref_all = np.asarray(ref_all, np.float64)
+    frame_all = np.asarray(frame_all, np.float64)
+    if len(ref_all) < 20 or len(frame_all) < 20:
+        return None
+    pred = _apply(T, frame_all)
+    d = np.sqrt(((pred[:, None, :] - ref_all[None, :, :]) ** 2).sum(-1))
+    k = np.argmin(d, axis=1)
+    pair = d[np.arange(len(k)), k] < 5.0
+    # one frame star per reference star
+    _u, first = np.unique(k[pair], return_index=True)
+    idx = np.nonzero(pair)[0][first]
+    ref_xy, frame_xy = ref_all[k[idx]], frame_all[idx]
+    n = len(ref_xy)
+    if n < 20:
+        return None
+    out_xy = _apply(T_ref_out, np.asarray(ref_xy, np.float64))
+    fr = np.asarray(frame_xy, np.float64)
+    if C_plane is not None:
+        fr = _apply(C_plane, fr)
+    aff = fit_poly(out_xy, fr, 1, out_shape)
+    r_aff = np.sqrt(((poly_apply(aff, out_xy) - fr) ** 2).sum(1))
+    order = 3 if n >= 40 else 2
+    pol = fit_poly(out_xy, fr, order, out_shape)
+    r_pol = np.sqrt(((poly_apply(pol, out_xy) - fr) ** 2).sum(1))
+    # keep only stars that fit (a mismatched star would bend the model), then refit
+    good = r_pol < max(0.6, 3 * float(np.median(r_pol)))
+    if good.sum() >= max(20, 3 * len(_poly_terms(order))):
+        pol = fit_poly(out_xy[good], fr[good], order, out_shape)
+        r_pol = np.sqrt(((poly_apply(pol, out_xy[good]) - fr[good]) ** 2).sum(1))
+        r_aff = r_aff[good]
+    else:
+        return None
+    rms_aff, rms_pol = float(np.sqrt(np.mean(r_aff ** 2))), float(np.sqrt(np.mean(r_pol ** 2)))
+    edge = float(np.percentile(r_aff, 95))
+    if edge < 0.6 or rms_pol > 0.75 * rms_aff:
+        return None                     # the plain alignment is fine, or the model would not help
+    pol["edge_affine"] = edge
+    pol["rms"] = rms_pol
+    return pol
+
+
 def register_distortion(ref_lum, img_lum, ref_shape, factor=2, max_stars=400):
     """How img lines up with ref, with distortion: (model ref->img, info). info: stars matched, rms
     of a plain (affine) fit and of the distortion fit, and the largest affine error at the edge.
@@ -1942,6 +1989,9 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
 
     ref_bg = None
     entries = []          # (info, output transform, scale k, bg list, weight)
+    distortion_fixed = []  # frames lined up with a distortion model (edge error it removed)
+    last_model = [None]
+    frame_models = []      # per entry: the distortion model, or None
 
     def prepare(idx, lf, write):
         info = lf.info
@@ -1967,7 +2017,16 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         pls = planes(img)
         del img
         noises = [pixel_noise(p) for p in pls]
-        if is_identity(Tout):
+        model = None
+        if info is not ref_info:
+            model = distortion_model(ref_pts, pts, T, final_T(np.array([[1.0, 0, 0], [0, 1.0, 0]])),
+                                     C_half if half else None, (out_h, out_w))
+            if model is not None:
+                distortion_fixed.append(model["edge_affine"])
+        last_model[0] = model
+        if model is not None:
+            aligned = warp_poly(pls, model, (out_h, out_w))
+        elif is_identity(Tout):
             aligned = [p.astype(np.float32, copy=False) for p in pls]
         else:
             aligned = warp_planes(pls, Tout, (out_h, out_w))
@@ -2001,6 +2060,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         noise = float(np.mean(noises)) * k_phot
         weight = 1.0 / noise ** 2 if opts.weighting else 1.0
         entries.append((lf.info, T, k_phot, bgs, weight))
+        frame_models.append(last_model[0])
         frame_noise.append(noise)
         mir = is_mirrored(T)
         n_mirrored += int(mir)
@@ -2016,6 +2076,10 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         used.append(lf)
     if not entries:
         raise ValueError("No frames could be aligned")
+    if distortion_fixed:
+        log.append(f"Field distortion corrected in {len(distortion_fixed)} of {len(entries)} frames (their stars "
+                   f"were up to {max(distortion_fixed):.1f} px off at the edges with a plain alignment - e.g. after "
+                   "a meridian flip, or another night's setup)")
     res.used = len(entries)
     try:
         res.autocrop = auto_crop_rect([e[1] for e in entries], (out_h, out_w), (out_h, out_w))
@@ -2055,7 +2119,10 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             prog(f"{g.label()}: second pass {i + 1}/{len(entries)}", 0.65 + 0.3 * i / len(entries))
             img = calibrated(info)
             pls = planes(img)
-            aligned = pls if is_identity(T) else warp_planes(pls, T, (out_h, out_w))
+            if frame_models[i] is not None:
+                aligned = warp_poly(pls, frame_models[i], (out_h, out_w))
+            else:
+                aligned = pls if is_identity(T) else warp_planes(pls, T, (out_h, out_w))
             normed = np.stack(normalize(aligned, k_phot, bgs))
             valid = ~np.isnan(normed)
             keep = valid & ((np.abs(normed - mean) <= opts.kappa * sig) | (cnt < 5))

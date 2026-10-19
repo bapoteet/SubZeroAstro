@@ -241,6 +241,59 @@ def run(app, out_dir: Path) -> int:
     check(all(v is True for v in _xok.values()) and _xpure is not False,
           f"XISF with zlib, LZ4, LZ4-HC and Zstandard compression opens ({_xok}; built-in LZ4 decoder agrees: {_xpure})")
 
+    # --- meridian flip: the optics' distortion turns with the camera; the stack corrects it --------
+    _fr = np.random.default_rng(3)
+    _FH = 600
+    _fc = _FH / 2
+    _fst = [(_fr.uniform(-330, 330), _fr.uniform(-330, 330), _fr.uniform(500, 9000)) for _ in range(380)]
+
+    def _fcam(x, y, flipped):
+        if flipped:
+            x, y = -x, -y
+        ox, oy = x - 140, y + 90                      # optical axis off the sensor centre
+        q = 1 + 4.5e-8 * (ox * ox + oy * oy)
+        return x * q + _fc, y * q + _fc
+    _fd = session.parent / "flip_frames"
+    _fd.mkdir(exist_ok=True)
+    _fyy, _fxx = np.mgrid[:_FH, :_FH].astype(np.float32)
+    for _i in range(8):
+        _dx, _dy = _fr.uniform(-3, 3), _fr.uniform(-3, 3)
+        _im = 800 + _fr.normal(0, 10, (_FH, _FH))
+        for _x, _y, _a in _fst:
+            X, Y = _fcam(_x + _dx, _y + _dy, _i >= 4)
+            if 5 < X < _FH - 5 and 5 < Y < _FH - 5:
+                _sl = (slice(int(Y) - 5, int(Y) + 6), slice(int(X) - 5, int(X) + 6))
+                _im[_sl] += _a * np.exp(-((_fxx[_sl] - X) ** 2 + (_fyy[_sl] - Y) ** 2) / (2 * 1.5 ** 2))
+        core.write_fits(_fd / f"L_{_i:02d}.fits", np.clip(_im, 0, 65535).astype(np.uint16),
+                        {"IMAGETYP": "Light Frame", "OBJECT": "Flip", "FILTER": "L", "EXPTIME": 60.0,
+                         "DATE-OBS": f"2026-10-18T02:{_i:02d}:00"}, bitpix=16)
+    _finfo = [_stk.read_info(_p) for _p in sorted(_fd.glob("*.fits"))]
+
+    def _fstack():
+        _g = _stk.LightGroup("Flip", "L", "Cam", "rig", [_stk.LightFrame(_x) for _x in _finfo])
+        _g.plan = _stk.CalPlan()
+        _r = _stk.stack_group(_g, _stk.StackOptions(work_dir=str(session.parent / "flip_work"), formats=("fits",)))
+        _m = _r.data[0] if _r.data.ndim == 3 else _r.data
+        _pts, _pk = _stk.find_stars(_m, 1, 300)
+        _rad = np.hypot(_pts[:, 0] - _fc, _pts[:, 1] - _fc)
+
+        def _sharp(p):
+            x, y = int(round(p[0])), int(round(p[1]))
+            b = _m[y - 3:y + 4, x - 3:x + 4] - np.median(_m)
+            return float(b.max() / max(b.sum(), 1e-6)) if b.shape == (7, 7) else np.nan
+        _sh = np.array([_sharp(p) for p in _pts])
+        return float(np.nanmedian(_sh[_rad < 120])), float(np.nanmedian(_sh[_rad > 220])), _r.log
+    _keep_dm = _stk.distortion_model
+    _stk.distortion_model = lambda *a, **k: None
+    try:
+        _c0, _e0, _ = _fstack()
+    finally:
+        _stk.distortion_model = _keep_dm
+    _c1, _e1, _flog = _fstack()
+    check(_e1 > 0.97 * _c1 and _e1 > _e0 + 0.003 and any("distortion corrected" in l for l in _flog),
+          f"after a meridian flip the stack corrects the field distortion: edge stars as sharp as the centre "
+          f"({_e1:.3f} vs {_c1:.3f}; without it {_e0:.3f})")
+
     # --- plate solving retries when the header's field size is wrong (binning, reducer) -----------
     import prepare as _pp
     import tools as _tl

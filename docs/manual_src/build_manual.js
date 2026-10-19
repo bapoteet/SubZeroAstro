@@ -326,6 +326,7 @@ bullets([
   "**Save as** FITS and/or XISF; **Save new calibration masters** into your library.",
   "**Line up all filters of a target** (on) - all masters of a target share one pixel grid, ready to combine (LRGB, SHO).",
 ]);
+p("**Sharp stars to the corners.** Every telescope bends the field a little, mostly at the edges. After a **meridian flip** (or between nights with another setup) that bending is turned round with the camera, so a plain shift-and-rotate alignment lines up the centre but leaves stars a pixel or two apart near the edges - doubled or smeared corner stars. SubZeroAstro measures each frame's stars against the reference and, when the edges are off, lines that frame up with a smooth distortion model instead. The stack log says how many frames were corrected.");
 sec("7.4", "Running the stack", ["Check & Stack", "Continue With the Rest"]);
 p("Press **▶ Check & Stack**. Anything missing is listed first, with **Stack Anyway** or **Add Calibration Frames First…**. The log shows each step. If a run is interrupted, the next run offers **Continue With the Rest**. When it finishes, the button turns amber: **✓ Stacked – Run Again?**. Stacking again never overwrites a master - new versions are saved as `_2`, `_3`…");
 sec("7.5", "Results", ["Open Master Lights Folder", "Stack log"]);
