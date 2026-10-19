@@ -1,13 +1,13 @@
 """
 splash.py - the animated intro shown while SubZeroAstro starts.
 
-"The Great Dog" - where veterinary radiology meets the night sky (about 4 s, click to skip):
+"The Great Dog" - where veterinary radiology meets the night sky (about 5 s, click to skip):
   0.1 - 1.4 s  subframes slide onto a lightbox like films; with every one stacked, a lateral
                radiograph of a dog rises out of the noise (stacking lowers noise - in both worlds)
-  1.6 - 2.7 s  points light up on the anatomy (skull, jaw, shoulder, elbow, spine), the film fades
+  1.6 - 3.6 s  points light up on the anatomy (skull, jaw, shoulder, elbow, spine), the film fades
                and they glide onto the real stars of Canis Major, the Great Dog; the constellation
                lines draw in and Sirius - the Dog Star - flares
-  2.3 - 3.6 s  "SubZeroAstro", author and slogan; an ice-blue glint sweeps the title
+  2.6 - 4.0 s  "SubZeroAstro", author and slogan; an ice-blue glint sweeps the title
   ...          fades away when the main window is ready
 
 The radiograph is a real one (assets/splash_radiograph.png); everything else is drawn with
@@ -27,7 +27,7 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetricsF, QImage, QLinear
 from PySide6.QtWidgets import QApplication, QWidget
 
 W, H = 780, 440
-DURATION = 4.1          # seconds before the splash may close (it waits for the app if that is slower)
+DURATION = 4.9          # seconds before the splash may close (it waits for the app if that is slower)
 FADE = 0.45
 
 # --------------------------------------------------------------------------
@@ -235,7 +235,7 @@ class Splash(QWidget):
         bg.setColorAt(0.55, QColor(8, 12, 26))
         bg.setColorAt(1.0, QColor(3, 4, 10))
         p.fillRect(rect, QBrush(bg))
-        bloom = 0.3 + 0.7 * _ease_out(_seg(t, 1.6, 3.0))
+        bloom = 0.3 + 0.7 * _ease_out(_seg(t, 1.9, 3.5))
         breathe = 1.0 + 0.04 * math.sin(t * 1.7)
         for (x, y, r, col, a) in ((560, 230, 240, (190, 40, 70), 55), (650, 150, 230, (20, 140, 150), 50),
                                   (470, 300, 170, (230, 150, 60), 26), (200, 200, 230, (60, 80, 170), 40)):
@@ -247,8 +247,8 @@ class Splash(QWidget):
         fade_in = _ease_out(_seg(t, 0.0, 0.6))
         for (sx, sy, mag, ph, tint) in self.stars:
             x, y = W / 2 + sx * W * 0.52, H / 2 + sy * H * 0.52
-            if self.panel.adjusted(-6, -6, 6, 6).contains(QPointF(x, y)) and t < 2.2:
-                mag *= 0.25 + 0.75 * _seg(t, 1.6, 2.2)              # keep the lightbox area clean at first
+            if self.panel.adjusted(-6, -6, 6, 6).contains(QPointF(x, y)) and t < 3.0:
+                mag *= 0.25 + 0.75 * _seg(t, 2.0, 3.0)              # keep the lightbox area clean at first
             tw = 0.75 + 0.25 * math.sin(t * (2 + mag * 3) + ph)
             alpha = int(255 * mag * tw * fade_in)
             col = (QColor(200, 220, 255, alpha), QColor(255, 225, 200, alpha), QColor(170, 240, 255, alpha))[tint]
@@ -260,8 +260,8 @@ class Splash(QWidget):
         panel = self.panel
         land = [_seg(t, d, d + 0.55) for (_x, _y, _r, d) in self.films]
         stacked = sum(1 for k in land if k >= 1.0) / len(land)
-        xray = _ease_out(stacked) * (1.0 - _ease_in_out(_seg(t, 1.65, 2.35)))
-        box_on = _ease_out(_seg(t, 0.1, 0.5)) * (1.0 - _ease_in_out(_seg(t, 1.7, 2.3)))
+        xray = _ease_out(stacked) * (1.0 - _ease_in_out(_seg(t, 1.8, 3.1)))
+        box_on = _ease_out(_seg(t, 0.1, 0.5)) * (1.0 - _ease_in_out(_seg(t, 1.85, 3.0)))
         if box_on > 0:                                             # the lightbox / film
             g = QLinearGradient(panel.topLeft(), panel.bottomRight())
             g.setColorAt(0, QColor(22, 30, 42, int(235 * box_on)))
@@ -298,7 +298,7 @@ class Splash(QWidget):
                 p.restore()
 
     def _constellation(self, p, t):
-        move = _ease_in_out(_seg(t, 1.7, 2.55))
+        move = _ease_in_out(_seg(t, 1.95, 3.2))
         show = _ease_out(_seg(t, 1.55, 2.0))
         if show <= 0:
             return
@@ -311,7 +311,7 @@ class Splash(QWidget):
             else:
                 pos[k] = QPointF(j.x() + (s.x() - j.x()) * move, j.y() + (s.y() - j.y()) * move)
                 vis[k] = show
-        draw = _seg(t, 2.25, 2.95)                                 # lines draw in one after another
+        draw = _seg(t, 2.9, 3.6)                                 # lines draw in one after another
         n = len(LINES)
         for i, (a, b) in enumerate(LINES):
             k = _seg(draw * n, i, i + 1)
@@ -337,7 +337,7 @@ class Splash(QWidget):
             p.setBrush(QColor(240, 248, 255, int(255 * v)))
             p.drawEllipse(q, size * 0.6, size * 0.6)
         # Sirius flares: the Dog Star
-        fl = math.exp(-((t - 2.65) / 0.22) ** 2) + 0.35 * _seg(t, 2.6, 2.9)
+        fl = math.exp(-((t - 3.35) / 0.22) ** 2) + 0.35 * _seg(t, 3.3, 3.6)
         if fl > 0.02:
             q = pos["Sirius"]
             for ang, L in ((0, 34), (90, 34), (45, 16), (135, 16)):
@@ -353,7 +353,7 @@ class Splash(QWidget):
                                    q.y() - L * fl * math.sin(math.radians(ang))),
                            QPointF(q.x() + L * fl * math.cos(math.radians(ang)),
                                    q.y() + L * fl * math.sin(math.radians(ang))))
-        lab = _ease_out(_seg(t, 2.8, 3.3))
+        lab = _ease_out(_seg(t, 3.4, 3.9))
         if lab > 0:
             f = QFont("Segoe UI", 8)
             f.setItalic(True)
@@ -366,7 +366,7 @@ class Splash(QWidget):
 
     def _titles(self, p, t):
         cx, cy = 560, H / 2 - 22
-        k = _ease_out(_seg(t, 2.3, 3.0))
+        k = _ease_out(_seg(t, 2.6, 3.3))
         if k > 0:
             f = QFont("Segoe UI", 38, QFont.Bold)
             f.setLetterSpacing(QFont.AbsoluteSpacing, 1 + 16 * (1 - k))
@@ -391,7 +391,7 @@ class Splash(QWidget):
                 p.setBrush(c)
                 p.drawPath(path)
                 x += fm.horizontalAdvance(s)
-            g = _seg(t, 3.05, 3.75)
+            g = _seg(t, 3.3, 4.0)
             if 0 < g < 1:
                 gx = cx - total / 2 - 60 + (total + 120) * _ease_in_out(g)
                 sweep = QLinearGradient(QPointF(gx - 40, 0), QPointF(gx + 40, 0))
@@ -402,14 +402,14 @@ class Splash(QWidget):
                 p.drawPath(tpath)
                 self._crystal(p, QPointF(gx, base - fm.ascent() * 0.62), 9 * math.sin(math.pi * g),
                               int(230 * math.sin(math.pi * g)))
-        a1 = _ease_out(_seg(t, 2.8, 3.3))
+        a1 = _ease_out(_seg(t, 3.0, 3.5))
         if a1 > 0:
             f = QFont("Segoe UI", 10)
             f.setItalic(True)
             p.setFont(f)
             p.setPen(QColor(150, 162, 186, int(255 * a1)))
             p.drawText(QRectF(cx - 200, cy + 30, 400, 22), Qt.AlignHCenter | Qt.AlignVCenter, f"by {self.author}")
-        a2 = _ease_out(_seg(t, 3.05, 3.6))
+        a2 = _ease_out(_seg(t, 3.3, 3.85))
         if a2 > 0:
             f = QFont("Segoe UI", 12, QFont.DemiBold)
             p.setFont(f)

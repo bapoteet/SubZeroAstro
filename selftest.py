@@ -559,7 +559,7 @@ def run(app, out_dir: Path) -> int:
         sp.show()
         check(sp.xray_img is not None and sp.xray_img.width() > 100,
               "intro animation finds its radiograph picture (assets/splash_radiograph.png)")
-        for t_ in (0.5, 1.0, 1.5, 1.9, 2.2, 2.6, 3.0, 3.5, 4.0):
+        for t_ in (0.5, 1.0, 1.5, 1.9, 2.3, 2.7, 3.1, 3.5, 4.0, 4.6):
             sp.set_time(t_)
             QApplication.processEvents()
             pm = sp.grab()
@@ -574,7 +574,7 @@ def run(app, out_dir: Path) -> int:
         while not state["splash_done"] and time.time() < t_end:
             QApplication.processEvents()
             time.sleep(0.01)
-        check(state["splash_done"] and not sp2.isVisible(), "intro animation plays and closes by itself (~4.5 s)")
+        check(state["splash_done"] and not sp2.isVisible(), "intro animation plays and closes by itself (~5.3 s)")
         w.open_folder(session, use_cache=False)
         QTimer.singleShot(250, wait_loaded)
 
