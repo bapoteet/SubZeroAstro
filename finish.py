@@ -177,13 +177,38 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
                                  f"{off:.1f} px, now {info['rms']:.2f} px)")
                     worst = max(worst, off)
             except ValueError as e:
-                if img.shape != shape:
-                    failed.append(f"{m.filter}: could not be lined up ({e}) and has another size - left out")
+                same_filter = sum(1 for x in masters if x.filter == m.filter) > 1
+                if img.shape != shape or same_filter:
+                    # an unmatched master would put its stars somewhere else: double stars. Leave it out
+                    # when the filter has other masters; keep it (with a warning) when it is the only one
+                    failed.append(f"{getattr(m, 'path', Path(m.filter)).stem}: its stars could not be matched to the "
+                                  f"others ({e}) - left out so it can't cause double stars")
                     continue
-                failed.append(f"{m.filter}: could not be checked against the others ({e}) - used as it is")
+                failed.append(f"{m.filter}: its stars could not be matched to the others ({e}) - used as it is; if "
+                              "the stars look doubled, line this filter up in PixInsight (StarAlignment)")
         elif star_plane is not None and star_plane.shape != shape:
             star_plane = None
         planes.setdefault(m.filter, []).append((img, star_plane))
+    # the area every master covers (lined-up masters leave empty wedges at their edges)
+    cover = None
+    for items in planes.values():
+        for img, _stp in items:
+            v = img > 0
+            cover = v if cover is None else (cover & v)
+    crop = None
+    if cover is not None and not cover.all():
+        import prepare as P
+        r = P._valid_rect(cover[::4, ::4])
+        if r:
+            x0, y0, x1, y1 = (int(r[0] * 4) + 4, int(r[1] * 4) + 4, int(r[2] * 4) - 4, int(r[3] * 4) - 4)
+            if (x1 - x0) * (y1 - y0) > 0.3 * shape[0] * shape[1]:
+                crop = (x0, y0, x1, y1)
+    if crop:
+        x0, y0, x1, y1 = crop
+        planes = {f: [(img[y0:y1, x0:x1], None if stp is None else stp[y0:y1, x0:x1]) for img, stp in items]
+                  for f, items in planes.items()}
+        shape = (y1 - y0, x1 - x0)
+        notes.append(f"cropped to the area all masters cover ({x1 - x0} x {y1 - y0} px)")
     chans, cstars = {}, {}
     for filt, items in planes.items():
         if len(items) == 1:

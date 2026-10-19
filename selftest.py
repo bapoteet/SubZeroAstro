@@ -1485,6 +1485,10 @@ def run(app, out_dir: Path) -> int:
             ("Ha", _rend(lambda x, y: (x, y)), "ha"), ("OIII", _rend(_dist, 0.6, 300.0), "o3a"),
             ("OIII", _rend(lambda x, y: _dist(x, y, 4e-7, -0.002, -2, 1), noise=12.0), "o3b"),
             ("SII", _rend(lambda x, y: (x, y), 0.4), "s2"))]
+        _rstars_bak = _rstars
+        _rstars = [(_rg.uniform(5, _RH - 5), _rg.uniform(5, _RH - 5), _rg.uniform(300, 8000)) for _ in range(350)]
+        _ms.append(_types.SimpleNamespace(filter="OIII", data=_rend(lambda x, y: (x, y))[None], path=Path("o3_other_field")))
+        _rstars = _rstars_bak
         _ch, _cs, _notes = F.assemble_mono(_ms)
         _rp = _stg.find_stars(_ch["Ha"] * 65535, 1, 250)[0]
         _op = _stg.find_stars(_ch["OIII"] * 65535, 1, 250)[0]
@@ -1492,6 +1496,7 @@ def run(app, out_dir: Path) -> int:
         _far = np.hypot(_rp[:, 0] - _RH / 2, _rp[:, 1] - _RH / 2) > 220
         _corner = float(np.median(_dd[_far & (_dd < 5)]))
         check(set(_ch) == {"Ha", "OIII", "SII"} and any("2 OIII masters combined" in x for x in _notes)
+              and any("o3_other_field" in x and "left out" in x for x in _notes)
               and any("distortion" in x for x in _notes) and _corner < 0.3,
               f"masters from other setups are all used and lined up with their field distortion (corner stars "
               f"{_corner:.2f} px apart; {'; '.join(_notes)})")
