@@ -1641,6 +1641,35 @@ def run(app, out_dir: Path) -> int:
         fw.undo_last()                           # the flip
         QApplication.processEvents()
         check(len(fw.project.steps) == _nflip and np.array_equal(fw.state.rgb, _orig), "undo un-flips the picture")
+        # Adjust Colours: one colour at a time; grey stays grey
+        _cs_ = F.State(rgb=np.full((3, 20, 30), 0.3, np.float32), linear=False, kind="mono_nb")
+        _cs_.rgb[:, 5, 5] = [0.2, 0.3, 0.7]                       # a blue pixel
+        _cs_.rgb[:, 6, 6] = [0.7, 0.2, 0.2]                       # a red one
+        _cv = [v for v in F.TOOLS["colours"].variants(_cs_) if v.label == "Boost blues"][0]
+        _co = F.TOOLS["colours"].apply(_cs_, _cv.params).rgb
+        _col_ok = (_co[2, 5, 5] > 0.75 and np.allclose(_co[:, 6, 6], _cs_.rgb[:, 6, 6], atol=0.02)
+                   and np.allclose(_co[:, 0, 0], 0.3, atol=1e-4) and "colours" in F.WORKFLOWS["mono_nb"]
+                   and F.TOOLS["colours"].repeatable)
+        # Full Window: the picture gets the whole window, everything comes back; zoom draws full detail
+        _vis0 = fw._left_panel.isVisible()
+        fw.btn_full.setChecked(True)
+        QApplication.processEvents()
+        _hid = not fw._left_panel.isVisible() and not fw.log_view.isVisible() and not fw.card.isVisible()
+        fw.full_esc.activated.emit()
+        QApplication.processEvents()
+        _back = fw._left_panel.isVisible() == _vis0 and fw.log_view.isVisible() and not fw.btn_full.isChecked()
+        fw.show_current()
+        _w0 = fw.view.pix.pixmap().width()
+        fw.view._zoomed = True
+        fw._zoom_detail()
+        QApplication.processEvents()
+        _w1 = fw.view.pix.pixmap().width()
+        fw.view._fit()
+        fw.view._zoomed = False
+        check(_col_ok and _hid and _back and _w1 >= _w0 and _w1 == fw.state.shape[1],
+              f"Adjust Colours boosts one colour and leaves the rest; Full Window hides the panels and Esc brings "
+              f"them back; zooming in draws the picture at full resolution ({_w0} -> {_w1} px wide)")
+
         # Sign Your Picture
         before_sig = fw.state.rgb.copy()
         fw.open_tool("signature")

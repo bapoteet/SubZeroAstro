@@ -241,6 +241,11 @@ class CropView(QGraphicsView):
         self._ext_drag = False
         self.on_wheel = None                 # callable(steps)
         self.message = "Select a master on the left"
+        self.zoomable = False                # wheel zooms, drag pans, double-click fits (Finishing Touches)
+        self._zoomed = False
+        self._fit_m11 = 1.0
+        self.on_zoom_detail = None           # callable(): zoomed past the preview's own pixels
+        self._detail_sent = False
 
     def show_still(self, rgb8):
         """Show a saved step's preview: no crop box, no dragging."""
@@ -259,7 +264,22 @@ class CropView(QGraphicsView):
         self.pix.setScale(scale_f)
         self.full = full_size
         self.scene().setSceneRect(QRectF(0, 0, full_size[0], full_size[1]))
+        self._zoomed = False
+        self._detail_sent = False
+        self.setDragMode(QGraphicsView.NoDrag)
+        self._fit()
+
+    def _fit(self):
         self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+        self._fit_m11 = self.transform().m11()
+
+    def upgrade_pixmap(self, rgb8):
+        """Swap in a sharper (bigger) version of the picture shown, keeping the zoom and position."""
+        h, w, _ = rgb8.shape
+        arr = np.ascontiguousarray(rgb8)
+        img = QImage(arr.data, w, h, 3 * w, QImage.Format_RGB888).copy()
+        self.pix.setPixmap(QPixmap.fromImage(img))
+        self.pix.setScale(self.full[0] / max(w, 1))
 
     def set_crop(self, rect):
         if rect is None:
@@ -277,16 +297,44 @@ class CropView(QGraphicsView):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        if self.full[0]:
-            self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
+        if self.full[0] and not self._zoomed:
+            self._fit()
 
     def wheelEvent(self, e):
         if self.on_wheel:
             self.on_wheel(e.angleDelta().y() / 120.0)
             return
+        if self.zoomable and self.full[0]:
+            steps = e.angleDelta().y() / 120.0
+            if steps == 0:
+                return
+            f = 1.25 ** steps
+            if f < 1 and not self._zoomed:
+                return                                   # already fitted: nothing smaller
+            self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+            self.scale(f, f)
+            self._zoomed = True
+            if self.transform().m11() <= self._fit_m11 * 1.001:
+                self._zoomed = False
+                self._fit()
+            elif (self.on_zoom_detail and not self._detail_sent
+                  and self.transform().m11() * self.pix.scale() > 0.9):
+                self._detail_sent = True                 # past the preview's own pixels: ask for full detail
+                self.on_zoom_detail()
+            return
         super().wheelEvent(e)
 
+    def mouseDoubleClickEvent(self, e):
+        if self.zoomable and self._zoomed and not self.on_click:
+            self._zoomed = False
+            self._fit()
+            return
+        super().mouseDoubleClickEvent(e)
+
     def mousePressEvent(self, e):
+        if self.zoomable:                                # pan a zoomed picture when no tool needs the mouse
+            pan = self._zoomed and self.locked and not self.on_drag and not self.on_click
+            self.setDragMode(QGraphicsView.ScrollHandDrag if pan else QGraphicsView.NoDrag)
         if self.locked and self.on_drag and self.full[0] and e.button() == Qt.LeftButton:
             p = self.mapToScene(e.position().toPoint())
             self._ext_drag = True

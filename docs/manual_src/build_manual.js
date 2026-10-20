@@ -381,7 +381,7 @@ p("Click **Continue to Finishing Touches ➜**, or **Stop Here – Continue in P
 
 ch(9, "Page 4 – Finishing Touches");
 img("15_finish_start.png", "Finishing Touches: the workflow (left), the recommended next step and the picture (example data)");
-sec("9.1", "How it works", ["Recommended next", "Do It", "Do It Again", "Skip", "Pick the one you like", "Fine-tune", "Apply", "Cancel", "Workflow list", "Several masters per filter", "Field distortion", "Double stars"]);
+sec("9.1", "How it works", ["Recommended next", "Do It", "Do It Again", "Full Window", "Zoom", "Skip", "Pick the one you like", "Fine-tune", "Apply", "Cancel", "Workflow list", "Several masters per filter", "Field distortion", "Double stars"]);
 steps([
   "The **workflow list** on the left shows every step for your kind of data: ✓ done, ➜ next, ○ later, – not needed, ◇ optional.",
   "The card at the top says what is **Recommended next** and why. Click **Do It** (or click any step in the list).",
@@ -392,6 +392,8 @@ steps([
 ]);
 img("17_finish_brighten_choices.png", "Picking a version: Brighten the Image offers five strengths (example data)");
 p("**Several masters per filter, or masters from different setups.** When you load more than one master of the same filter (other nights, other cameras or telescopes), all of them are used: they are brought to the same brightness and averaged, the less noisy ones counting more. Every master is first matched star by star to one reference master. Masters from another camera or telescope are bent slightly differently by their optics - most at the edges, which would give coloured double stars in the corners - so SubZeroAstro measures that distortion from hundreds of stars and corrects it. When the masters carry a plate solution (data from remote observatories usually does, and page 3 adds one with ASTAP), it guides the match: the masters are lined up from where they point on the sky and the stars fine-tune it, so even masters with few stars in common line up. The deepest master (the most hours) is the reference everything is lined up to. Masters that page 3 already put on one grid are used as they are, and starless masters (StarXTerminator on page 3) are measured together with their stars-only images, so the stars are always there to line up by. After lining up, every master is checked: its four corners are compared with the reference's, and one still more than 1.5 px off is left out (when its filter has other masters) - the note says *alignment check: … within X px in every corner*. A master whose stars cannot be matched to the others is left out (when its filter has other masters), so it can't cause double stars, and the picture is cropped to the area all masters cover. The note under the title says how many masters were combined, corrected or left out.");
+p("**Looking closely.** Scroll on the picture to zoom in (past the preview's own pixels the full-resolution picture is drawn), drag to move around, double-click to fit it again. **⛶ Full Window** (next to *Show:*) hides the step list, the panels and the log so the picture fills the window - press it again or **Esc** to go back. Both work at every step, also while looking back through earlier steps.");
+p("**Bringing out one colour.** *Adjust Colours* strengthens or calms one colour range at a time: pick a version (Boost blues, Boost reds, Blues and reds, Boost magentas, Calm the greens), then fine-tune with one slider per colour (1 = unchanged), *Brighten boosted colours* and *Protect the sky*. It is best done after *Colour Intensity* and before *Final Noise Reduction* - boosting a colour also boosts its colour noise, which the noise step then cleans - but it can be opened at any time later too (and run again).");
 sec("9.2", "Going back", ["Undo", "Go Back to Here", "Back to Start", "Hold for Before (Finishing Touches)"]);
 bullets([
   "**Undo** (Ctrl+Z) removes the last step.",
@@ -399,7 +401,7 @@ bullets([
   "**Back to Start** returns to the original masters.",
   "Every step is saved. Opening the same masters again offers to **carry on where you left off**.",
 ]);
-sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Mote Buster", "Fix Dust Donuts", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Flip or Rotate the Picture", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
+sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Mote Buster", "Fix Dust Donuts", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Adjust Colours", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Flip or Rotate the Picture", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
 p("Which steps appear depends on your data. In typical order:");
 table(["Step", "What it does", "PixInsight equivalent"], [
   ["Add Hydrogen Glow", "Adds Ha to the red of an RGB set, without its stars. For a galaxy (M31, M33, M101, NGC 891…) it adds only the compact HII regions - the red knots along the arms", "Continuum subtraction + PixelMath / NBRGBCombination"],
@@ -410,6 +412,7 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Mote Buster ◇", "Fix Dust Donuts: finds the round shadows of dust and divides them out with a synthetic flat - the detail underneath comes back", "A new flat, or DBE with division"],
   ["Take Stars Out", "Hides the stars so the nebula can be brightened strongly (instant if page 3 already separated them)", "StarXTerminator"],
   ["Brighten the Image", "The stretch - five strengths, three methods", "STF / HistogramTransformation / GHS"],
+  ["Adjust Colours ◇", "Bring out (or calm) one colour at a time - reds, yellows, greens, cyans, blues, magentas; grey and white stay as they are", "ColorSaturation"],
   ["Tame Bright Core ◇", "Recovers detail in a burnt-out galaxy core or bright nebula", "HDRMultiscaleTransform with a mask"],
   ["Adjust Brightness & Contrast", "Curves presets, sliders and a curve you can drag", "CurvesTransformation"],
   ["Colour Intensity", "Richer or calmer colour; dark sky protected", "Saturation curve"],
@@ -628,6 +631,7 @@ const HIGHLIGHTS = [
     ["Recommended next step", "Tailored to your data (colour, mono, narrowband, smart scope) and the target (galaxy, nebula, cluster, comet)", "0.7"],
     ["Pick from your own image, then fine-tune", "Small versions of your picture to choose from; clicking previews big without applying; plain-language sliders fine-tune it, and the app says how much of the picture they change", "0.7 / 0.9.48"],
     ["Do It Again", "Repeatable steps (curves, saturation, noise, Mote Buster …) can be run once more on their own result", "0.9.48"],
+    ["Adjust Colours, Full Window, zoom", "Bring out one colour at a time; see the picture full-window and zoom in to full resolution at any step", "0.9.58"],
     ["Mote Buster – Fix Dust Donuts", "Measures each dust shadow ring by ring and divides it out with a synthetic flat, so the detail underneath comes back; run it in rounds", "0.9.22 / 0.9.47"],
     ["Every master used", "Several masters per filter averaged (less noisy ones count more), other setups bent onto one grid, unmatched ones left out", "0.9.41"],
     ["Target description", "A short write-up from Wikipedia plus SIMBAD facts, credited, saved next to your picture", "0.9.34"],

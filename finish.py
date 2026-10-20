@@ -2208,6 +2208,83 @@ class Saturation(Tool):
 
 
 # --------------------------------------------------------------------------
+COLOUR_BANDS = (("reds", 0.0), ("yellows", 60.0), ("greens", 120.0), ("cyans", 180.0), ("blues", 240.0),
+                ("magentas", 300.0))
+
+
+def hue_degrees(rgb: np.ndarray):
+    """Hue (0-360, red = 0) and chroma (max - min) of a (3, h, w) image."""
+    r, g, b = rgb
+    mx = np.maximum(np.maximum(r, g), b)
+    mn = np.minimum(np.minimum(r, g), b)
+    c = mx - mn
+    safe = np.where(c > 1e-9, c, 1.0)
+    h = np.where(mx == r, ((g - b) / safe) % 6.0, np.where(mx == g, (b - r) / safe + 2.0, (r - g) / safe + 4.0))
+    return (h * 60.0) % 360.0, c, mx
+
+
+class AdjustColours(Tool):
+    key = "colours"
+    title = "Adjust Colours"
+    tip = ("Brings out (or tones down) one colour at a time - reds, yellows, greens, cyans, blues, magentas - "
+           "without touching the others. Grey and white (the background, white stars) stay as they are. "
+           "(PixInsight: ColorSaturation)")
+    optional = True
+
+    def applicable(self, s):
+        if not s.is_color:
+            return False, "Needs a colour image"
+        if s.linear:
+            return False, "Brighten the image first"
+        return True, ""
+
+    def possible(self, s):
+        return s.is_color or (s.rgb is None and len(s.channels) >= 2)
+
+    def variants(self, s):
+        sky = float(np.median(_lum(s.rgb)[::3, ::3]))
+        base = {name: 1.0 for name, _h in COLOUR_BANDS}
+        base.update({"bright": 0.5, "protect": 0.8, "sky": sky})
+        looks = (("Boost blues", {"blues": 1.7, "cyans": 1.35}),
+                 ("Boost reds", {"reds": 1.6, "magentas": 1.2}),
+                 ("Blues and reds", {"blues": 1.6, "cyans": 1.3, "reds": 1.4}),
+                 ("Boost magentas", {"magentas": 1.7, "reds": 1.15}),
+                 ("Calm the greens", {"greens": 0.4, "yellows": 0.8}))
+        return [Variant(n, {**base, **ch}, "", i == 2) for i, (n, ch) in enumerate(looks)]
+
+    def sliders(self, s, params):
+        out = [Slider(name, name.capitalize(), 0.0, 2.5, params[name],
+                      f"How strong the {name} are: below 1 calmer, above 1 stronger", 0.05)
+               for name, _h in COLOUR_BANDS]
+        out.append(Slider("bright", "Brighten boosted colours", 0.0, 1.0, params["bright"],
+                          "Also brighten the colours you boost (faint blue or red nebulosity shows more)", 0.05))
+        out.append(Slider("protect", "Protect the sky", 0.0, 1.0, params["protect"],
+                          "Keeps the dark background from getting colourful noise"))
+        return out
+
+    def apply(self, s, params):
+        s = s.copy()
+        rgb = s.rgb
+        hue, c, mx = hue_degrees(rgb)
+        f = np.zeros_like(hue)
+        for name, centre in COLOUR_BANDS:          # triangular weights 60 degrees wide: they add up to 1
+            d = np.abs((hue - centre + 180.0) % 360.0 - 180.0)
+            f += np.clip(1.0 - d / 60.0, 0, 1) * float(params.get(name, 1.0))
+        y = _lum(rgb)
+        pr, sky = float(params.get("protect", 0.8)), float(params.get("sky", 0.0))
+        w = np.clip((y - sky * 1.15) / 0.25, 0, 1)
+        eff = 1 + (f - 1) * ((1 - pr) + pr * w)
+        out = y[None] + (rgb - y[None]) * eff[None]
+        br = float(params.get("bright", 0.0))
+        if br > 0:                                  # lift the boosted colours a little too
+            colourful = np.clip(c / np.maximum(mx, 1e-6), 0, 1)
+            out = out * (1 + br * np.clip(eff - 1, 0, None) * colourful * 0.5)[None]
+        s.rgb = np.clip(out, 0, 1).astype(np.float32)
+        s.done.append(self.key)
+        return s
+
+
+# --------------------------------------------------------------------------
 def clahe(y: np.ndarray, grid=8, clip=2.5, bins=256) -> np.ndarray:
     """Contrast-limited adaptive histogram equalisation of a 0..1 plane
     (PixInsight: LocalHistogramEqualization)."""
@@ -2626,13 +2703,13 @@ class TameCore(Tool):
         return img
 
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
-                            TameCore(), Curves(), Saturation(), LocalContrast(), BrightenStars(), ShrinkStars(),
+                            TameCore(), Curves(), Saturation(), AdjustColours(), LocalContrast(), BrightenStars(), ShrinkStars(),
                             StarColours(), PutStarsBack(),
                             DustDonuts(), DarkenSky(), FinalNoise(), FlipPicture(), FinalCrop(), SpotFix(), SignPicture())}
 
 # steps that can sensibly be run again on their own result ("Do It Again"); one-way steps (combining,
 # brightening, taking the stars out or putting them back, signing …) are not on the list
-REPEATABLE = ("balance", "scnr", "core", "curves", "saturation", "local", "shrink", "star_color", "dust",
+REPEATABLE = ("balance", "scnr", "core", "curves", "saturation", "colours", "local", "shrink", "star_color", "dust",
               "sky", "denoise", "flip", "final_crop", "spotfix")
 for _k in REPEATABLE:
     TOOLS[_k].repeatable = True
@@ -2672,7 +2749,7 @@ def busiest_spot(s: State, size=420):
 # What's next
 # ==========================================================================
 
-_POLISH = ["core", "curves", "saturation", "local"]
+_POLISH = ["core", "curves", "saturation", "colours", "local"]
 _STARS = ["star_stretch", "shrink", "star_color", "stars_back"]
 WORKFLOWS = {
     "osc": ["balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
@@ -2695,6 +2772,7 @@ WHY = {
     "stars_back": "Last step: put the stars back over the processed image.",
     "curves": "Now shape the tones: a little contrast or lifting the faint parts makes a big difference.",
     "saturation": "Bring the colours out - the sky is protected from colour noise.",
+    "colours": "Optional: bring out (or calm) one colour at a time - e.g. the blue of OIII next to the red of Ha.",
     "ha_glow": "You have an Ha image with your RGB - add its glow to the red channel before combining.",
 }
 
@@ -2969,6 +3047,7 @@ PI_EQUIVALENT = {
     "shrink": "Star Reduction (Bill Blanshan's script) or MorphologicalTransformation (Erosion)",
     "curves": "CurvesTransformation",
     "saturation": "CurvesTransformation (saturation curve) or ColorSaturation",
+    "colours": "ColorSaturation (hue-selective saturation curve)",
     "local": "LocalHistogramEqualization",
     "ha_glow": "Continuum subtraction (PixelMath: Ha - k*R) then NBRGBCombination or PixelMath into R",
     "spotfix": "CloneStamp",

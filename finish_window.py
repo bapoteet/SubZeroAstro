@@ -532,6 +532,7 @@ class FinishWindow(QMainWindow):
         top = QHBoxLayout()
         self.title = QLabel("<b>Finishing Touches</b> — add your processed masters to start")
         top.addWidget(self.title, 1)
+        self._top_widgets = [self.title]
         for text, slot, tip in (
                 ("Add Masters…", self.add_masters_dialog, "Open the master lights of one target (prepared ones "
                                                           "are best)"),
@@ -548,6 +549,7 @@ class FinishWindow(QMainWindow):
             b.setToolTip(tip)
             b.clicked.connect(slot)
             top.addWidget(b)
+            self._top_widgets.append(b)
         self.btn_pi = QPushButton("  Stop Here – Continue in PixInsight  ")
         self.btn_pi.setToolTip("Save the image exactly as it is now (XISF) with a note on what to do next in "
                                "PixInsight, and open the folder")
@@ -555,6 +557,7 @@ class FinishWindow(QMainWindow):
                                   "padding:5px 12px; border-radius:4px; }")
         self.btn_pi.clicked.connect(self.stop_here_pixinsight)
         top.addWidget(self.btn_pi)
+        self._top_widgets.append(self.btn_pi)
         root.addLayout(top)
 
         split = QSplitter(Qt.Horizontal)
@@ -573,6 +576,7 @@ class FinishWindow(QMainWindow):
         self.kind_label.setStyleSheet("color:#9a9aa6;")
         ll.addWidget(self.kind_label)
         split.addWidget(left)
+        self._left_panel = left
 
         # middle: next-step card, image, history
         mid = QWidget()
@@ -601,6 +605,10 @@ class FinishWindow(QMainWindow):
         ml.addWidget(self.card)
         self.view = CropView()
         self.view.message = "Add the prepared masters of one target to start"
+        self.view.zoomable = True                 # wheel zooms, drag pans, double-click fits
+        self.view.on_zoom_detail = self._zoom_detail
+        self.view.setToolTip("Scroll to zoom in, drag to move around, double-click to fit the window")
+        self._detail_job = None
         ml.addWidget(self.view, 1)
         hr = QHBoxLayout()
         hr.addWidget(QLabel("Show:"))
@@ -631,6 +639,15 @@ class FinishWindow(QMainWindow):
                                    "colour balanced on its own (unlinked) to judge detail")
         self.chk_linked.toggled.connect(lambda _on: self.show_current())
         hr.addWidget(self.chk_linked)
+        self.btn_full = QPushButton("⛶  Full Window")
+        self.btn_full.setCheckable(True)
+        self.btn_full.setToolTip("Show the picture as big as the window (the step list, panels and log are "
+                                 "hidden). Press again or Esc to go back.")
+        self.btn_full.toggled.connect(self.set_full_window)
+        hr.addWidget(self.btn_full)
+        self.full_esc = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        self.full_esc.activated.connect(lambda: self.btn_full.setChecked(False))
+        self._full_saved = None
         ml.addLayout(hr)
         split.addWidget(mid)
 
@@ -1196,6 +1213,62 @@ class FinishWindow(QMainWindow):
         self.spot_items = []
         self.spots = []
         self.preview_timer.stop()
+
+    def set_full_window(self, on):
+        """Picture as big as the window: hide the step list, the card, the tool panel, the log and the
+        banner (the Show: row stays, to look through the steps); everything comes back as it was."""
+        widgets = [self._left_panel, self.card, self.tool_box, self.log_view] + list(self._top_widgets)
+        mw = self.menuWidget()
+        if mw is not None:
+            widgets.append(mw)
+        if on:
+            if self._full_saved is None:
+                self._full_saved = {w: w.isVisible() for w in widgets}
+            for w in widgets:
+                w.setVisible(False)
+            self.btn_full.setText("✕  Exit Full Window")
+            if not (self.isMaximized() or self.isFullScreen()):
+                self._full_was_normal = True
+                self.showMaximized()
+        else:
+            for w, vis in (self._full_saved or {}).items():
+                w.setVisible(vis)
+            self._full_saved = None
+            self.btn_full.setText("⛶  Full Window")
+            if getattr(self, "_full_was_normal", False):
+                self._full_was_normal = False
+                self.showNormal()
+        QTimer.singleShot(0, self._refit_view)
+
+    def _refit_view(self):
+        if not self.view._zoomed and self.view.full[0]:
+            self.view._fit()
+
+    def _zoom_detail(self):
+        """Zoomed in past the preview's own pixels: draw the picture shown at full resolution."""
+        if self.tool is not None or self.project is None or self.state is None:
+            return
+        if self._detail_job is not None and self._detail_job.isRunning():
+            return
+        i = self.hist.currentIndex()
+        last = self.hist.count() - 1
+        linked = self.chk_linked.isChecked()
+        project, state = self.project, self.state
+
+        def work():
+            s = state if i == last else project.load(i)
+            return i, F.state_display(s, linked=linked)
+
+        def done(res):
+            j, img = res
+            if j == self.hist.currentIndex() and self.tool is None and self.view._zoomed:
+                self.view.upgrade_pixmap(img)
+        if self.synchronous:
+            done(work())
+            return
+        self._detail_job = Job(work)
+        self._detail_job.ok.connect(done)
+        self._detail_job.start()
 
     def _rotate(self, quarter):
         """A quarter turn (+1 clockwise, -1 counter-clockwise); the preview follows."""
