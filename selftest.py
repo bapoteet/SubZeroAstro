@@ -1619,10 +1619,26 @@ def run(app, out_dir: Path) -> int:
         fw.apply_choice()
         QApplication.processEvents()
         _flip_ok = np.array_equal(fw.state.rgb, _orig[:, ::-1, :])
-        check(_fp == {"h": False, "v": True} and _flip_ok
+        check(_fp == {"h": False, "v": True, "rot": 0} and _flip_ok
               and "flipped vertically" in fw.project.steps[-1]["label"],
               f"Flip the Picture: Flip Horizontally / Flip Vertically toggle (pressing again flips back) - {_fp}")
-        fw.undo_last()
+        # Rotate 90°: each press turns a quarter turn; clockwise then counter-clockwise twice = one turn back
+        _orig2 = fw.state.rgb.copy()
+        fw.open_tool("flip")
+        fw.btn_rot_cw.click()
+        fw.btn_rot_ccw.click()
+        fw.btn_rot_ccw.click()
+        QApplication.processEvents()
+        _fp2 = fw.current_params()
+        fw.apply_choice()
+        QApplication.processEvents()
+        check(_fp2 == {"h": False, "v": False, "rot": 3}
+              and np.array_equal(fw.state.rgb, np.rot90(_orig2, 1, axes=(1, 2)))
+              and "turned 90° counter-clockwise" in fw.project.steps[-1]["label"],
+              f"Rotate 90° Clockwise / Counter-clockwise turn the picture a quarter turn per press - {_fp2}")
+        fw.undo_last()                           # the turn
+        QApplication.processEvents()
+        fw.undo_last()                           # the flip
         QApplication.processEvents()
         check(len(fw.project.steps) == _nflip and np.array_equal(fw.state.rgb, _orig), "undo un-flips the picture")
         # Sign Your Picture
