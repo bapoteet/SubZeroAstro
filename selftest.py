@@ -1641,6 +1641,20 @@ def run(app, out_dir: Path) -> int:
         fw.undo_last()                           # the flip
         QApplication.processEvents()
         check(len(fw.project.steps) == _nflip and np.array_equal(fw.state.rgb, _orig), "undo un-flips the picture")
+        # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
+        _dark = np.full((3, 600, 900), 0.05, np.float32)
+        _cr = F.add_credit(_dark, "bottom left")
+        _bl = float(_cr[:, -40:, :300].max())
+        _rest = float(np.abs(_cr[:, :500, :] - _dark[:, :500, :]).max())
+        _cr2 = F.add_credit(_dark, "bottom right")
+        check(_bl > 0.2 and _rest == 0.0 and float(_cr2[:, -40:, -300:].max()) > 0.2
+              and F.credit_corner([]) == "bottom left"
+              and F.credit_corner([{"tool": "signature", "params": {"corner": "bottom left"}}]) == "bottom right"
+              and F.credit_corner([{"tool": "signature", "params": {"pos": [0.05, 0.9]}}]) == "bottom right"
+              and F.credit_corner([{"tool": "signature", "params": {"corner": "bottom right"}}]) == "bottom left",
+              "the small 'Processed with SubZeroAstro' credit goes bottom-left (bottom-right when the signature is "
+              "there) and touches nothing else")
+
         # Adjust Colours: one colour at a time; grey stays grey
         _cs_ = F.State(rgb=np.full((3, 20, 30), 0.3, np.float32), linear=False, kind="mono_nb")
         _cs_.rgb[:, 5, 5] = [0.2, 0.3, 0.7]                       # a blue pixel

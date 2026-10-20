@@ -264,6 +264,12 @@ class ExportDialog(QDialog):
                                   "Needs an internet connection.")
         self.chk_about.setChecked(settings.value("finish/save_about", False, type=bool))
         form.addRow("", self.chk_about)
+        self.chk_credit = QCheckBox("Add a small “Processed with SubZeroAstro” credit (bottom-left corner)")
+        self.chk_credit.setToolTip("A small, light, partly see-through line in the bottom-left corner of the "
+                                   "TIFF / JPG / PNG pictures (bottom-right if your signature is there). "
+                                   "XISF and FITS files are never marked. Thank you for spreading the word!")
+        self.chk_credit.setChecked(settings.value("finish/credit", True, type=bool))
+        form.addRow("", self.chk_credit)
         lay.addLayout(form)
         bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
@@ -285,6 +291,7 @@ class ExportDialog(QDialog):
         for k, cb in self.boxes.items():
             self.settings.setValue(f"finish/fmt_{k}", cb.isChecked())
         self.settings.setValue("finish/save_about", self.chk_about.isChecked())
+        self.settings.setValue("finish/credit", self.chk_credit.isChecked())
         self.settings.sync()                     # written now, not only when the app quits
         super().accept()
 
@@ -1847,10 +1854,11 @@ class FinishWindow(QMainWindow):
         folder = Path(dlg.dir.text().strip()) / F.picture_folder_name(self.state.target, self.state.sources)
         name = f"{cp.safe_name(self.state.target)}_{'finished' if not self.state.linear else 'linear'}"
         about = dlg.chk_about.isChecked()
+        credit = self.credit_corner() if dlg.chk_credit.isChecked() else None
         target = self.state.target
 
         def work():
-            return F.export(self.state, folder / name, fmts, save_rgb8=save_rgb8)
+            return F.export(self.state, folder / name, fmts, save_rgb8=save_rgb8, credit=credit)
 
         def done(files):
             self.log("Saved " + ", ".join(str(f) for f in files))
@@ -1864,6 +1872,12 @@ class FinishWindow(QMainWindow):
                     files = list(files) + [d.saved]
             tools.reveal(files)
         self.run_job(work, done, "Saving the picture…")
+
+    def credit_corner(self):
+        """Corner for the 'Processed with SubZeroAstro' credit (None when switched off in Save the Picture)."""
+        if not self.settings.value("finish/credit", True, type=bool):
+            return None
+        return F.credit_corner(self.project.steps if self.project else [])
 
     def share_astrobin(self, auto_accept=False):
         """Picture + acquisition CSV for AstroBin's upload page (its API cannot upload)."""
@@ -1887,7 +1901,8 @@ class FinishWindow(QMainWindow):
         sqm, cal, open_page = dlg.sqm.value() or None, dlg.chk_cal.isChecked(), dlg.chk_open.isChecked()
 
         def work():
-            files = F.export(self.state, folder / f"{name}_AstroBin", fmts, save_rgb8=save_rgb8)
+            files = F.export(self.state, folder / f"{name}_AstroBin", fmts, save_rgb8=save_rgb8,
+                             credit=self.credit_corner())
             files.append(AB.write_csv(folder / f"{name}_astrobin_acquisition.csv", sessions, ids, bortle, sqm, cal))
             return files
 

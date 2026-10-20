@@ -2995,9 +2995,50 @@ def picture_folder_name(target: str, sources) -> str:
     return name
 
 
-def export(s: State, base: Path, formats=("tif", "jpg"), save_rgb8=None) -> list:
+CREDIT_TEXT = "Processed with SubZeroAstro"
+CREDIT_FONT = "Arial"
+
+
+def credit_corner(steps) -> str:
+    """Where the small 'Processed with SubZeroAstro' credit goes: bottom left, unless the picture's
+    signature (or target name) is there - then bottom right."""
+    for st_ in reversed(list(steps or [])):
+        if st_.get("tool") != "signature":
+            continue
+        p = st_.get("params") or {}
+        pos = p.get("pos")
+        if pos:
+            left, bottom = float(pos[0]) <= 0.5, float(pos[1]) > 0.5
+        else:
+            c = str(p.get("corner") or "bottom right")
+            left, bottom = c.endswith("left"), c.startswith("bottom")
+        return "bottom right" if (left and bottom) else "bottom left"
+    return "bottom left"
+
+
+def add_credit(img: np.ndarray, corner: str = "bottom left", text: str = CREDIT_TEXT) -> np.ndarray:
+    """The small credit line drawn into a (c, h, w) 0..1 picture: light grey, partly see-through,
+    about 1.3% of the picture's shorter side high, in the corner given."""
+    c, h, w = img.shape
+    short = min(h, w)
+    a = signature_alpha(text, CREDIT_FONT, False, max(9.0, short * 0.013))
+    ah, aw = a.shape
+    if ah >= h // 4 or aw >= w // 2:
+        return img
+    m = max(4, int(short * 0.015))
+    y0 = h - m - ah
+    x0 = m if corner.endswith("left") else w - m - aw
+    out = img.copy()
+    k = 0.55 * a[None]
+    out[:, y0:y0 + ah, x0:x0 + aw] = out[:, y0:y0 + ah, x0:x0 + aw] * (1 - k) + 0.85 * k
+    return out
+
+
+def export(s: State, base: Path, formats=("tif", "jpg"), save_rgb8=None, credit=None) -> list:
     """Write the current image. Stars still separated -> also a stars file and a
-    combined preview."""
+    combined preview. credit: a corner ('bottom left' / 'bottom right') to put the small
+    'Processed with SubZeroAstro' line on the pictures (TIFF, JPG, PNG - never on the XISF / FITS data),
+    or None."""
     import fits_core as core
     import prepare as P
     import xisf
@@ -3012,15 +3053,21 @@ def export(s: State, base: Path, formats=("tif", "jpg"), save_rgb8=None) -> list
     hdr = [("OBJECT", s.target, ""), ("SWCREATE", "SubZeroAstro", ""),
            ("HISTORY", "SubZeroAstro finish: " + ", ".join(TOOLS[k].title for k in dict.fromkeys(s.done) if k in TOOLS), "")]
     data = img[0] if img.shape[0] == 1 else img
+    pic = img
+    if credit and any(f in ("tif", "jpg", "png") for f in formats):
+        try:
+            pic = add_credit(img, credit)
+        except Exception:  # noqa: BLE001 - a credit line must never stop a save
+            pic = img
     for f in formats:
         p = base.with_name(base.name + "." + f)
         if f == "tif":
-            rgb = img if img.shape[0] == 3 else np.repeat(img, 3, 0)
+            rgb = pic if pic.shape[0] == 3 else np.repeat(pic, 3, 0)
             P.write_tiff16(p, rgb.transpose(1, 2, 0))
         elif f in ("jpg", "png"):
             if save_rgb8 is None:
                 continue
-            rgb = img if img.shape[0] == 3 else np.repeat(img, 3, 0)
+            rgb = pic if pic.shape[0] == 3 else np.repeat(pic, 3, 0)
             if not save_rgb8(p, (rgb.transpose(1, 2, 0) * 255 + 0.5).astype(np.uint8)):
                 continue
         elif f == "fits":
