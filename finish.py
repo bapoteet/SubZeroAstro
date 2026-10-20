@@ -138,34 +138,58 @@ def _sky_noise(x):
     return med, float(np.median(np.abs(d - np.median(d)))) * 1.4826 / np.sqrt(2) + 1e-9
 
 
-def _edge_offset(ref_pts, img, shape):
-    """How far a lined-up master's stars still are from the reference's, in the four outer corners
-    of the picture: (worst corner, centre) in pixels - the median offset of the stars there, so a
-    few odd stars don't count. None when there are too few stars to tell."""
-    import stacking as st
-    pts = st.find_stars(st.despike(np.asarray(img, np.float32))[0], 1, max_stars=500)[0]
-    if len(pts) < 20 or len(ref_pts) < 20:
+def _patch_shift(a, b, search=48):
+    """Shift (dx, dy) that moves patch b onto patch a (phase correlation, sub-pixel), or None."""
+    def prep(p):
+        p = np.nan_to_num(np.asarray(p, np.float32))
+        p = p - np.median(p)
+        hi = np.percentile(p, 99.7)
+        p = np.clip(p, 0, hi if hi > 0 else None)
+        return p * np.outer(np.hanning(p.shape[0]), np.hanning(p.shape[1]))
+    A, B = prep(a), prep(b)
+    if not A.any() or not B.any():
         return None
-    d = np.hypot(pts[:, None, 0] - ref_pts[None, :, 0], pts[:, None, 1] - ref_pts[None, :, 1])
-    j = d.argmin(1)
-    ok = d[np.arange(len(pts)), j] < 4.0
-    if ok.sum() < 20:
+    F = np.fft.fft2(A) * np.conj(np.fft.fft2(B))
+    r = np.fft.ifft2(F / np.maximum(np.abs(F), 1e-12)).real
+    r = np.fft.fftshift(r)
+    cy, cx = r.shape[0] // 2, r.shape[1] // 2
+    win = r[cy - search:cy + search + 1, cx - search:cx + search + 1]
+    py, px = np.unravel_index(int(np.argmax(win)), win.shape)
+    if win[py, px] < 4 * np.std(win):           # no clear peak: nothing to measure here
         return None
-    v = pts[ok] - ref_pts[j[ok]]
-    p = ref_pts[j[ok]]
+
+    def sub(m1, c0, p1):
+        d = m1 - 2 * c0 + p1
+        return 0.0 if d == 0 else 0.5 * (m1 - p1) / d
+    dy = dx = 0.0
+    if 0 < py < win.shape[0] - 1:
+        dy = sub(win[py - 1, px], win[py, px], win[py + 1, px])
+    if 0 < px < win.shape[1] - 1:
+        dx = sub(win[py, px - 1], win[py, px], win[py, px + 1])
+    return (px - search + dx, py - search + dy)
+
+
+def _edge_offset(ref_img, img, shape):
+    """How far a lined-up master still is from the reference in the four corners of the picture and
+    in the centre, measured by comparing image patches (stars included) directly - so any offset
+    shows, however large. Returns (worst corner, centre) in pixels, or None if nothing to measure."""
     h, w = shape
-    cx, cy = w / 2.0, h / 2.0
-    r = np.hypot(p[:, 0] - cx, p[:, 1] - cy)
-    outer = r > 0.3 * min(h, w)
-    worst = 0.0
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            q = outer & (np.sign(p[:, 0] - cx) == sx) & (np.sign(p[:, 1] - cy) == sy)
-            if q.sum() >= 5:
-                worst = max(worst, float(np.hypot(*np.median(v[q], axis=0))))
-    inner = ~outer
-    centre = float(np.hypot(*np.median(v[inner], axis=0))) if inner.sum() >= 5 else 0.0
-    return worst, centre
+    s = int(min(384, h // 3, w // 3))
+    if s < 64:
+        return None
+    m_ = int(0.04 * min(h, w))
+    spots = [(m_, m_), (m_, w - m_ - s), (h - m_ - s, m_), (h - m_ - s, w - m_ - s)]
+    worst, n = 0.0, 0
+    for y0, x0 in spots:
+        d = _patch_shift(ref_img[y0:y0 + s, x0:x0 + s], img[y0:y0 + s, x0:x0 + s])
+        if d is not None:
+            worst = max(worst, float(np.hypot(*d)))
+            n += 1
+    if n == 0:
+        return None
+    y0, x0 = h // 2 - s // 2, w // 2 - s // 2
+    c = _patch_shift(ref_img[y0:y0 + s, x0:x0 + s], img[y0:y0 + s, x0:x0 + s])
+    return worst, (float(np.hypot(*c)) if c is not None else 0.0)
 
 
 EDGE_LIMIT = 1.5          # px: a master whose corner stars are further off than this would show double stars
@@ -215,23 +239,39 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
     ref = masters[order[0]]
     ref_plane = np.clip(ref.data[0], 0, None).astype(np.float32)
     shape = ref_plane.shape
+    # starless masters (StarXTerminator on page 3) have no stars to line up by: measure on the
+    # starless image plus its stars-only image, i.e. the picture as it really is
+    _rs = stars_of(ref)
+    ref_full = ref_plane + _rs[0] * 65535.0 if _rs is not None and _rs.shape[1:] == shape else ref_plane
+    ref_grid = str(_cards_look(ref).get("ALIGNREF") or "")
     planes = {}          # filter -> [(plane, stars or None, weight)]
     fixed, failed = [], []
     checks = []          # (name, worst corner offset) after lining up
-    try:
-        import stacking as _st
-        ref_chk = _st.find_stars(_st.despike(ref_plane)[0], 1, max_stars=500)[0]
-    except Exception:  # noqa: BLE001 - the check is a safeguard, never a blocker
-        ref_chk = np.empty((0, 2))
+    shared = 0           # masters page 3 already put on the reference's grid
     worst = 0.0
     for i in order:
         m = masters[i]
         img = np.clip(m.data[0], 0, None).astype(np.float32)
         stars = stars_of(m)
         star_plane = stars[0] * 65535.0 if stars is not None else None        # same units as the data
+        full = img + star_plane if star_plane is not None and star_plane.shape == img.shape else img
+        same_grid = (m is not ref and img.shape == shape and ref_grid
+                     and str(_cards_look(m).get("ALIGNREF") or "") == ref_grid)
+        if same_grid:
+            # page 3 already lined this master up with the others: keep it unless the check says otherwise
+            pre = None
+            try:
+                pre = _edge_offset(ref_full, full, shape)
+            except Exception:  # noqa: BLE001
+                pre = None
+            if pre is not None and pre[0] <= 0.6 and pre[1] <= 0.6:
+                shared += 1
+                checks.append((getattr(m, "path", Path(m.filter)).stem, pre[0]))
+                planes.setdefault(m.filter, []).append((img, star_plane))
+                continue
         if m is not ref:
             try:
-                model, info = st.register_distortion(ref_plane, img, shape,
+                model, info = st.register_distortion(ref_full, full, shape,
                                                      ref_look=_cards_look(ref), img_look=_cards_look(m))
                 off = max(info["shift"], info["edge_affine"]) if img.shape != shape else info["edge_affine"]
                 if img.shape != shape or info["shift"] > 0.25 or info["edge_affine"] > 0.6:
@@ -239,6 +279,7 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
                     img = np.nan_to_num(warped[0], nan=0.0)
                     if star_plane is not None:
                         star_plane = np.nan_to_num(warped[1], nan=0.0)
+                    full = img + star_plane if star_plane is not None and star_plane.shape == img.shape else img
                     fixed.append(f"{m.filter} ({m.path.stem if hasattr(m, 'path') else m.filter}: off by up to "
                                  f"{off:.1f} px, now {info['rms']:.2f} px)")
                     worst = max(worst, off)
@@ -257,7 +298,7 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
         if m is not ref:
             # check the result: are this master's stars really on the reference's, out to the corners?
             try:
-                off = _edge_offset(ref_chk, img, shape)
+                off = _edge_offset(ref_full, full, shape)
             except Exception:  # noqa: BLE001
                 off = None
             name = getattr(m, "path", Path(m.filter)).stem
@@ -320,6 +361,8 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
             cstars[filt] = np.clip(stp / 65535.0, 0, None).astype(np.float32)
     if len(cstars) != len(chans):
         cstars = {}
+    if shared:
+        notes.append(f"{shared} master(s) were already lined up on page 3 and match the reference - used as they are")
     if checks:
         kept = [c for c in checks if c[1] <= EDGE_LIMIT]
         if kept:

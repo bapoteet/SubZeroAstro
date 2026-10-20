@@ -1753,6 +1753,31 @@ def run(app, out_dir: Path) -> int:
               f"page 4 checks every master's corner stars after lining up and leaves out one still off "
               f"({'; '.join(_notes3)})")
 
+        # starless masters (StarXTerminator on page 3): lined up by starless + stars-only together - the
+        # starless image alone has no stars; masters page 3 already put on one grid are used as they are
+        _sky = lambda: (500 + _rg.normal(0, 8, (_RH, _RH))).astype(np.float32)
+        _sl = [_types.SimpleNamespace(filter="Ha", data=_sky()[None], path=Path("ha_sl"),
+                                      cards=[("EXPTOTAL", 9000.0, "")]),
+               _types.SimpleNamespace(filter="OIII", data=_sky()[None], path=Path("o3_sl"),
+                                      cards=[("EXPTOTAL", 3000.0, "")])]
+        _stars_img = {"ha_sl": (_rend(lambda x, y: (x, y), off=0.0, noise=0.5) / 65535.0)[None],
+                      "o3_sl": (_rend(_dist, 0.6, off=0.0, noise=0.5) / 65535.0)[None]}
+        _chs, _css, _notess = F.assemble_mono(_sl, lambda m: _stars_img[m.path.stem])
+        _okd = any("corrected for a different field distortion" in x for x in _notess)
+        _rp2 = _stg.find_stars(_css["Ha"] * 65535, 1, 250)[0]
+        _op2 = _stg.find_stars(_css["OIII"] * 65535, 1, 250)[0]
+        _dd2 = np.sqrt(((_rp2[:, None] - _op2[None]) ** 2).sum(-1)).min(1)
+        _far2 = np.hypot(_rp2[:, 0] - _RH / 2, _rp2[:, 1] - _RH / 2) > 220
+        _corner2 = float(np.median(_dd2[_far2 & (_dd2 < 5)]))
+        _sg = [_types.SimpleNamespace(filter="Ha", data=_rend(lambda x, y: (x, y))[None], path=Path("ha_g"),
+                                      cards=[("ALIGNREF", "grid.fits", ""), ("EXPTOTAL", 9000.0, "")]),
+               _types.SimpleNamespace(filter="OIII", data=_rend(lambda x, y: (x, y), 0.6)[None], path=Path("o3_g"),
+                                      cards=[("ALIGNREF", "grid.fits", ""), ("EXPTOTAL", 3000.0, "")])]
+        _chg, _csg, _notesg = F.assemble_mono(_sg)
+        check(_okd and _corner2 < 0.3 and any("already lined up on page 3" in x for x in _notesg),
+              f"starless masters are lined up by their stars-only images (corner stars {_corner2:.2f} px apart); "
+              "masters page 3 already lined up are used as they are")
+
         # the deepest master is the reference - not simply the first Ha (a short, poor Ha master
         # used to drag every other master onto its grid)
         _md = [_types.SimpleNamespace(filter="Ha", data=_rend(lambda x, y: (x + 7, y - 4), 0.5)[None],

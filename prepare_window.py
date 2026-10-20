@@ -471,8 +471,9 @@ def open_finish(parent, results):
     if not files:
         return None
     import finish_window
-    first_target = results[0].get("target")
-    files = [f for f in files if not first_target or f.name.startswith(first_target)] or files
+    # the first target's masters: all the files of its result (one set of masters, whatever the
+    # capitals in their names - NGC2359, ngc2359 and Ngc2359 are one target)
+    files = prepared_masters(results[:1]) or files
     settings = parent.settings if hasattr(parent, "settings") else None
     if parent is None:
         win = finish_window.FinishWindow(None, settings, files)

@@ -224,6 +224,9 @@ def line_up(masters, log=None):
                 return v
         return 0.0
     ref = max(masters, key=depth) if any(depth(m) > 0 for m in masters) else masters[0]
+    if not ref.alignref:
+        ref.alignref = str(ref.path)
+    ref.set_card("ALIGNREF", Path(ref.alignref).name, "lined up on this grid (Astro Image Processing)")
     ref_look = core.cards_to_dict(ref.cards)
     ref_pts, _ = st.find_stars(_binned_lum(ref), 2, max_stars=200)
     overlap = tuple(ref.autocrop) if ref.autocrop else None
@@ -255,6 +258,7 @@ def line_up(masters, log=None):
                      int(np.floor(min(c[1, 0], c[3, 0]))), int(np.floor(min(c[2, 1], c[3, 1]))))
             overlap = _intersect(overlap, inner)
         m.alignref = ref.alignref or str(ref.path)
+        m.set_card("ALIGNREF", Path(m.alignref).name, "lined up on this grid (Astro Image Processing)")
         m.autocrop = ref.autocrop
         m.cards = [c for c in m.cards if not _WCS_KEYS.match(str(c[0]))]   # its old plate solution no longer fits
         m.cards += [c for c in ref.cards if _WCS_KEYS.match(str(c[0]))]    # it now sits on the reference's grid
