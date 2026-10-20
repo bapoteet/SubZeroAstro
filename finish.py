@@ -2494,7 +2494,7 @@ class HaGlow(Tool):
 class SpotFix(Tool):
     key = "spotfix"
     editor = "spots"
-    spot_range = (3.0, 80.0)
+    spot_range = (2.0, 700.0)        # same reach as Mote Buster: big satellite blobs and halos too
     spot_start = 10.0
     title = "Spot Fix"
     tip = ("Click on a dust donut, a satellite remnant or a hot pixel and it is patched from its "
@@ -2527,13 +2527,42 @@ class SpotFix(Tool):
             patch = out[k, y0:y1, x0:x1].astype(np.float64)
             fill = patch.copy()
             fill[mask] = np.median(patch[ring])
-            for _ in range(80):                 # smooth (harmonic) fill from the edge inwards
-                avg = (np.roll(fill, 1, 0) + np.roll(fill, -1, 0) + np.roll(fill, 1, 1) + np.roll(fill, -1, 1)) / 4
-                fill[mask] = avg[mask]
-            sd = float(np.std(patch[ring] - np.median(patch[ring])))
+            fill = SpotFix._harmonic(fill, mask)   # smooth fill from the edge inwards, at any size
+            # the grain to put back: from neighbour-to-neighbour differences in the ring, so a sky
+            # gradient or nebula edge around a big circle is not mistaken for noise
+            dx = patch[:, 1:] - patch[:, :-1]
+            pair = ring[:, 1:] & ring[:, :-1]
+            if pair.sum() > 8:
+                dv = dx[pair]
+                sd = float(1.4826 * np.median(np.abs(dv - np.median(dv))) / np.sqrt(2))
+            else:
+                sd = float(np.std(patch[ring] - np.median(patch[ring])))
             fill[mask] += rng.normal(0, sd * 0.8, int(mask.sum()))
             out[k, y0:y1, x0:x1] = fill.astype(out.dtype)
         return out
+
+    @staticmethod
+    def _harmonic(fill: np.ndarray, mask: np.ndarray, iters: int = 80) -> np.ndarray:
+        """Smoothly fill the masked pixels from their surroundings. Big holes are solved on a
+        coarser copy first (coarse to fine), so the middle of a large circle blends in too,
+        not just a band near its edge."""
+        h, w = fill.shape
+        if min(h, w) >= 48 and mask.any():
+            ys, xs = np.nonzero(mask)
+            if max(np.ptp(ys), np.ptp(xs)) > 30:
+                h2, w2 = h // 2 * 2, w // 2 * 2
+                small = fill[:h2, :w2].reshape(h2 // 2, 2, w2 // 2, 2).mean((1, 3))
+                smask = mask[:h2, :w2].reshape(h2 // 2, 2, w2 // 2, 2).any((1, 3))
+                small = SpotFix._harmonic(small, smask, iters)
+                up = np.repeat(np.repeat(small, 2, 0), 2, 1)
+                guess = fill.copy()
+                guess[:h2, :w2] = up
+                fill = fill.copy()
+                fill[mask] = guess[mask]
+        for _ in range(iters):
+            avg = (np.roll(fill, 1, 0) + np.roll(fill, -1, 0) + np.roll(fill, 1, 1) + np.roll(fill, -1, 1)) / 4
+            fill[mask] = avg[mask]
+        return fill
 
     def apply(self, s, params):
         s = s.copy()

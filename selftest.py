@@ -1563,12 +1563,21 @@ def run(app, out_dir: Path) -> int:
                       "Tame Bright Core previews with 'Show what will change'")
                 shot("20_finish_tame_core_mask.png", fw)
             if key == "spotfix":
+                _fs = getattr(fw, "disp_factor", 1.0)
+                _start_seen = fw.spot_r / _fs
                 fw._spot_drag(120.0, 90.0, "press")
                 fw._spot_drag(120.0, 90.0, "release")
                 _r0 = fw.spots[0][2]
                 fw._spot_wheel(3)                               # resize the circle just placed
                 _r1 = fw.spots[0][2]
                 _rect = fw.spot_items[0].rect()
+                fw._spot_wheel(40)                              # far past the old 80 px limit
+                _big = fw.spots[0][2]
+                fw._spot_wheel(-40)
+                _pen_w = fw.spot_items[0].pen().width()
+                check(_big > 300 and _start_seen >= 9.9 - 1e-6 and _pen_w >= 2,
+                      f"Spot Fix circles are easy to see (start {_start_seen:.0f} screen px, 2-px line) and "
+                      f"grow as big as Mote Buster's ({_big:.0f} px)")
                 fw._spot_drag(200.0, 150.0, "press")
                 fw._spot_drag(200.0, 150.0, "release")
                 _c1 = list(fw.spots[0][:2])
@@ -1641,6 +1650,20 @@ def run(app, out_dir: Path) -> int:
         fw.undo_last()                           # the flip
         QApplication.processEvents()
         check(len(fw.project.steps) == _nflip and np.array_equal(fw.state.rgb, _orig), "undo un-flips the picture")
+        # Spot Fix heals big circles smoothly: the slope of the sky carries across, grain is put back
+        _yy, _xx = np.mgrid[:900, :900]
+        _sky = (0.2 + 0.1 * _xx / 900 + 0.05 * _yy / 900).astype(np.float32)
+        _sky = _sky + np.random.default_rng(3).normal(0, 0.01, _sky.shape).astype(np.float32)
+        _blob = (_yy - 450) ** 2 + (_xx - 450) ** 2 < 150 ** 2
+        _im = np.stack([_sky] * 3)
+        _im[:, _blob] = 0.9
+        _hl = F.SpotFix.heal(_im, 450, 450, 160)
+        _res = _hl[0][_blob] - (0.2 + 0.1 * _xx / 900 + 0.05 * _yy / 900)[_blob]
+        check(abs(float(_res.mean())) < 0.003 and 0.004 < float(_res.std()) < 0.014
+              and F.SpotFix.spot_range[1] >= 600,
+              f"Spot Fix heals a big (160 px) circle smoothly (off by {abs(float(_res.mean())):.4f}, grain "
+              f"{float(_res.std()):.4f} vs sky 0.0100)")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")

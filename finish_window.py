@@ -1169,7 +1169,10 @@ class FinishWindow(QMainWindow):
             self.chk_tool_linked.setVisible(self.state.is_color)
         if getattr(self.tool, "editor", None) == "spots":
             self.spots = []
-            self.spot_r = float(getattr(self.tool, "spot_start", 10.0))
+            # start at a size you can see: at least ~10 screen pixels on a big, shrunk-to-fit picture
+            lo_, hi_ = getattr(self.tool, "spot_range", (3.0, 80.0))
+            self.spot_r = float(min(hi_, max(lo_, getattr(self.tool, "spot_start", 10.0),
+                                              10.0 * getattr(self, "disp_factor", 1.0))))
             self.show_current()
             self.view.on_click = self._spot_click
             self.view.on_drag = self._spot_drag
@@ -1642,6 +1645,16 @@ class FinishWindow(QMainWindow):
     SPOT_PEN = QColor(255, 200, 60)
     SPOT_ACTIVE = QColor(80, 220, 255)
 
+    SPOT_MIN_DRAWN = 3.0               # a tiny circle is still drawn this big (shown pixels) so it can be seen
+
+    @staticmethod
+    def _spot_pen(color, dashed=False):
+        pen = QPen(color, 2)
+        pen.setCosmetic(True)             # 2 screen pixels thick at any zoom
+        if dashed:
+            pen.setStyle(Qt.DashLine)
+        return pen
+
     def _spot_disp(self, i):
         f = getattr(self, "disp_factor", 1.0)
         x, y, r = self.spots[i]
@@ -1649,22 +1662,22 @@ class FinishWindow(QMainWindow):
 
     def _redraw_spot(self, i):
         x, y, r = self._spot_disp(i)
+        r = max(r, self.SPOT_MIN_DRAWN)
         it = self.spot_items[i]
         it.setRect(x - r, y - r, 2 * r, 2 * r)
 
     def _set_active_spot(self, i):
         self.spot_active = i
         for k, it in enumerate(self.spot_items):
-            pen = QPen(self.SPOT_ACTIVE if k == i else self.SPOT_PEN, 0)
-            it.setPen(pen)
+            it.setPen(self._spot_pen(self.SPOT_ACTIVE if k == i else self.SPOT_PEN))
 
     def _add_spot(self, x_full, y_full, r_full):
         """A circle at full-size coordinates (drawn on the shown, possibly smaller, picture)."""
         f = getattr(self, "disp_factor", 1.0)
         self.spots.append([float(x_full), float(y_full), float(r_full)])
-        x, y, r = x_full / f, y_full / f, r_full / f
+        x, y, r = x_full / f, y_full / f, max(r_full / f, self.SPOT_MIN_DRAWN)
         it = QGraphicsEllipseItem(x - r, y - r, 2 * r, 2 * r)
-        it.setPen(QPen(self.SPOT_PEN, 0))
+        it.setPen(self._spot_pen(self.SPOT_PEN))
         self.view.scene().addItem(it)
         self.spot_items.append(it)
 
@@ -1753,10 +1766,10 @@ class FinishWindow(QMainWindow):
         if xy is None or self.tool is None or getattr(self.tool, "editor", None) != "spots":
             return
         f = getattr(self, "disp_factor", 1.0)
-        r = self.spot_r / f
+        r = max(self.spot_r / f, self.SPOT_MIN_DRAWN)
         if getattr(self, "hover_ring", None) is None or self.hover_ring.scene() is None:
             self.hover_ring = QGraphicsEllipseItem()
-            self.hover_ring.setPen(QPen(QColor(255, 255, 255, 140), 0, Qt.DashLine))
+            self.hover_ring.setPen(self._spot_pen(QColor(255, 255, 255, 170), dashed=True))
             self.view.scene().addItem(self.hover_ring)
         over = self._spot_hit(*xy) is not None
         self.hover_ring.setVisible(not over)
