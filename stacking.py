@@ -1284,7 +1284,7 @@ def debayer_bilinear(cfa: np.ndarray, bayer: str) -> list:
     return [out["R"], out["G"], out["B"]]
 
 
-def despike(a: np.ndarray, ratio: float = 0.2, k: float = 8.0) -> tuple[np.ndarray, int]:
+def despike(a: np.ndarray, ratio: float = 0.2, k: float = 8.0, replace: str = "max") -> tuple[np.ndarray, int]:
     """Hot pixels and other single-pixel spikes replaced by their brightest neighbour, for finding
     stars. A real star always spills light into the next pixel (even a sharp one keeps 30-70% of its
     peak there); a hot pixel has none. Without this, sensors with many hot pixels (calibrated
@@ -1312,8 +1312,33 @@ def despike(a: np.ndarray, ratio: float = 0.2, k: float = 8.0) -> tuple[np.ndarr
     if n == 0:
         return a, 0
     out = a.copy()
-    out[spike] = nb[spike]
+    if replace == "median":                  # for the picture itself: the typical neighbour, not the brightest
+        ys, xs = np.nonzero(spike)
+        neigh = np.stack([p[ys + dy, xs + dx] for dy in (0, 1, 2) for dx in (0, 1, 2) if (dy, dx) != (1, 1)])
+        out[ys, xs] = np.median(neigh, axis=0)
+    else:
+        out[spike] = nb[spike]
     return out, n
+
+
+def cosmetic(img: np.ndarray, bayer: bool = False) -> tuple[np.ndarray, int]:
+    """Cosmetic correction (like PixInsight's CosmeticCorrection): hot pixels and cosmic-ray hits -
+    single pixels far brighter than all their neighbours - replaced by the median of the neighbours.
+    Without dithering, stacking cannot remove hot pixels (they sit on the same pixel in every frame),
+    and they end up as coloured specks once the filters are combined. A Bayer mosaic is corrected
+    one colour at a time. Returns (image, pixels replaced)."""
+    if img.ndim != 2:
+        return img, 0
+    if not bayer:
+        return despike(img.astype(np.float32, copy=False), replace="median")
+    out = img.astype(np.float32, copy=True)
+    total = 0
+    for dy in (0, 1):
+        for dx in (0, 1):
+            sub, n = despike(out[dy::2, dx::2], replace="median")
+            out[dy::2, dx::2] = sub
+            total += n
+    return out, total
 
 
 def luminance(cal: np.ndarray, bayer: bool) -> tuple[np.ndarray, int]:
@@ -1903,6 +1928,7 @@ class StackOptions:
     align_common: bool = True               # line up all masters of a target (same camera + rig)
     work_dir: str = ""                      # local folder for temporary files
     comet: bool = True                      # comets: also stack on the comet (and combine)
+    cosmetic: bool = True                   # replace hot pixels / cosmic rays in each calibrated frame
 
 
 @dataclass
@@ -2067,6 +2093,8 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         except Exception as e:  # noqa: BLE001 - a check must never stop stacking
             log.append(f"(calibration check skipped: {e})")
 
+    hot_counts = []        # hot pixels replaced per frame (cosmetic correction)
+
     def calibrated(info):
         raw = ImageSource(info.path).read()
         if rgb_in:
@@ -2075,7 +2103,11 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             return raw.astype(np.float32, copy=False)      # stacked colour: no calibration, no debayer
         if raw.ndim == 3:
             raw = raw[0]
-        return cal.apply(raw)
+        out = cal.apply(raw)
+        if getattr(opts, "cosmetic", True):
+            out, nhot = cosmetic(out, bool(bayer))
+            hot_counts.append(nhot)
+        return out
 
     def lumin(img):
         return luminance(img.mean(axis=0) if img.ndim == 3 else img, bool(bayer))
@@ -2261,6 +2293,8 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         log.append(f"Field distortion corrected in {len(distortion_fixed)} of {len(entries)} frames (their stars "
                    f"were up to {max(distortion_fixed):.1f} px off at the edges with a plain alignment - e.g. after "
                    "a meridian flip, or another night's setup)")
+    if hot_counts and max(hot_counts) > 0:
+        log.append(f"Hot pixels removed (cosmetic correction): about {int(np.median(hot_counts))} per frame")
     if wcs_used:
         log.append(f"Lined up with the help of their plate solutions: {len(wcs_used)} frame(s) whose star match "
                    "failed or disagreed with where the telescope was pointing")
@@ -2567,7 +2601,7 @@ def _group_key(g, opts) -> str:
     for c in (plan.bias, plan.dark, plan.flat):
         cal.append(sorted(str(i.path) for i in c.infos) if c is not None else None)
     extra = repr((g.label(), cal, opts.kappa, opts.weighting, opts.osc_half, tuple(opts.formats),
-                  os.path.normcase(str(opts.masters_root)), opts.align_common))
+                  os.path.normcase(str(opts.masters_root)), opts.align_common, getattr(opts, "cosmetic", True)))
     return cp.file_key([f.info.path for f in g.frames], extra)
 
 

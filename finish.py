@@ -162,6 +162,23 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
     pref = ("L", "Ha", "G", "R", "OIII", "SII", "B")
     order = sorted(range(len(masters)), key=lambda i: (pref.index(masters[i].filter)
                                                        if masters[i].filter in pref else 9, i))
+
+    def depth(m):          # the deepest master is the best reference: most stars, least noise
+        lk = _cards_look(m)
+        for k in ("EXPTOTAL", "NCOMBINE"):
+            try:
+                v = float(lk.get(k) or 0)
+            except (TypeError, ValueError):
+                v = 0.0
+            if v > 0:
+                return v
+        return 0.0
+    deepest = max(order, key=lambda i: (depth(masters[i]), -order.index(i)))
+    if depth(masters[deepest]) > 0:
+        if order[0] != deepest:
+            notes.append(f"lined up to {getattr(masters[deepest], 'path', Path('the deepest master')).stem} "
+                         "(the deepest master)")
+        order = [deepest] + [i for i in order if i != deepest]
     ref = masters[order[0]]
     ref_plane = np.clip(ref.data[0], 0, None).astype(np.float32)
     shape = ref_plane.shape

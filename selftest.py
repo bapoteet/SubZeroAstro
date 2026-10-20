@@ -200,6 +200,16 @@ def run(app, out_dir: Path) -> int:
           and _stk.wcs_of({}) is None,
           f"plate solutions guide the star match ({_ng2} stars confirm it even from 11 px out), "
           f"and a zero-shift match {_gap_id:.0f} px away from the plate solutions would be caught")
+    # cosmetic correction: hot pixels in each calibrated frame are replaced by their neighbours (they
+    # survive stacking when frames aren't dithered); stars are left alone
+    _cimg = (100 + np.random.default_rng(1).normal(0, 3, (120, 120))).astype(np.float32)
+    _yyc, _xxc = np.mgrid[:120, :120]
+    _cimg += 4000 * np.exp(-((_xxc - 60.3) ** 2 + (_yyc - 40.6) ** 2) / (2 * 0.9 ** 2))   # a sharp star
+    _cimg[10, 10] = _cimg[90, 30] = 6000.0                                                 # hot pixels
+    _cfix, _cn = _stk.cosmetic(_cimg)
+    check(_cn == 2 and _cfix[10, 10] < 120 and _cfix[90, 30] < 120 and abs(_cfix[41, 60] - _cimg[41, 60]) < 1e-3
+          and _stk.StackOptions().cosmetic,
+          "hot pixels are removed from each frame before stacking (cosmetic correction); stars are untouched")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)
@@ -1724,6 +1734,16 @@ def run(app, out_dir: Path) -> int:
               and any("distortion" in x for x in _notes) and _corner < 0.3,
               f"masters from other setups are all used and lined up with their field distortion (corner stars "
               f"{_corner:.2f} px apart; {'; '.join(_notes)})")
+
+        # the deepest master is the reference - not simply the first Ha (a short, poor Ha master
+        # used to drag every other master onto its grid)
+        _md = [_types.SimpleNamespace(filter="Ha", data=_rend(lambda x, y: (x + 7, y - 4), 0.5)[None],
+                                      path=Path("ha_short"), cards=[("EXPTOTAL", 1800.0, "")]),
+               _types.SimpleNamespace(filter="OIII", data=_rend(lambda x, y: (x, y))[None], path=Path("o3_deep"),
+                                      cards=[("EXPTOTAL", 17000.0, "")])]
+        _chd, _csd, _notesd = F.assemble_mono(_md)
+        check(any("o3_deep" in x and "deepest" in x for x in _notesd),
+              f"page 4 lines the masters up to the deepest master ({'; '.join(_notesd)})")
 
         # HOO for Ha + OIII + SII sets, Flip the Picture, the two-line signature block, the description
         _nb = {k: np.random.default_rng(1).random((40, 50)).astype(np.float32) for k in ("Ha", "OIII", "SII")}

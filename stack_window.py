@@ -461,6 +461,13 @@ class StackWindow(QMainWindow):
         self.sky_flats.setChecked(self.settings.value("stack/sky_flats", True, type=bool))
         self.sky_flats.toggled.connect(lambda on: (self.settings.setValue("stack/sky_flats", on), self.refresh_all()))
         obox.addWidget(self.sky_flats)
+        self.cosmetic = QCheckBox("Remove hot pixels")
+        self.cosmetic.setToolTip("Cosmetic correction: single pixels far brighter than all their neighbours (hot "
+                                 "pixels, cosmic-ray hits) are replaced by their neighbours in every frame. "
+                                 "Needed when the frames weren't dithered - stacking can't remove those.")
+        self.cosmetic.setChecked(self.settings.value("stack/cosmetic", True, type=bool))
+        self.cosmetic.toggled.connect(lambda on: self.settings.setValue("stack/cosmetic", on))
+        obox.addWidget(self.cosmetic)
         obox.addSpacing(16)
         obox.addWidget(QLabel("Save as:"))
         obox.addWidget(self.fmt_fits)
@@ -511,7 +518,8 @@ class StackWindow(QMainWindow):
                                masters_root=self.masters_root.text().strip(),
                                cal_root=self.cal_root.text().strip(),
                                save_cal_masters=self.save_cal.isChecked(),
-                               align_common=self.align_common.isChecked())
+                               align_common=self.align_common.isChecked(),
+                               cosmetic=self.cosmetic.isChecked())
 
     @staticmethod
     def open_folder(path):
