@@ -1329,8 +1329,10 @@ def cosmetic(img: np.ndarray, bayer: bool = False) -> tuple[np.ndarray, int]:
     one colour at a time. Returns (image, pixels replaced)."""
     if img.ndim != 2:
         return img, 0
+    limit = COSMETIC_MAX_SHARE * img.size
     if not bayer:
-        return despike(img.astype(np.float32, copy=False), replace="median")
+        out, n = despike(img.astype(np.float32, copy=False), replace="median")
+        return (img, -n) if n > limit else (out, n)
     out = img.astype(np.float32, copy=True)
     total = 0
     for dy in (0, 1):
@@ -1338,7 +1340,13 @@ def cosmetic(img: np.ndarray, bayer: bool = False) -> tuple[np.ndarray, int]:
             sub, n = despike(out[dy::2, dx::2], replace="median")
             out[dy::2, dx::2] = sub
             total += n
-    return out, total
+    return (img, -total) if total > limit else (out, total)
+
+
+# More 'hot pixels' than this share of the frame means the stars themselves are that sharp (binned or
+# undersampled frames, ~1 px stars): hot pixels can't be told apart from stars, so nothing is changed.
+# A typical sensor has well under 0.05% hot pixels.
+COSMETIC_MAX_SHARE = 0.002
 
 
 def luminance(cal: np.ndarray, bayer: bool) -> tuple[np.ndarray, int]:
@@ -2293,8 +2301,13 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         log.append(f"Field distortion corrected in {len(distortion_fixed)} of {len(entries)} frames (their stars "
                    f"were up to {max(distortion_fixed):.1f} px off at the edges with a plain alignment - e.g. after "
                    "a meridian flip, or another night's setup)")
-    if hot_counts and max(hot_counts) > 0:
-        log.append(f"Hot pixels removed (cosmetic correction): about {int(np.median(hot_counts))} per frame")
+    done_hot = [n for n in hot_counts if n >= 0]
+    skipped_hot = [n for n in hot_counts if n < 0]
+    if done_hot and max(done_hot) > 0:
+        log.append(f"Hot pixels removed (cosmetic correction): about {int(np.median(done_hot))} per frame")
+    if skipped_hot:
+        log.append(f"Hot-pixel removal skipped in {len(skipped_hot)} frame(s): the stars are as sharp as hot pixels "
+                   "there (binned or undersampled frames), so the two can't be told apart")
     if wcs_used:
         log.append(f"Lined up with the help of their plate solutions: {len(wcs_used)} frame(s) whose star match "
                    "failed or disagreed with where the telescope was pointing")

@@ -138,6 +138,39 @@ def _sky_noise(x):
     return med, float(np.median(np.abs(d - np.median(d)))) * 1.4826 / np.sqrt(2) + 1e-9
 
 
+def _edge_offset(ref_pts, img, shape):
+    """How far a lined-up master's stars still are from the reference's, in the four outer corners
+    of the picture: (worst corner, centre) in pixels - the median offset of the stars there, so a
+    few odd stars don't count. None when there are too few stars to tell."""
+    import stacking as st
+    pts = st.find_stars(st.despike(np.asarray(img, np.float32))[0], 1, max_stars=500)[0]
+    if len(pts) < 20 or len(ref_pts) < 20:
+        return None
+    d = np.hypot(pts[:, None, 0] - ref_pts[None, :, 0], pts[:, None, 1] - ref_pts[None, :, 1])
+    j = d.argmin(1)
+    ok = d[np.arange(len(pts)), j] < 4.0
+    if ok.sum() < 20:
+        return None
+    v = pts[ok] - ref_pts[j[ok]]
+    p = ref_pts[j[ok]]
+    h, w = shape
+    cx, cy = w / 2.0, h / 2.0
+    r = np.hypot(p[:, 0] - cx, p[:, 1] - cy)
+    outer = r > 0.3 * min(h, w)
+    worst = 0.0
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            q = outer & (np.sign(p[:, 0] - cx) == sx) & (np.sign(p[:, 1] - cy) == sy)
+            if q.sum() >= 5:
+                worst = max(worst, float(np.hypot(*np.median(v[q], axis=0))))
+    inner = ~outer
+    centre = float(np.hypot(*np.median(v[inner], axis=0))) if inner.sum() >= 5 else 0.0
+    return worst, centre
+
+
+EDGE_LIMIT = 1.5          # px: a master whose corner stars are further off than this would show double stars
+
+
 def _cards_look(m) -> dict:
     """A master's header as a dict (for its plate solution), or {}."""
     try:
@@ -184,6 +217,12 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
     shape = ref_plane.shape
     planes = {}          # filter -> [(plane, stars or None, weight)]
     fixed, failed = [], []
+    checks = []          # (name, worst corner offset) after lining up
+    try:
+        import stacking as _st
+        ref_chk = _st.find_stars(_st.despike(ref_plane)[0], 1, max_stars=500)[0]
+    except Exception:  # noqa: BLE001 - the check is a safeguard, never a blocker
+        ref_chk = np.empty((0, 2))
     worst = 0.0
     for i in order:
         m = masters[i]
@@ -215,6 +254,24 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
                               "the stars look doubled, line this filter up in PixInsight (StarAlignment)")
         elif star_plane is not None and star_plane.shape != shape:
             star_plane = None
+        if m is not ref:
+            # check the result: are this master's stars really on the reference's, out to the corners?
+            try:
+                off = _edge_offset(ref_chk, img, shape)
+            except Exception:  # noqa: BLE001
+                off = None
+            name = getattr(m, "path", Path(m.filter)).stem
+            if off is not None:
+                checks.append((name, off[0]))
+                if off[0] > EDGE_LIMIT:
+                    same_filter = sum(1 for x in masters if x.filter == m.filter) > 1
+                    if same_filter:
+                        failed.append(f"{name}: after lining up, its stars are still {off[0]:.1f} px off in a corner "
+                                      "- left out so it can't cause double stars")
+                        continue
+                    failed.append(f"{m.filter}: after lining up, its stars are still {off[0]:.1f} px off in a corner "
+                                  "(it is the only master of this filter, so it is used) - expect coloured edges on "
+                                  "stars near the corners")
         planes.setdefault(m.filter, []).append((img, star_plane))
     # the area every master covers (lined-up masters leave empty wedges at their edges)
     cover = None
@@ -263,6 +320,11 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
             cstars[filt] = np.clip(stp / 65535.0, 0, None).astype(np.float32)
     if len(cstars) != len(chans):
         cstars = {}
+    if checks:
+        kept = [c for c in checks if c[1] <= EDGE_LIMIT]
+        if kept:
+            notes.append(f"alignment check: {len(kept)} master(s) match the reference to within "
+                         f"{max(c[1] for c in kept):.1f} px in every corner")
     if fixed:
         notes.append(f"{len(fixed)} master(s) corrected for a different field distortion (edges were off by up to "
                      f"{worst:.1f} px)")

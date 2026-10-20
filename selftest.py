@@ -1735,6 +1735,24 @@ def run(app, out_dir: Path) -> int:
               f"masters from other setups are all used and lined up with their field distortion (corner stars "
               f"{_corner:.2f} px apart; {'; '.join(_notes)})")
 
+        # after lining up, every master's corner stars are checked against the reference; one still
+        # off (a master the distortion fit could not bend into place) is left out when its filter has others
+        _real_eo = F._edge_offset
+        _calls = []
+
+        def _fake_eo(ref_pts, img, shape):
+            _calls.append(1)
+            return (3.0, 0.2) if len(_calls) == 2 else _real_eo(ref_pts, img, shape)
+        F._edge_offset = _fake_eo
+        try:
+            _ch3, _cs3, _notes3 = F.assemble_mono(_ms[:4])
+        finally:
+            F._edge_offset = _real_eo
+        check(any("o3b" in x and "3.0 px off" in x and "left out" in x for x in _notes3)
+              and any("alignment check" in x for x in _notes) and "OIII" in _ch3,
+              f"page 4 checks every master's corner stars after lining up and leaves out one still off "
+              f"({'; '.join(_notes3)})")
+
         # the deepest master is the reference - not simply the first Ha (a short, poor Ha master
         # used to drag every other master onto its grid)
         _md = [_types.SimpleNamespace(filter="Ha", data=_rend(lambda x, y: (x + 7, y - 4), 0.5)[None],
