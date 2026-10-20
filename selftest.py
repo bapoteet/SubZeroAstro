@@ -1797,10 +1797,15 @@ def run(app, out_dir: Path) -> int:
         _bt = F.TOOLS["flip"].apply(_fs, {"h": True, "v": True}).rgb
         _flip_ok = (np.array_equal(_lr, _fs.rgb[:, :, ::-1]) and np.array_equal(_ud, _fs.rgb[:, ::-1, :])
                     and np.array_equal(_bt, _fs.rgb[:, ::-1, ::-1]))
+        _cw = F.TOOLS["flip"].apply(_fs, {"rot": 1}).rgb
+        _ccw = F.TOOLS["flip"].apply(_fs, {"rot": -1}).rgb
+        _flip_ok = (_flip_ok and _cw.shape == (3, 40, 30) and _cw[0, 0, -1] == _fs.rgb[0, 0, 0]       # top-left -> top-right
+                    and _ccw[0, -1, 0] == _fs.rgb[0, 0, 0]                                                 # top-left -> bottom-left
+                    and F.FlipPicture.describe({"v": True, "rot": 3}) == "flipped vertically and turned 90° counter-clockwise")
         _wf = F.WORKFLOWS["mono_nb"]
         check("HOO" in _labels and _flip_ok and _wf.index("flip") < _wf.index("final_crop") < _wf.index("signature"),
-              f"palettes for Ha+OIII+SII include HOO ({_labels}); Flip the Picture flips horizontally and / or "
-              "vertically, before the signature")
+              f"palettes for Ha+OIII+SII include HOO ({_labels}); Flip or Rotate flips horizontally and / or vertically and turns 90° either way, "
+              "before the signature")
         _sp = {"text": "B. Poteet", "target_text": 'NGC 281 "Pacman Nebula"', "font": "Georgia", "size": 3.0}
         _b1 = F.SignPicture.block((600, 900), _sp)
         _b2 = F.SignPicture.block((600, 900), {**_sp, "target_text": ""})

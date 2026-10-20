@@ -726,6 +726,18 @@ class FinishWindow(QMainWindow):
                             "color:white; }")
             b.toggled.connect(lambda _on: self.schedule_preview())
             fr_.addWidget(b)
+        self.flip_rot = 0                 # quarter turns clockwise
+        self.btn_rot_cw = QPushButton("↻  Rotate 90° Clockwise")
+        self.btn_rot_cw.setToolTip("Turn the picture a quarter turn clockwise. Press again to keep turning.")
+        self.btn_rot_ccw = QPushButton("↺  Rotate 90° Counter-clockwise")
+        self.btn_rot_ccw.setToolTip("Turn the picture a quarter turn counter-clockwise. Press again to keep turning.")
+        self.btn_rot_cw.clicked.connect(lambda: self._rotate(1))
+        self.btn_rot_ccw.clicked.connect(lambda: self._rotate(-1))
+        for b in (self.btn_rot_cw, self.btn_rot_ccw):
+            b.setStyleSheet("QPushButton { padding:6px 14px; }")
+            fr_.addWidget(b)
+        self.rot_label = QLabel("")
+        fr_.addWidget(self.rot_label)
         fr_.addStretch(1)
         self.flip_row.setVisible(False)
         tl.addWidget(self.flip_row)
@@ -1105,6 +1117,8 @@ class FinishWindow(QMainWindow):
                 b.blockSignals(True)
                 b.setChecked(False)
                 b.blockSignals(False)
+            self.flip_rot = 0
+            self.rot_label.setText("")
         if key == "signature":
             F.TOOLS["signature"].thumb_corner = self.sign_corner.currentText().lower()
             import targets as _tg
@@ -1182,6 +1196,13 @@ class FinishWindow(QMainWindow):
         self.spot_items = []
         self.spots = []
         self.preview_timer.stop()
+
+    def _rotate(self, quarter):
+        """A quarter turn (+1 clockwise, -1 counter-clockwise); the preview follows."""
+        self.flip_rot = (self.flip_rot + quarter) % 4
+        self.rot_label.setText({0: "", 1: "turned 90° clockwise", 2: "turned 180°",
+                                3: "turned 90° counter-clockwise"}[self.flip_rot])
+        self.schedule_preview()
 
     def done_tool(self):
         """Finished with a tool that can be run several times: keep what was done and move on."""
@@ -1440,7 +1461,7 @@ class FinishWindow(QMainWindow):
         if t.key == "final_crop":
             return {"rect": [int(x) for x in self.view.crop()]}
         if t.key == "flip":
-            return {"h": self.btn_flip_h.isChecked(), "v": self.btn_flip_v.isChecked()}
+            return {"h": self.btn_flip_h.isChecked(), "v": self.btn_flip_v.isChecked(), "rot": self.flip_rot % 4}
         if t.key == "signature":
             p = dict(v.params)
             if self.fine_box.isChecked():
@@ -1674,9 +1695,9 @@ class FinishWindow(QMainWindow):
             return
         v = self.selected()
         params = self.current_params()
-        if t.key == "flip" and not params.get("h") and not params.get("v"):
+        if t.key == "flip" and not params.get("h") and not params.get("v") and not params.get("rot"):
             if not self.synchronous:
-                QMessageBox.information(self, t.title, "Press Flip Horizontally or Flip Vertically first.")
+                QMessageBox.information(self, t.title, "Press a Flip or Rotate button first.")
             return
         if t.key == "signature" and not params.get("text") and not params.get("target_text"):
             if not self.synchronous:
@@ -1691,8 +1712,7 @@ class FinishWindow(QMainWindow):
         label = (f"{len(params['spots'])} spot(s)" if spots_tool
                  else v.label + (" (fine-tuned)" if tuned else ""))
         if t.key == "flip":
-            label = " and ".join(x for x, on in (("flipped horizontally", params.get("h")),
-                                                 ("flipped vertically", params.get("v"))) if on)
+            label = F.FlipPicture.describe(params)
 
         def work():
             t0 = time.time()

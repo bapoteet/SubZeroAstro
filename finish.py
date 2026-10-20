@@ -2003,9 +2003,10 @@ class SignPicture(Tool):
 # --------------------------------------------------------------------------
 class FlipPicture(Tool):
     key = "flip"
-    title = "Flip the Picture"
-    tip = ("Press Flip Horizontally or Flip Vertically - each press flips the picture (press again to flip it "
-           "back). When it looks right, keep it. The saved pictures are flipped too.")
+    title = "Flip or Rotate the Picture"
+    tip = ("Flip Horizontally or Vertically (press again to flip it back), or turn the picture 90° clockwise or "
+           "counter-clockwise (each press turns it once more). When it looks right, keep it. The saved pictures "
+           "are turned too.")
     optional = True
     pick = False
     editor = "flip"                  # the window shows two toggle buttons
@@ -2016,23 +2017,35 @@ class FlipPicture(Tool):
         return True, ""
 
     def variants(self, s):
-        return [Variant("Keep This Orientation", {"h": False, "v": False},
-                        "Use the buttons above to flip the picture, then keep it", True)]
+        return [Variant("Keep This Orientation", {"h": False, "v": False, "rot": 0},
+                        "Use the buttons above to flip or turn the picture, then keep it", True)]
+
+    @staticmethod
+    def describe(params) -> str:
+        """'flipped horizontally and turned 90° clockwise' …"""
+        rot = int(params.get("rot") or 0) % 4
+        bits = [x for x, on in (("flipped horizontally", params.get("h")), ("flipped vertically", params.get("v")))
+                if on]
+        if rot:
+            bits.append({1: "turned 90° clockwise", 2: "turned 180°", 3: "turned 90° counter-clockwise"}[rot])
+        return " and ".join(bits)
 
     def apply(self, s, params):
         h, v = bool(params.get("h")), bool(params.get("v"))
         how = params.get("how")                       # projects saved by v0.9.29-0.9.31
         if how:
             h, v = how in ("lr", "both"), how in ("ud", "both")
-        if h and v:
-            fn = lambda a: np.ascontiguousarray(a[..., ::-1, ::-1])  # noqa: E731
-        elif h:
-            fn = lambda a: np.ascontiguousarray(a[..., ::-1])        # noqa: E731
-        elif v:
-            fn = lambda a: np.ascontiguousarray(a[..., ::-1, :])     # noqa: E731
-        else:
-            fn = None
-        s = s._map(fn) if fn else s.copy()
+        rot = int(params.get("rot") or 0) % 4         # quarter turns clockwise, after any flips
+
+        def fn(a):
+            if h:
+                a = a[..., ::-1]
+            if v:
+                a = a[..., ::-1, :]
+            if rot:
+                a = np.rot90(a, -rot, axes=(-2, -1))  # row 0 is the top: negative = clockwise on screen
+            return np.ascontiguousarray(a)
+        s = s._map(fn) if (h or v or rot) else s.copy()
         s.done.append(self.key)
         return s
 
