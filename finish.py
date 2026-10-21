@@ -2868,7 +2868,8 @@ class TameCore(Tool):
         if s.sat_core:
             return ("The core looks burnt out - and it was already saturated in the masters, so its detail "
                     "can't be recovered; this makes it look smooth and natural instead of a flat white disc.")
-        return "The core looks burnt out (pure white) - bring its detail back without touching the rest."
+        return ("The core looks burnt out (pure white) - bring its detail back without touching the rest. Best done "
+                "now, before Curves and Saturation brighten it further.")
 
     def variants(self, s):
         note = "core saturated in the masters: smooths rather than recovers" if s.sat_core else ""
@@ -2898,27 +2899,68 @@ class TameCore(Tool):
         m = _blur(m, sig)                                        # feather the edge
         return np.clip(_resize(m, *y.shape), 0, 1)
 
+    GLOW_DIV = 6.0             # the glow is blurred at the core radius / this
+    PEAK_ROOM = 0.3            # the glow peak lands this share of the way from the edge brightness to white
+    CORE_FLATTEN = 0.85        # share of the core's glow (above its edge's brightness) taken away at full strength
+
     def _target(self, s, params, m):
-        """Core luminance re-made from the linear data (or by compressing the stretched one)."""
+        """The core re-made like HDRMultiscaleTransform: its structure comes from the linear data when
+        kept (so detail lost in a white core comes back), then the core's big smooth glow is lowered
+        towards the brightness around it, with the fine structure kept - and lifted a little - on top.
+        The core may end up darker than its edge, which is what makes the detail show."""
         y = _lum(s.rgb)
         c = float(params["detail"])
         inside = m > 0.5
         edge = (m > 0.25) & (m < 0.75)
         if not inside.any():
             return y
+        src = y
         if s.lin_lum is not None and s.lin_lum.shape == y.shape:
+            # how the picture was brightened around the core (picture ~ a * linear + b where it is not
+            # white yet), used to re-make the white pixels from the linear data at their true scale -
+            # above 1 at first; lowering the glow below brings them back into range with their detail
             n = s.lin_lum
-            n_e = float(np.median(n[edge])) if edge.any() else float(np.percentile(n[inside], 5))
-            n_max = float(np.percentile(n[inside], 99.9))
-            e = float(np.median(y[edge])) if edge.any() else float(np.percentile(y[inside], 5))
-            top = 0.93
-            u = np.clip((n - n_e) / max(n_max - n_e, 1e-9), 0, None)
-            rec = e + (top - e) * np.log1p(c * u) / np.log1p(c)
-            return np.where(n > n_e, np.minimum(rec, 1.0), y).astype(np.float32)
-        # no linear data kept: compress the large-scale brightness, keep the fine detail
-        base = _blur(y, 6)
-        a = 0.6
-        return np.clip(base * (1 - a * base ** 2) + (y - base) * 1.6, 0, 1).astype(np.float32)
+            near = (m > 0.15) & (y > 0.15) & (y < 0.93)
+            fit = None
+            if near.sum() > 200:
+                nn, yy_ = n[near].astype(np.float64), y[near].astype(np.float64)
+                if float(np.std(nn)) > 1e-9:
+                    a_, b_ = np.polyfit(nn, yy_, 1)
+                    if a_ > 0:
+                        fit = (a_, b_)
+            if fit is not None:
+                re_made = fit[0] * n + fit[1]
+                white = np.clip((y - 0.9) / 0.08, 0, 1)                # blend in where the picture is white
+                src = (y * (1 - white) + np.maximum(re_made, y) * white).astype(np.float32)
+            else:
+                n_e = float(np.median(n[edge])) if edge.any() else float(np.percentile(n[inside], 5))
+                n_max = float(np.percentile(n[inside], 99.9))
+                e = float(np.median(y[edge])) if edge.any() else float(np.percentile(y[inside], 5))
+                top = 0.93
+                u = np.clip((n - n_e) / max(n_max - n_e, 1e-9), 0, None)
+                rec = e + (top - e) * np.log1p(c * u) / np.log1p(c)
+                src = np.where(n > n_e, np.minimum(rec, 1.0), y).astype(np.float32)
+        e = float(np.median(src[edge])) if edge.any() else float(np.percentile(src[inside], 5))
+        # the core's glow: a blur on the scale of the core itself
+        rc = float(np.sqrt(inside.sum() / np.pi))
+        small, f = _small_plane(src, 700)
+        glow = _resize(_blur(small, max(1.0, rc / self.GLOW_DIV / f)), *y.shape)
+        detail = src - glow
+        # keep this much of the glow above the edge: at most 15%, and less when the brightest part
+        # would still end up near white (a strongly brightened or re-made core)
+        g_top = float(np.percentile(glow[inside], 99.5))
+        room = (0.97 - e) * self.PEAK_ROOM                      # the glow peak lands this share of the way to white
+        keep = 1 - self.CORE_FLATTEN
+        if g_top > e:
+            keep = min(keep, max(room, 0.0) / (g_top - e))
+        flat = np.where(glow > e, e + (glow - e) * keep, glow)
+        # structure re-made at a bigger scale is brought down with the glow, but never below 30%
+        d_scale = float(np.clip(keep / (1 - self.CORE_FLATTEN), 0.3, 1.0))
+        gain = (1.0 + 0.5 * min(1.0, c / 60.0)) * d_scale      # the Detail slider lifts the structure too
+        v = flat + detail * gain
+        # a soft shoulder instead of a hard clip: the brightest structure rolls off below white
+        v = np.where(v > 0.9, 0.9 + 0.08 * np.tanh((v - 0.9) / 0.08), v)
+        return np.clip(v, 0, 1).astype(np.float32)
 
     def apply(self, s, params):
         s = s.copy()

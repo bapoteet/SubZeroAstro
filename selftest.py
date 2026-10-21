@@ -1709,6 +1709,23 @@ def run(app, out_dir: Path) -> int:
               f"colour masters: all of a filter are combined around the deepest (noise {_noise:.0f} vs deep 40, short "
               f"400) and unfiltered ones are left out of dual-band pictures")
 
+        # Tame Bright Core on a burnt-out core: the white goes and the structure comes back from the linear data,
+        # nothing outside the core changes
+        _yy, _xx = np.mgrid[:600, :800]
+        _r = np.hypot(_xx - 400, _yy - 300)
+        _lin = (0.1 + 0.35 * np.exp(-(_r / 220) ** 2) + 0.75 * np.exp(-(_r / 60) ** 2)
+                + 0.08 * np.sin(_xx / 6.0) * np.sin(_yy / 7.0) * np.exp(-(_r / 60) ** 2))
+        _y = np.clip(_lin, 0, 1)
+        _cs = F.State(rgb=np.stack([_y] * 3).astype(np.float32), linear=False,
+                      lin_lum=(_lin / _lin.max() * 0.2).astype(np.float32))
+        _co = F.TOOLS["core"].apply(_cs, {"amount": 0.7, "size": 0.78, "detail": 30.0}).rgb[0]
+        _ci = _r < 40
+        _w0, _w1 = float((_y[_ci] > 0.98).mean()), float((_co[_ci] > 0.98).mean())
+        _d1 = float((_co - F._blur(_co, 8))[_ci].std())
+        check(_w0 > 0.5 and _w1 < 0.05 and _d1 > 0.018 and float(np.abs(_co - _y)[_r > 250].max()) < 1e-4,
+              f"Tame Bright Core (Medium) clears a burnt-out core ({_w0:.0%} -> {_w1:.0%} white) and brings its "
+              f"structure back (detail {_d1:.3f}, real 0.027) without touching the rest")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")
