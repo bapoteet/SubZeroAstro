@@ -3088,12 +3088,15 @@ WHY = {
 
 # What kind of object it is changes only what is RECOMMENDED - every step stays available
 TYPE_TUNING = {
-    "galaxy": {"recommend": {"local"}, "optional": set()},
+    "galaxy": {"recommend": {"local", "core"}, "optional": set()},
     "star cluster": {"recommend": set(), "optional": {"stars_out", "shrink", "local"}},
     "comet": {"recommend": {"sky"}, "optional": {"stars_out", "shrink", "local"}},
 }
 TYPE_WHY = {
     ("galaxy", "local"): "A galaxy: this brings out the dust lanes and the structure of the spiral arms.",
+    ("galaxy", "core"): ("A galaxy: its core is far brighter than the arms, so after brightening it is usually "
+                         "burnt out. Tame it now, before Curves and Saturation brighten it further - or Skip it "
+                         "if the core already shows its detail."),
     ("comet", "sky"): "A comet: a darker, even sky lets the faint tail show.",
 }
 

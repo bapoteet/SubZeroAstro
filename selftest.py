@@ -2198,6 +2198,18 @@ def run(app, out_dir: Path) -> int:
               and "sky" in F.TYPE_TUNING["comet"]["recommend"],
               f"target types recognised ({_bad_t or 'all right'}); a star cluster keeps every step, with star "
               "removal made optional")
+        # a galaxy gets Tame Bright Core as a recommended step (right after brightening); other targets
+        # only when a burnt-out core is found
+        _st_g = F.State(rgb=np.full((3, 40, 40), 0.3, np.float32), kind="osc", target="M31", linear=False,
+                        done=["balance", "scnr", "stars_out", "stretch"])
+        _st_n = F.State(rgb=np.full((3, 40, 40), 0.3, np.float32), kind="osc", target="NGC 7000", linear=False,
+                        done=["balance", "scnr", "stars_out", "stretch"])
+        _cg = dict((t.key, stt) for t, stt in F.workflow(_st_g))
+        _cn = dict((t.key, stt) for t, stt in F.workflow(_st_n))
+        check(_cg.get("core") == "next" and _cn.get("core") == "optional"
+              and "galaxy" in F.why_next(_st_g, F.TOOLS["core"]).lower(),
+              f"Tame Bright Core is the next step for a galaxy ({_cg.get('core')}) and optional for a nebula "
+              f"({_cn.get('core')})")
         # Comet: a second stack follows the comet; the main master joins sharp stars and a sharp comet
         import stacking as st
         _cr = np.random.default_rng(8)
