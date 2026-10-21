@@ -2536,7 +2536,8 @@ class SpotFix(Tool):
     spot_start = 10.0
     title = "Spot Fix"
     tip = ("Click on a dust donut, a satellite remnant or a hot pixel and it is patched from its "
-           "surroundings. (PixInsight: CloneStamp)")
+           "surroundings. Stars inside the circle are kept - only the thing at its middle is removed. "
+           "(PixInsight: CloneStamp)")
     pick = False
     optional = True
     repeatable = True
@@ -2549,7 +2550,60 @@ class SpotFix(Tool):
                         "the last one); the mouse wheel changes the circle size", True)]
 
     @staticmethod
-    def heal(img: np.ndarray, x, y, r, seed=0) -> np.ndarray:
+    def _minmax(a: np.ndarray, size: int, fn) -> np.ndarray:
+        """Square min or max filter (separable, edges padded)."""
+        k = size // 2
+        from numpy.lib.stride_tricks import sliding_window_view as _sw
+        p = np.pad(a, ((0, 0), (k, k)), mode="edge")
+        a = fn(_sw(p, size, axis=1), axis=-1)
+        p = np.pad(a, ((k, k), (0, 0)), mode="edge")
+        return fn(_sw(p, size, axis=0), axis=-1)
+
+    @staticmethod
+    def _grain(patch: np.ndarray, where: np.ndarray) -> float:
+        """Pixel-to-pixel noise in an area (so slopes and nebula edges are not counted as noise)."""
+        dx = patch[:, 1:] - patch[:, :-1]
+        pair = where[:, 1:] & where[:, :-1]
+        if pair.sum() > 8:
+            dv = dx[pair]
+            return float(1.4826 * np.median(np.abs(dv - np.median(dv))) / np.sqrt(2))
+        return float(np.std(patch[where] - np.median(patch[where])))
+
+    @staticmethod
+    def star_layer(lum: np.ndarray, d: np.ndarray, r: float):
+        """Which pixels of a patch belong to stars to keep: small bright points well above the
+        smooth background (a top-hat), except the thing at the middle of the circle - that is
+        what was clicked, and it goes. Returns (keep mask 0..1, star element size)."""
+        size = int(np.clip(r * 0.2, 2, 15)) * 2 + 1                   # 5 … 31 px
+        if min(lum.shape) <= size * 2:
+            return np.zeros_like(lum, np.float32), size
+        bg = SpotFix._minmax(SpotFix._minmax(lum, size, np.min), size, np.max)
+        sig = lum - bg
+        sd = SpotFix._grain(lum, np.ones_like(lum, bool))
+        core = sig > max(5.0 * sd, 1e-4)
+        if not core.any():
+            return np.zeros_like(lum, np.float32), size
+        n3 = _box_blur(core.astype(np.float32), 1) * 9                 # no lone hot pixels
+        core &= n3 >= 2.5
+        # the clicked object: whatever star-like pixels touch the middle of the circle
+        centre = core & (d <= max(1.5, min(0.35 * r, 10.0)))   # a big donut keeps the stars near its middle too
+        for _ in range(size * 2):
+            grown = (SpotFix._minmax(centre.astype(np.float32), 3, np.max) > 0) & core
+            if (grown == centre).all():
+                break
+            centre = grown
+        keep = core & ~centre
+        if not keep.any():
+            return np.zeros_like(lum, np.float32), size
+        keep = SpotFix._minmax(keep.astype(np.float32), 5, np.max)        # include the faint edges
+        keep = np.clip(_box_blur(keep, 1), 0, 1)
+        return keep.astype(np.float32), size
+
+    @staticmethod
+    def heal(img: np.ndarray, x, y, r, seed=0, keep_stars=True) -> np.ndarray:
+        """Patch a circle from its surroundings. keep_stars: stars inside the circle (other than the
+        thing at its middle) are lifted off first and put back on top of the patch afterwards,
+        brightened by as much as the blemish had dimmed them."""
         c, h, w = img.shape
         R = int(r * 1.6) + 3
         x0, x1, y0, y1 = max(0, int(x) - R), min(w, int(x) + R + 1), max(0, int(y) - R), min(h, int(y) + R + 1)
@@ -2561,22 +2615,36 @@ class SpotFix(Tool):
             return img
         out = img.copy()
         rng = np.random.default_rng(seed)
+        keep = None
+        if keep_stars:
+            lum = out[:, y0:y1, x0:x1].astype(np.float64).mean(0)
+            keep, size = SpotFix.star_layer(lum, d, r)
+            if not keep.any():
+                keep = None
         for k in range(c):
             patch = out[k, y0:y1, x0:x1].astype(np.float64)
-            fill = patch.copy()
-            fill[mask] = np.median(patch[ring])
+            stars = None
+            base = patch
+            if keep is not None:
+                smooth = SpotFix._minmax(SpotFix._minmax(patch, size, np.min), size, np.max)
+                stars = np.clip(patch - smooth, 0, None) * keep
+                base = patch - stars                                       # the sky without its stars
+            fill = base.copy()
+            fill[mask] = np.median(base[ring])
             fill = SpotFix._harmonic(fill, mask)   # smooth fill from the edge inwards, at any size
             # the grain to put back: from neighbour-to-neighbour differences in the ring, so a sky
             # gradient or nebula edge around a big circle is not mistaken for noise
-            dx = patch[:, 1:] - patch[:, :-1]
-            pair = ring[:, 1:] & ring[:, :-1]
-            if pair.sum() > 8:
-                dv = dx[pair]
-                sd = float(1.4826 * np.median(np.abs(dv - np.median(dv))) / np.sqrt(2))
-            else:
-                sd = float(np.std(patch[ring] - np.median(patch[ring])))
+            sd = SpotFix._grain(patch, ring)
             fill[mask] += rng.normal(0, sd * 0.8, int(mask.sum()))
-            out[k, y0:y1, x0:x1] = fill.astype(out.dtype)
+            if stars is not None:
+                # a dust shadow dims the stars in it as much as the sky: brighten them back by as much
+                rad = max(3, size)
+                gain = np.clip(_box_blur(fill.astype(np.float32), rad) /
+                               np.maximum(_box_blur(base.astype(np.float32), rad), 1e-6), 0.5, 2.5)
+                fill = fill + stars * gain
+            res = patch.copy()
+            res[mask] = fill[mask]
+            out[k, y0:y1, x0:x1] = res.astype(out.dtype)
         return out
 
     @staticmethod
@@ -2605,8 +2673,9 @@ class SpotFix(Tool):
     def apply(self, s, params):
         s = s.copy()
         img = s.rgb
+        keep = bool(params.get("keep_stars", True))
         for i, (x, y, r) in enumerate(params.get("spots", [])):
-            img = self.heal(img, x, y, r, seed=i)
+            img = self.heal(img, x, y, r, seed=i, keep_stars=keep)
         s.rgb = img.astype(np.float32)
         if "spotfix" not in s.done:
             s.done.append(self.key)

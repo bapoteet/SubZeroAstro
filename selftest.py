@@ -1664,6 +1664,28 @@ def run(app, out_dir: Path) -> int:
               f"Spot Fix heals a big (160 px) circle smoothly (off by {abs(float(_res.mean())):.4f}, grain "
               f"{float(_res.std()):.4f} vs sky 0.0100)")
 
+        # Spot Fix keeps the stars inside a big circle (put back as bright as they really are), but
+        # still removes the thing clicked at the middle of a small one
+        _rg = np.random.default_rng(5)
+        _yy, _xx = np.mgrid[:700, :700]
+        _sk = 0.15 + 0.05 * _xx / 700
+
+        def _st(cx, cy, a, sg=2.0):
+            return a * np.exp(-((_xx - cx) ** 2 + (_yy - cy) ** 2) / (2 * sg * sg))
+        _d0 = np.hypot(_xx - 350, _yy - 350)
+        _dn = 1 - 0.25 * np.exp(-((_d0 - 100) / 35) ** 2)
+        _tr = _sk + _st(250, 330, 0.5) + _st(350, 220, 0.6, 2.5)
+        _im = np.stack([_tr * _dn + _rg.normal(0, 0.004, _tr.shape)] * 3).astype(np.float32)
+        _o = F.SpotFix.heal(_im, 350, 350, 160)[0]
+        _pk = [float(_o[y, x] - _sk[y, x]) for x, y in ((250, 330), (350, 220))]
+        _o2 = F.SpotFix.heal(_im, 350, 350, 160, keep_stars=False)[0]
+        _im2 = np.stack([_sk + _st(200, 200, 0.6) + _st(212, 200, 0.4)] * 3).astype(np.float32)
+        _o3 = F.SpotFix.heal(_im2, 200, 200, 9)[0]
+        check(abs(_pk[0] - 0.5) < 0.05 and abs(_pk[1] - 0.6) < 0.06 and float(_o2[330, 250] - _sk[330, 250]) < 0.05
+              and float(_o3[200, 200] - _sk[200, 200]) < 0.03 and float(_o3[200, 212] - _sk[200, 212]) > 0.3,
+              f"Spot Fix keeps the stars inside a big circle at their true brightness ({_pk[0]:.2f}/0.50, "
+              f"{_pk[1]:.2f}/0.60) and still removes what is clicked in a small one")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")
