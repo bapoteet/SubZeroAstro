@@ -1750,6 +1750,33 @@ def run(app, out_dir: Path) -> int:
               f"Tame Bright Core (Medium) clears a burnt-out core ({_w0:.0%} -> {_w1:.0%} white) and brings its "
               f"structure back (detail {_d1:.3f}, real 0.027) without touching the rest")
 
+        # SkyFlat across a meridian flip: the nebula (turned 180° on the sensor) must not get into the flat
+        import stacking as _stk
+        import warnings as _wn
+        _rg = np.random.default_rng(1)
+        _yy, _xx = np.mgrid[:200, :300]
+        _Ft = (1 - 0.35 * (((_xx - 150) / 150) ** 2 + ((_yy - 100) / 100) ** 2))
+        _nb = np.zeros((200, 300))
+        for _cx, _cy, _a in ((60, 50, 0.6), (110, 160, 0.5), (250, 80, 0.4)):
+            _nb += _a * np.exp(-((_xx - _cx) ** 2 / (2 * 22 ** 2) + (_yy - _cy) ** 2 / (2 * 8 ** 2)))
+        _fr = np.stack([(_Ft * (1 + (_nb if i < 30 else _nb[::-1, ::-1])) + _rg.normal(0, 0.01, _nb.shape))
+                        for i in range(40)]).astype(np.float32)
+        _g = _stk._orientation_groups(_fr)
+        with _wn.catch_warnings():
+            _wn.simplefilter("ignore")
+
+            def _lh(a):
+                m_ = np.nanmedian(a, 0)
+                return np.nanmean(np.where(a <= m_[None], a, np.nan), 0)
+            _fl = np.fmin(_lh(_fr[_g]), _lh(_fr[~_g])) if _g is not None else _lh(_fr)
+        _leak = float((_fl / np.median(_fl) / (_Ft / np.median(_Ft)) - 1)[_nb > 0.2].mean())
+        _g0 = _stk._orientation_groups(np.stack([(_Ft * (1 + _nb) + _rg.normal(0, 0.01, _nb.shape))
+                                                 for i in range(40)]).astype(np.float32))
+        check(_g is not None and sorted([int(_g.sum()), int((~_g).sum())]) == [10, 30] and abs(_leak) < 0.02
+              and _g0 is None,
+              f"SkyFlat across a meridian flip: the two sides are found (30 + 10 frames) and the nebula stays out of "
+              f"the flat (leak {_leak:.3f}); frames all one way up are left as they are")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")

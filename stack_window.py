@@ -185,6 +185,12 @@ class StackWorker(QThread):
                     built.add(id(item))
                     if not item.master:
                         self.log.emit(f"Built {item.label()}")
+                        fg = (getattr(item, "sky_stats", None) or {}).get("flip_groups")
+                        if item.sky and fg:
+                            self.log.emit(f"  SkyFlat: the frames come from both sides of a meridian flip ({fg[0]} and "
+                                          f"{fg[1]} frames, the nebula turned 180° between them) - each pixel's flat "
+                                          "was taken from the side that shows plain sky there, so no ghost of the "
+                                          "nebula gets into it")
                         if opts.save_cal_masters and opts.cal_root and not item.sky:
                             files = st.save_calibration_master(item, opts.cal_root, g.rig, opts.formats)
                             self.saved_cal += files

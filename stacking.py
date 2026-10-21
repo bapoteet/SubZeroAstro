@@ -923,6 +923,42 @@ def _fill_holes(a: np.ndarray) -> np.ndarray:
     return out
 
 
+def _orientation_groups(arr: np.ndarray):
+    """Frames taken on both sides of a meridian flip (camera turned 180° with the telescope) show the
+    nebula at two different places on the sensor. Finds the two groups from the frames themselves:
+    after the shared pattern (vignetting, dust) is taken out, what is left is the nebula - one way up in
+    one group, the other way up in the other. Returns a boolean array (group of each frame), or None when
+    the frames do not split clearly into two such groups."""
+    n = arr.shape[0]
+    if n < 6:
+        return None
+    h, w = arr.shape[1:]
+    b = max(1, int(np.ceil(max(h, w) / 64)))
+    hh, ww = h // b * b, w // b * b
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        t = np.nanmean(arr[:, :hh, :ww].reshape(n, hh // b, b, ww // b, b), axis=(2, 4))
+        t = t / np.nanmedian(t.reshape(n, -1), axis=1)[:, None, None]
+        r = t - np.nanmedian(t, axis=0)[None]
+    r = np.nan_to_num(r).reshape(n, -1)
+    r = r - r.mean(axis=1, keepdims=True)
+    if not np.isfinite(r).all() or float(np.abs(r).sum()) == 0:
+        return None
+    u, sv, _vt = np.linalg.svd(r, full_matrices=False)
+    explained = float(sv[0] ** 2 / max(float((sv ** 2).sum()), 1e-30))
+    sc = u[:, 0] * sv[0]
+    g = sc > 0
+    if explained < 0.35 or g.sum() < 3 or (~g).sum() < 3:
+        return None
+    # two clear clusters, not one cloud split down the middle
+    a, c = sc[g], sc[~g]
+    spread = max(float(a.std()), float(c.std()), 1e-12)
+    if (float(a.mean()) - float(c.mean())) < 4 * spread:
+        return None
+    return g
+
+
 def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None, cancel=None,
                    max_frames: int = 40) -> np.ndarray:
     """A flat made from light frames (best from several targets and nights): each frame is scaled to
@@ -980,12 +1016,25 @@ def build_sky_flat(item: "CalItem", sub: np.ndarray | None = None, progress=None
         for i_f, (b_, c_) in enumerate(tb):
             stacks[ph][i_f] = stacks[ph][i_f] / _tilt_plane(stacks[ph][i_f].shape, b_ - mb, c_ - mc)
         arr = np.stack(stacks[ph])
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            mid = np.nanmedian(arr, axis=0)
-            # the lower half of each pixel's values: a nebula on one of the targets, or a star that
-            # slipped through, only ever makes a pixel brighter - so it lands in the upper half
-            low = np.nanmean(np.where(arr <= mid[None], arr, np.nan), axis=0)
+
+        def lower_half(a):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                mid = np.nanmedian(a, axis=0)
+                # the lower half of each pixel's values: a nebula on one of the targets, or a star that
+                # slipped through, only ever makes a pixel brighter - so it lands in the upper half
+                return np.nanmean(np.where(a <= mid[None], a, np.nan), axis=0)
+        groups = _orientation_groups(arr)
+        if groups is None:
+            low = lower_half(arr)
+        else:
+            # both sides of a meridian flip: where one side has nebula on a pixel, the other side (turned
+            # 180°) usually has plain sky there - take the darker of the two sides, pixel by pixel
+            la, lb = lower_half(arr[groups]), lower_half(arr[~groups])
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                low = np.fmin(la, lb)
+            item.sky_stats["flip_groups"] = (int(groups.sum()), int((~groups).sum()))
         med = low + 0.798 * float(np.mean(noises[ph]))       # mean of a lower half sits 0.8 sigma low
         valid = np.isfinite(arr).sum(axis=0)
         med[valid < max(3, int(0.2 * len(arr)))] = np.nan
