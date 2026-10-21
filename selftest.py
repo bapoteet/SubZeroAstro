@@ -2172,6 +2172,21 @@ def run(app, out_dir: Path) -> int:
         _p4 = _p3.save_as(session.parent / "Another Place")
         check(_p4.dir.is_dir() and _p3.dir.is_dir() and len(_p4.steps) == _n
               and not list(_pd.glob("*.saving")), "saving a project to a new folder copies it completely")
+        # Open a Saved Project from page 1: the Load window's button, and the folder it was saved into
+        _ld = fb.LoadDataDialog(w, w.settings)
+        _pb = [b for b in _ld.buttons.buttons() if b.text() == "Open a Saved Project…"]
+        if _pb:
+            _pb[0].click()
+        _asked = bool(_pb) and _ld.wants_project
+        _ld.deleteLater()
+        _fwp = w.open_saved_project(str(_pd))                 # the folder it was saved into (<target>.szproj inside)
+        QApplication.processEvents()
+        check(_asked and F.find_project(_pd) == _p3.dir and _fwp is not None and _fwp.project is not None
+              and _fwp.project.dir == _p3.dir and len(_fwp.project.steps) == _n and _fwp.state is not None
+              and "act_open_project" in vars(w),
+              f"page 1 opens a saved project straight onto Finishing Touches ({_n} steps from {_p3.dir.name})")
+        if _fwp is not None:
+            _fwp.close()
         # Zip My Logs: every open page's log plus a note about this computer, in one zip
         import zip_logs as _zl
         import zipfile as _zf

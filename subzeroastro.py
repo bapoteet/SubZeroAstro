@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.68 beta"
+APP_VERSION = "0.9.69 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -770,9 +770,17 @@ class LoadDataDialog(QDialog):
         ok = self.buttons.button(QDialogButtonBox.Ok)
         if ok is not None:
             ok.setText("Start Processing")
+        self.wants_project = False
+        b_proj = self.buttons.addButton("Open a Saved Project…", QDialogButtonBox.ActionRole)
+        b_proj.setToolTip("Carry on with a project you saved on Finishing Touches (page 4) - no frames to load")
+        b_proj.clicked.connect(self._open_project_instead)
         for src in initial or []:
             self.add_source(src)
         self.update_total()
+
+    def _open_project_instead(self):
+        self.wants_project = True
+        self.reject()
 
     # -- adding
     def last_folder(self):
@@ -1219,6 +1227,10 @@ class MainWindow(QMainWindow):
                                        "from the drive - faster on a NAS.")
         self.act_show_image.toggled.connect(self.toggle_image)
         self.addAction(self.act_show_image)
+        self.act_open_project = act("Open a Saved Project (Finishing Touches)…", self.open_saved_project,
+                                    "Ctrl+Shift+O", QStyle.SP_DialogOpenButton,
+                                    "Open a project you saved on Finishing Touches (page 4) and carry on where "
+                                    "you left off")
         self.act_start_over = act("Start Over – Load New Data…", self.start_over, "Ctrl+N",
                                   QStyle.SP_BrowserReload,
                                   "Clear this session and open a new folder (Ctrl+N)")
@@ -1291,7 +1303,7 @@ class MainWindow(QMainWindow):
 
         mb = self.menuBar()
         m = mb.addMenu("&File")
-        for a in (self.act_load, self.act_open, self.act_reopen, self.act_start_over, self.act_fresh,
+        for a in (self.act_load, self.act_open_project, self.act_open, self.act_reopen, self.act_start_over, self.act_fresh,
                   self.act_reload, self.act_remeasure):
             m.addAction(a)
         m.addSeparator()
@@ -1445,6 +1457,27 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             self.chk_sub.setChecked(dlg.chk_sub.isChecked())
             self.open_sources(dlg.sources(), filter_name=dlg.filter_override())
+        elif getattr(dlg, "wants_project", False):
+            self.open_saved_project()
+
+    def open_saved_project(self, folder=None):
+        """Open a project saved on Finishing Touches and go straight there."""
+        import finish as F
+        if folder is None:
+            folder = QFileDialog.getExistingDirectory(
+                self, "Open a saved project - pick its folder (or the folder you saved it into)",
+                self.settings.value("finish/project_dir", str(Path.home())))
+            if not folder:
+                return None
+        if F.find_project(Path(folder)) is None:
+            QMessageBox.information(self, "Open a Saved Project",
+                                    "That folder doesn't contain a SubZeroAstro project.\n\nPick the folder you "
+                                    "saved it into on Finishing Touches (Save Project As…).")
+            return None
+        import finish_window
+        w = ui_header.open_page(self, "finish_win", "menu", lambda: finish_window.FinishWindow(self, self.settings))
+        w.open_project_path(folder)
+        return w
 
     def choose_folder(self):
         start = self.settings.value("last_folder", str(Path.home()))

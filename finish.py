@@ -3157,6 +3157,25 @@ def why_next(s: State, t: Tool) -> str:
 # Project: every step saved (resume, go back, save / open)
 # ==========================================================================
 
+def find_project(folder) -> "Path | None":
+    """The saved project in this folder - the folder itself, or (when a project was saved into a folder
+    that had other things in it) its <target>.szproj subfolder. Several: the most recently changed one."""
+    folder = Path(folder)
+
+    def ok(d):
+        man = cp.read_json(d / "manifest.json", None) or {}
+        return bool(man.get("steps")) and man.get("kind", "finish-project") == "finish-project"
+    if ok(folder):
+        return folder
+    try:
+        subs = [d for d in folder.iterdir() if d.is_dir() and ok(d)]
+    except OSError:
+        return None
+    if not subs:
+        return None
+    return max(subs, key=lambda d: (d / "manifest.json").stat().st_mtime)
+
+
 class Project:
     """A folder with manifest.json and one sub-folder per finished step."""
 

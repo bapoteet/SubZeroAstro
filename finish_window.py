@@ -967,14 +967,24 @@ class FinishWindow(QMainWindow):
                                              self.settings.value("finish/project_dir", ""))
         if not d:
             return
-        proj = F.Project(Path(d))
-        if not proj.steps:
-            QMessageBox.information(self, "Finish", "That folder doesn't contain a SubZeroAstro project.")
-            return
+        self.open_project_path(d)
+
+    def open_project_path(self, d) -> bool:
+        """Open a saved project (its folder, or the folder it was saved into)."""
+        found = F.find_project(Path(d))
+        if found is None:
+            if not self.synchronous:
+                QMessageBox.information(self, "Open Project", "That folder doesn't contain a SubZeroAstro project.\n\n"
+                                        "Pick the folder you saved it into (it holds a manifest.json file, or a "
+                                        "<target>.szproj folder).")
+            return False
+        proj = F.Project(found)
         self.project = proj
         self.state = proj.load(len(proj.steps) - 1)
-        self.log(f"Opened project {d}")
+        self.settings.setValue("finish/project_dir", str(found.parent))
+        self.log(f"Opened project {found} ({len(proj.steps)} steps) - you are on its last step")
         self.after_change()
+        return True
 
     def save_project_dialog(self):
         if not self.project:
