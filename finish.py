@@ -2579,8 +2579,13 @@ class SpotFix(Tool):
             return np.zeros_like(lum, np.float32), size
         bg = SpotFix._minmax(SpotFix._minmax(lum, size, np.min), size, np.max)
         sig = lum - bg
-        sd = SpotFix._grain(lum, np.ones_like(lum, bool))
-        core = sig > max(5.0 * sd, 1e-4)
+        # noise and the filter's own lift, measured on the sky just outside the circle
+        ring = (d > r) & (d <= r * 1.6 + 2)
+        if ring.sum() < 50:
+            ring = np.ones_like(lum, bool)
+        sd = SpotFix._grain(lum, ring)
+        lift = float(np.median(sig[ring]))
+        core = sig > lift + max(5.0 * sd, 1e-4)
         if not core.any():
             return np.zeros_like(lum, np.float32), size
         n3 = _box_blur(core.astype(np.float32), 1) * 9                 # no lone hot pixels
