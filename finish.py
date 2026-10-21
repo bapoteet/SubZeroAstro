@@ -204,7 +204,7 @@ def _cards_look(m) -> dict:
         return {}
 
 
-def assemble_mono(masters, stars_of=lambda m: None, log=None):
+def assemble_mono(masters, stars_of=lambda m: None, log=None, crop_edges=True):
     """Mono masters -> one plane per filter, all on ONE pixel grid.
     * Every master is checked against a reference master by its stars. Masters from another
       camera or telescope are bent a little differently by their optics, most at the edges; a
@@ -322,7 +322,7 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
             v = _box_blur((img > 0).astype(np.float32), 2) > 0.5
             cover = v if cover is None else (cover & v)
     crop = None
-    if cover is not None and not cover.all():
+    if crop_edges and cover is not None and not cover.all():
         import prepare as P
         r = P._valid_rect(cover[::4, ::4])
         if r:
@@ -410,39 +410,57 @@ def pick_colour_masters(color, is_dual):
 def assemble_colour(masters, stars_of=lambda m: None, log=None):
     """Colour masters -> one (3, h, w) picture per filter, all on ONE grid: every master of a filter
     is used (lined up and noise-weighted like mono masters, the deepest one as the reference),
-    instead of only the first one found. Returns ({filter: rgb}, {filter: stars rgb}, notes),
-    images scaled 0..1."""
+    instead of only the first one found. Each colour is lined up with the same colour of the deepest
+    master (red with red …: with a dual-band filter red is Ha and blue OIII, which look different), so
+    the three colours stay on the deepest master's grid. Returns ({filter: rgb}, {filter: stars rgb},
+    notes), images scaled 0..1."""
     from types import SimpleNamespace
+    import re as _re
     cache = {}
 
     def st_of(m):
         if id(m) not in cache:
             cache[id(m)] = stars_of(m)
         return cache[id(m)]
-    planes = []
-    for m in masters:
-        for c in range(3):
-            planes.append(SimpleNamespace(path=m.path, data=m.data[c:c + 1], cards=m.cards, look=m.look,
-                                          filter=f"{m.filter}#{c}", orig=m, ch=c))
+    per_c, star_c, notes = [], [], []
+    for c in range(3):
+        planes = [SimpleNamespace(path=m.path, data=m.data[c:c + 1], cards=m.cards, look=m.look,
+                                  filter=m.filter, orig=m, ch=c) for m in masters]
 
-    def plane_stars(w):
-        st_img = st_of(w.orig)
-        return None if st_img is None or st_img.shape[0] != 3 else st_img[w.ch:w.ch + 1]
-    chans, cstars, notes = assemble_mono(planes, plane_stars, log)
+        def plane_stars(w):
+            st_img = st_of(w.orig)
+            return None if st_img is None or st_img.shape[0] != 3 else st_img[w.ch:w.ch + 1]
+        ch_, cs_, nt_ = assemble_mono(planes, plane_stars, log, crop_edges=False)
+        per_c.append(ch_)
+        star_c.append(cs_)
+        for n in nt_:
+            if n not in notes:
+                notes.append(n)
     rgbs, stars = {}, {}
     for f in dict.fromkeys(m.filter for m in masters):
-        keys = [f"{f}#{c}" for c in range(3)]
-        if all(k in chans for k in keys):
-            rgbs[f] = np.stack([chans[k] for k in keys])
-            if all(k in cstars for k in keys):
-                stars[f] = np.stack([cstars[k] for k in keys])
-    import re as _re
-    clean = []
-    for n in notes:
-        n = _re.sub(r"#\d", "", n)
-        # counts there are of colour planes (the reference's own other planes included): name the masters instead
-        n = _re.sub(r"\d+ master\(s\)", f"{len(masters) - 1} other master(s)", n)
-        if n not in clean:
+        if all(f in per_c[c] for c in range(3)) and len({per_c[c][f].shape for c in range(3)}) == 1:
+            rgbs[f] = np.stack([per_c[c][f] for c in range(3)])
+            if all(f in star_c[c] for c in range(3)):
+                stars[f] = np.stack([star_c[c][f] for c in range(3)])
+    # the area every master covers, the same for all three colours (lined-up masters leave wedges)
+    for f, img in list(rgbs.items()):
+        v = _box_blur((img.min(axis=0) > 0).astype(np.float32), 2) > 0.5
+        if not v.all():
+            import prepare as P
+            r = P._valid_rect(v[::4, ::4])
+            if r:
+                x0, y0, x1, y1 = (int(r[0] * 4) + 4, int(r[1] * 4) + 4, int(r[2] * 4) - 4, int(r[3] * 4) - 4)
+                if (x1 - x0) * (y1 - y0) > 0.3 * v.size:
+                    rgbs[f] = img[:, y0:y1, x0:x1]
+                    if f in stars:
+                        stars[f] = stars[f][:, y0:y1, x0:x1]
+                    notes.append(f"cropped to the area all masters cover ({x1 - x0} x {y1 - y0} px)")
+    clean, seen = [], set()
+    for n in notes:                      # the same note for each colour: keep it once
+        n = _re.sub(r"\d+ master\(s\)", f"{len(masters) - 1} other master(s)", n) if len(masters) > 1 else n
+        key = _re.sub(r"[\d.]+", "#", n)
+        if key not in seen:
+            seen.add(key)
             clean.append(n)
     return rgbs, stars, clean
 
@@ -471,6 +489,8 @@ def load_state(paths) -> State:
         if len(used) > 1:
             try:
                 rgbs, srgbs, notes = assemble_colour(used, stars_of)
+                if not rgbs:
+                    raise ValueError("no colour could be matched across the masters")
             except Exception as e:  # noqa: BLE001 - never stop on this: fall back to the deepest master
                 deepest = max(used, key=master_depth)
                 rgbs = {deepest.filter: np.clip(deepest.data, 0, None).astype(np.float32)}

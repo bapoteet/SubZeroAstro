@@ -1791,6 +1791,30 @@ def run(app, out_dir: Path) -> int:
               f"Tame Bright Core leaves no hard white dot at a burnt-out nucleus (centre {_pf[0]:.2f} vs {_ar:.2f} "
               f"around, edge {float(np.max(-np.diff(_pf))):.3f}/px)")
 
+        # dual-band colour masters (red = Ha, blue = OIII look different), one of them shifted: every colour is
+        # lined up with the same colour of the deepest master - no colour may go missing (Mac report: crash)
+        _yy, _xx = np.mgrid[:360, :480]
+        _sf = [(_rg.uniform(12, 468), _rg.uniform(12, 348), _rg.uniform(1500, 25000)) for _ in range(110)]
+
+        def _fld(dx, dy):
+            a_ = np.zeros((360, 480))
+            for _x, _y, _f in _sf:
+                a_ += _f * np.exp(-((_xx - _x - dx) ** 2 + (_yy - _y - dy) ** 2) / (2 * 1.8 ** 2))
+            return a_
+        _ha = 4000 * np.exp(-((_xx - 200) ** 2 / (2 * 70 ** 2) + (_yy - 180) ** 2 / (2 * 30 ** 2)))
+        _o3 = 3000 * np.exp(-((_xx - 320) ** 2 / (2 * 40 ** 2) + (_yy - 140) ** 2 / (2 * 50 ** 2)))
+
+        def _dbm(name, exp, dx, dy, ref):
+            sf_ = _fld(dx, dy)
+            sh_ = lambda a_: np.roll(np.roll(a_, int(round(dy)), 0), int(round(dx)), 1)  # noqa: E731
+            d_ = np.stack([1000 + sf_ + sh_(_ha), 1000 + 0.35 * sf_ + sh_(_o3), 1000 + 0.3 * sf_ + 1.1 * sh_(_o3)])
+            d_ = (d_ + _rg.normal(0, 40, d_.shape)).astype(np.float32)
+            return _NS(path=Path(name + ".xisf"), data=d_, cards=[("EXPTOTAL", exp, ""), ("ALIGNREF", ref, "")],
+                       look={}, filter="L-eNhance", is_color=True)
+        _db, _dn = F.assemble_colour([_dbm("short", 19000, 3.4, -2.2, "b"), _dbm("deep", 54000, 0, 0, "a")])[:2][0], None
+        check("L-eNhance" in _db and _db["L-eNhance"].shape[0] == 3,
+              f"dual-band colour masters from different runs are combined in every colour ({list(_db)})")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")
