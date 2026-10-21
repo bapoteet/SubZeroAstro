@@ -2050,6 +2050,44 @@ class FlipPicture(Tool):
         return s
 
 
+# steps that can safely be done again, in order, under a moved signature (all depend only on their settings)
+RESIGN_SAFE = ("flip", "final_crop", "spotfix", "colours", "saturation")
+
+
+def resign_plan(steps):
+    """When the picture is flipped or turned after it was signed, the signature must not turn with it.
+    Returns the index of the (last) Sign Your Picture step when the steps after it can be done again
+    underneath it, 'blocked' when they cannot, or None when the picture is not signed."""
+    k = next((i for i in range(len(steps) - 1, -1, -1) if steps[i].get("tool") == "signature"), None)
+    if k is None:
+        return None
+    if k < 1 or any(st.get("tool") not in RESIGN_SAFE for st in steps[k + 1:]):
+        return "blocked"
+    return k
+
+
+def flip_under_signature(project, flip_params):
+    """Flip / turn a signed picture with the signature kept the right way round: from the picture as it
+    was before signing, the later steps are done again, then the flip, then the same signature on top
+    (in the same place on screen). Returns [(state, tool, label, params), …] - the steps that replace
+    the signature step and everything after it."""
+    steps = project.steps
+    k = resign_plan(steps)
+    if not isinstance(k, int):
+        raise ValueError("the signature cannot be moved over this flip")
+    s = project.load(k - 1)
+    out = []
+    for st in steps[k + 1:]:
+        s = TOOLS[st["tool"]].apply(s, st.get("params") or {})
+        out.append((s, st["tool"], st["label"], st.get("params") or {}))
+    s = TOOLS["flip"].apply(s, flip_params)
+    out.append((s, "flip", f"{FlipPicture.title} — {FlipPicture.describe(flip_params)}", flip_params))
+    sig = steps[k]
+    s = TOOLS["signature"].apply(s, sig.get("params") or {})
+    out.append((s, "signature", sig["label"], sig.get("params") or {}))
+    return out
+
+
 # --------------------------------------------------------------------------
 class PutStarsBack(Tool):
     def possible(self, s):

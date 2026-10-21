@@ -1740,6 +1740,25 @@ def run(app, out_dir: Path) -> int:
         top_ = (fw.state.rgb[:, :int(h_ * 0.5), :] - before_sig[:, :int(h_ * 0.5), :])
         check("signature" in fw.state.done and float(abs(corner_).max()) > 0.2 and float(abs(top_).max()) == 0.0,
               "the signature is drawn in the bottom-right corner only")
+        # flipping / turning a signed picture keeps the signature the right way round, in its place
+        _nsig = len(fw.project.steps)
+        _sigp = dict(fw.project.steps[-1]["params"])
+        fw.open_tool("flip")
+        _note = fw.choice_note.text()
+        fw.btn_flip_h.click()
+        fw.btn_rot_cw.click()
+        QApplication.processEvents()
+        _fpp = fw.current_params()
+        fw.apply_choice()
+        QApplication.processEvents()
+        _want = F.TOOLS["signature"].apply(F.TOOLS["flip"].apply(
+            F.State(rgb=before_sig.copy(), linear=False), _fpp), _sigp).rgb
+        _tools = [x["tool"] for x in fw.project.steps]
+        check(len(fw.project.steps) == _nsig + 1 and _tools[-2:] == ["flip", "signature"]
+              and fw.state.rgb.shape == _want.shape and float(np.abs(fw.state.rgb - _want).max()) < 2e-3
+              and "already signed" in _note,
+              "flipping or turning a signed picture puts the signature back on top the right way round "
+              f"(steps now end {_tools[-2:]})")
         fw.stop_here_pixinsight()
         pf = getattr(fw, "last_pi_files", [])
         check(len(pf) >= 2 and pf[0].suffix == ".txt" and all(p.exists() for p in pf),

@@ -1204,6 +1204,10 @@ class FinishWindow(QMainWindow):
             self.btn_close_tool.setText("Close" if again else "Cancel")
         if key == "final_crop":
             self._set_crop_box("found")
+        if key == "flip" and self.state is not None and "signature" in self.state.done:
+            self.choice_note.setText("<b>Your picture is already signed.</b> The preview turns the signature too, "
+                                     "but when you keep it, the signature is put back on top the right way round, "
+                                     "in the same place.")
 
     def close_tool(self):
         self.tool = None
@@ -1807,6 +1811,19 @@ class FinishWindow(QMainWindow):
         if t.key == "flip":
             label = F.FlipPicture.describe(params)
 
+        if t.key == "flip" and "signature" in s.done and self.project is not None:
+            plan = F.resign_plan(self.project.steps)
+            if plan == "blocked":
+                if not self.synchronous:
+                    QMessageBox.information(
+                        self, t.title, "Your signature is already on the picture and would be turned with it. "
+                        "Click the Sign Your Picture step in the list and use Go Back to Here, flip or turn the "
+                        "picture, then sign it again.")
+                return
+            if isinstance(plan, int):
+                self._flip_under_signature(params, label)
+                return
+
         def work():
             t0 = time.time()
             new = t.apply(s, params)
@@ -1815,6 +1832,25 @@ class FinishWindow(QMainWindow):
         self.run_job(work, lambda r: (self.log(f"{t.title}: {label}  ({r[1]:.1f} s)"),
                                       self.commit(r[0], t.key, f"{t.title} — {label}", params, then=again)),
                      f"{t.title}…")
+
+    def _flip_under_signature(self, params, label):
+        """Flip / turn a signed picture: the signature is put back on top afterwards, reading the right way."""
+        proj = self.project
+        k = F.resign_plan(proj.steps)
+
+        def work():
+            redo = F.flip_under_signature(proj, params)
+            proj.truncate(k)
+            for st, tool, lab, prm in redo:
+                proj.save(st, tool, lab, prm)
+            return redo[-1][0]
+
+        def done(new):
+            self.state = new
+            self.log(f"Flip or Rotate: {label} - your signature was put back on top, the right way round")
+            self.close_tool()
+            self.after_change()
+        self.run_job(work, done, "Turning the picture under your signature…")
 
     # ------------------------------------------------------------ undo
     def undo_last(self):
