@@ -1141,6 +1141,7 @@ class FinishWindow(QMainWindow):
     def open_tool(self, key, again=False):
         """again: the tool was just applied and stays open on the new picture (Spot Fix, Mote Buster)."""
         self.close_tool()
+        self._show_whole = bool(again) and bool(getattr(F.TOOLS[key], "pick", True))
         self.tool = F.TOOLS[key]
         self.tool_box.setVisible(True)
         for w in (self.choice_scroll, self.choice_note, self.btn_apply, self.btn_close_tool):
@@ -1443,11 +1444,24 @@ class FinishWindow(QMainWindow):
             self.group.idClicked.disconnect()
         except (RuntimeError, TypeError):
             pass
-        self.group.idClicked.connect(self.on_choice)
+        self.group.idClicked.connect(self._user_choice)
         crop = " (shown at full size on a small area, so you see the real effect)" if self.tool.spatial else ""
         self.choice_note.setText("Click a version to see it big (★ = suggested). Nothing changes until you press "
                                  "Apply; Cancel leaves the picture as it was." + crop)
+        if getattr(self, "_show_whole", False):
+            # just applied: keep showing the whole new picture until a version is clicked or a slider moved
+            self._show_whole = False
+            self.fine_values = {}
+            v = self.selected()
+            if v is not None:
+                self.build_sliders(v.params)
+            self.preview_hint.setText("This is your picture now. Click a version (or move a slider) to preview "
+                                      "another round.")
+            return
         self.on_choice(max(0, self.group.checkedId()))
+
+    def _user_choice(self, i):
+        self.on_choice(i)
 
     # ------------------------------------------------------------ preview & fine-tune
     def selected(self):
