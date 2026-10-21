@@ -414,7 +414,7 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Take Stars Out", "Hides the stars so the nebula can be brightened strongly (instant if page 3 already separated them)", "StarXTerminator"],
   ["Brighten the Image", "The stretch - five strengths, three methods", "STF / HistogramTransformation / GHS"],
   ["Adjust Colours ◇", "Bring out (or calm) one colour at a time - reds, yellows, greens, cyans, blues, magentas; grey and white stay as they are", "ColorSaturation"],
-  ["Tame Bright Core ◇", "Recovers detail in a burnt-out galaxy core or bright nebula: lowers the core's glow towards its surroundings and brings its structure back from the linear data (works best right after Brighten the Image)", "HDRMultiscaleTransform with a mask"],
+  ["Tame Bright Core ◇", "Recovers detail in a burnt-out galaxy core or bright nebula: lowers the core's glow towards its surroundings and brings its structure back from the linear data; a nucleus burnt out even in the masters is rounded off so no hard white dot is left, and the stronger versions take in more of the area around the core (works best right after Brighten the Image)", "HDRMultiscaleTransform with a mask"],
   ["Adjust Brightness & Contrast", "Curves presets, sliders and a curve you can drag", "CurvesTransformation"],
   ["Colour Intensity", "Richer or calmer colour; dark sky protected", "Saturation curve"],
   ["Bring Out Hidden Structure ◇", "Local contrast for dust lanes and cores", "LocalHistogramEqualization"],

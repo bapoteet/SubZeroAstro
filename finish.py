@@ -2881,8 +2881,11 @@ class TameCore(Tool):
 
     def variants(self, s):
         note = "core saturated in the masters: smooths rather than recovers" if s.sat_core else ""
-        return [Variant(n, {"amount": a, "size": 0.78, "detail": 30.0}, note, i == 1) for i, (n, a) in
-                enumerate((("Gentle", 0.45), ("Medium", 0.7), ("Strong", 0.9), ("Maximum", 1.0)))]
+        # stronger versions also take in more of the area around the core, so a peaked galaxy nucleus
+        # fades smoothly into the tamed core instead of staying a small bright dot
+        return [Variant(n, {"amount": a, "size": sz, "detail": 30.0}, note, i == 1) for i, (n, a, sz) in
+                enumerate((("Gentle", 0.45, 0.82), ("Medium", 0.7, 0.72), ("Strong", 0.9, 0.62),
+                           ("Maximum", 1.0, 0.55)))]
 
     def sliders(self, s, params):
         return [Slider("amount", "Strength", 0.0, 1.0, params["amount"], "How much the core is toned down"),
@@ -2909,6 +2912,9 @@ class TameCore(Tool):
 
     GLOW_DIV = 6.0             # the glow is blurred at the core radius / this
     PEAK_ROOM = 0.3            # the glow peak lands this share of the way from the edge brightness to white
+    DETAIL_CAP = 0.08          # structure brighter than this above the lowered glow is squeezed (smoothly)
+    SHOULDER = (0.80, 0.15)    # roll-off: starts here, approaches start + this
+    TOP_SOFTEN = 1.5           # a clipped flat top is rounded off with a blur of its radius x this
     CORE_FLATTEN = 0.85        # share of the core's glow (above its edge's brightness) taken away at full strength
 
     def _target(self, s, params, m):
@@ -2948,6 +2954,17 @@ class TameCore(Tool):
                 u = np.clip((n - n_e) / max(n_max - n_e, 1e-9), 0, None)
                 rec = e + (top - e) * np.log1p(c * u) / np.log1p(c)
                 src = np.where(n > n_e, np.minimum(rec, 1.0), y).astype(np.float32)
+        # a nucleus burnt out even in the masters is a flat disc with a hard rim: round it off into a soft
+        # peak (no detail is lost - there is none in a clipped area)
+        flat_top = (src >= float(src[inside].max()) - 0.004) & inside
+        if s.lin_lum is not None and s.lin_lum.shape == y.shape:
+            n_ = s.lin_lum
+            flat_top |= (n_ >= float(n_[inside].max()) * 0.995) & inside
+        if flat_top.sum() > 8:
+            rp = float(np.sqrt(flat_top.sum() / np.pi))
+            sig = max(1.5, rp * self.TOP_SOFTEN)
+            wgt = np.clip(_blur(flat_top.astype(np.float32), sig) * 2.0, 0, 1)
+            src = (src * (1 - wgt) + _blur(src.astype(np.float32), sig) * wgt).astype(np.float32)
         e = float(np.median(src[edge])) if edge.any() else float(np.percentile(src[inside], 5))
         # the core's glow: a blur on the scale of the core itself
         rc = float(np.sqrt(inside.sum() / np.pi))
@@ -2956,7 +2973,7 @@ class TameCore(Tool):
         detail = src - glow
         # keep this much of the glow above the edge: at most 15%, and less when the brightest part
         # would still end up near white (a strongly brightened or re-made core)
-        g_top = float(np.percentile(glow[inside], 99.5))
+        g_top = float(glow[inside].max())                      # the true peak (a small nucleus is a tiny share)
         room = (0.97 - e) * self.PEAK_ROOM                      # the glow peak lands this share of the way to white
         keep = 1 - self.CORE_FLATTEN
         if g_top > e:
@@ -2965,9 +2982,14 @@ class TameCore(Tool):
         # structure re-made at a bigger scale is brought down with the glow, but never below 30%
         d_scale = float(np.clip(keep / (1 - self.CORE_FLATTEN), 0.3, 1.0))
         gain = (1.0 + 0.5 * min(1.0, c / 60.0)) * d_scale      # the Detail slider lifts the structure too
-        v = flat + detail * gain
-        # a soft shoulder instead of a hard clip: the brightest structure rolls off below white
-        v = np.where(v > 0.9, 0.9 + 0.08 * np.tanh((v - 0.9) / 0.08), v)
+        # the structure on top of the lowered glow - but a lone very bright spot (the centre, often
+        # burnt out in the masters too) is squeezed smoothly, so no bright dot with hard edges is left
+        dl = detail * gain
+        dl = np.where(dl > 0, self.DETAIL_CAP * np.tanh(dl / self.DETAIL_CAP), dl)   # dark detail (dust lanes) untouched
+        v = flat + dl
+        # a soft shoulder instead of a hard clip: the brightest structure rolls off gently below white
+        s0, s1 = self.SHOULDER
+        v = np.where(v > s0, s0 + s1 * np.tanh((v - s0) / s1), v)
         return np.clip(v, 0, 1).astype(np.float32)
 
     def apply(self, s, params):

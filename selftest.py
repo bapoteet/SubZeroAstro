@@ -1777,6 +1777,20 @@ def run(app, out_dir: Path) -> int:
               f"SkyFlat across a meridian flip: the two sides are found (30 + 10 frames) and the nebula stays out of "
               f"the flat (leak {_leak:.3f}); frames all one way up are left as they are")
 
+        # a small galaxy nucleus burnt out even in the masters: no hard-edged white dot is left after taming
+        _yy, _xx = np.mgrid[:400, :600]
+        _rr = np.hypot(_xx - 300, _yy - 200)
+        _L = np.minimum(0.02 + 0.5 * np.exp(-(np.hypot(_xx - 300, (_yy - 200) / 0.6) / 2.0) ** 0.5), 0.30).astype(np.float32)
+        _ys = np.clip(np.arcsinh(_L * 60) / np.arcsinh(0.30 * 60) * 1.15, 0, 1).astype(np.float32)
+        _no = F.TOOLS["core"].apply(F.State(rgb=np.stack([_ys] * 3), linear=False, lin_lum=_L),
+                                    F.TOOLS["core"].variants(F.State(rgb=np.stack([_ys] * 3), linear=False))[1].params
+                                    ).rgb[0]
+        _pf = np.array([_no[(_rr >= k) & (_rr < k + 1)].mean() for k in range(0, 30)])
+        _ar = float(np.median(_no[(_rr > 10) & (_rr < 14)]))
+        check(_pf[0] < 0.86 and float(np.max(-np.diff(_pf))) < 0.065,
+              f"Tame Bright Core leaves no hard white dot at a burnt-out nucleus (centre {_pf[0]:.2f} vs {_ar:.2f} "
+              f"around, edge {float(np.max(-np.diff(_pf))):.3f}/px)")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")
