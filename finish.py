@@ -318,7 +318,8 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
     cover = None
     for items in planes.values():
         for img, _stp in items:
-            v = img > 0
+            # real gaps are wedges, not single noise pixels that happened to clip to 0
+            v = _box_blur((img > 0).astype(np.float32), 2) > 0.5
             cover = v if cover is None else (cover & v)
     crop = None
     if cover is not None and not cover.all():
@@ -377,6 +378,75 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None):
     return chans, cstars, notes
 
 
+def master_depth(m) -> float:
+    """Total exposure (or frame count) a master holds, from its header; 0 when unknown."""
+    lk = _cards_look(m)
+    for k in ("EXPTOTAL", "NCOMBINE"):
+        try:
+            v = float(lk.get(k) or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        if v > 0:
+            return v
+    return 0.0
+
+
+def pick_colour_masters(color, is_dual):
+    """Which colour-camera masters make the picture. With a dual-band filter, the narrowband
+    masters (unfiltered ones would bloat the stars and wash out the nebula colours); otherwise
+    the filter with the most exposure. Returns (used, left_out)."""
+    duals = [m for m in color if is_dual(m)]
+    if duals:
+        used = duals
+    else:
+        by = {}
+        for m in color:
+            by.setdefault(m.filter, []).append(m)
+        best = max(by, key=lambda f: (sum(master_depth(m) for m in by[f]), len(by[f])))
+        used = by[best]
+    return used, [m for m in color if m not in used]
+
+
+def assemble_colour(masters, stars_of=lambda m: None, log=None):
+    """Colour masters -> one (3, h, w) picture per filter, all on ONE grid: every master of a filter
+    is used (lined up and noise-weighted like mono masters, the deepest one as the reference),
+    instead of only the first one found. Returns ({filter: rgb}, {filter: stars rgb}, notes),
+    images scaled 0..1."""
+    from types import SimpleNamespace
+    cache = {}
+
+    def st_of(m):
+        if id(m) not in cache:
+            cache[id(m)] = stars_of(m)
+        return cache[id(m)]
+    planes = []
+    for m in masters:
+        for c in range(3):
+            planes.append(SimpleNamespace(path=m.path, data=m.data[c:c + 1], cards=m.cards, look=m.look,
+                                          filter=f"{m.filter}#{c}", orig=m, ch=c))
+
+    def plane_stars(w):
+        st_img = st_of(w.orig)
+        return None if st_img is None or st_img.shape[0] != 3 else st_img[w.ch:w.ch + 1]
+    chans, cstars, notes = assemble_mono(planes, plane_stars, log)
+    rgbs, stars = {}, {}
+    for f in dict.fromkeys(m.filter for m in masters):
+        keys = [f"{f}#{c}" for c in range(3)]
+        if all(k in chans for k in keys):
+            rgbs[f] = np.stack([chans[k] for k in keys])
+            if all(k in cstars for k in keys):
+                stars[f] = np.stack([cstars[k] for k in keys])
+    import re as _re
+    clean = []
+    for n in notes:
+        n = _re.sub(r"#\d", "", n)
+        # counts there are of colour planes (the reference's own other planes included): name the masters instead
+        n = _re.sub(r"\d+ master\(s\)", f"{len(masters) - 1} other master(s)", n)
+        if n not in clean:
+            clean.append(n)
+    return rgbs, stars, clean
+
+
 def load_state(paths) -> State:
     """Build the starting state from one target's masters (prepared or not)."""
     import prepare as P
@@ -394,37 +464,63 @@ def load_state(paths) -> State:
         except Exception:  # noqa: BLE001
             return None
 
-    duals = [m for m in color if dual_band_filter(m.filter, m.look)]
-    if len(duals) >= 2 and len({__import__("fits_core").band_lines(m.filter)[0] for m in duals}) >= 2:
-        # e.g. L-Ultimate (Ha+OIII) + L-Synergy (SII+OIII): a full SHO set from a colour camera
-        import fits_core as core
-        o3s, o3_stars = [], []
-        for m in duals:
-            rgb = np.clip(m.data / 65535.0, 0, None).astype(np.float32)
-            line, o3 = split_dual_band(rgb)
-            name = core.band_lines(m.filter)[0]
-            s.channels[name] = line
-            o3s.append(o3)
-            st_img = stars_of(m)
-            if st_img is not None and st_img.shape == rgb.shape:
-                s.channel_stars[name] = st_img[0]
-                o3_stars.append((st_img[1] + st_img[2]) / 2)
-        s.channels["OIII"] = np.mean(o3s, axis=0).astype(np.float32)        # OIII from both filters
-        if len(o3_stars) == len(duals):
-            s.channel_stars["OIII"] = np.mean(o3_stars, axis=0).astype(np.float32)
-        else:
-            s.channel_stars = {}
-        s.kind = "osc_sho"
-        s.filter = " + ".join(m.filter for m in duals)
-        return s
     if color:
-        m = color[0]
-        s.rgb = np.clip(m.data / 65535.0, 0, None).astype(np.float32)
+        is_dual = lambda m: dual_band_filter(m.filter, m.look)  # noqa: E731
+        used, left = pick_colour_masters(color, is_dual)
+        notes = []
+        if len(used) > 1:
+            try:
+                rgbs, srgbs, notes = assemble_colour(used, stars_of)
+            except Exception as e:  # noqa: BLE001 - never stop on this: fall back to the deepest master
+                deepest = max(used, key=master_depth)
+                rgbs = {deepest.filter: np.clip(deepest.data, 0, None).astype(np.float32)}
+                st0 = stars_of(deepest)
+                srgbs = {deepest.filter: st0 * 65535.0} if st0 is not None else {}
+                notes = [f"could not combine the masters ({e}) - used the deepest one"]
+                rgbs = {k: v / 65535.0 for k, v in rgbs.items()}
+                srgbs = {k: v / 65535.0 for k, v in srgbs.items()}
+        else:
+            m = used[0]
+            rgbs = {m.filter: np.clip(m.data / 65535.0, 0, None).astype(np.float32)}
+            st0 = stars_of(m)
+            srgbs = {m.filter: st0} if st0 is not None and st0.shape == m.data.shape else {}
+        if left:
+            notes.append("left out " + ", ".join(sorted({f"{m.filter} ({m.path.stem})" for m in left}))
+                         + (" - unfiltered data would bloat the stars and wash out the dual-band colours"
+                            if any(is_dual(m) for m in used) else " - another filter with less exposure"))
+        if notes:
+            s.load_note = "; ".join(notes)
+        dual_f = [f for f in rgbs if any(is_dual(m) and m.filter == f for m in used)]
+        import fits_core as core
+        if len(dual_f) >= 2 and len({core.band_lines(f)[0] for f in dual_f}) >= 2:
+            # e.g. L-Ultimate (Ha+OIII) + L-Synergy (SII+OIII): a full SHO set from a colour camera
+            o3s, o3_stars = [], []
+            for f in dual_f:
+                line, o3 = split_dual_band(rgbs[f])
+                name = core.band_lines(f)[0]
+                s.channels[name] = line
+                o3s.append(o3)
+                st_img = srgbs.get(f)
+                if st_img is not None and st_img.shape == rgbs[f].shape:
+                    s.channel_stars[name] = st_img[0]
+                    o3_stars.append((st_img[1] + st_img[2]) / 2)
+            s.channels["OIII"] = np.mean(o3s, axis=0).astype(np.float32)        # OIII from both filters
+            if len(o3_stars) == len(dual_f):
+                s.channel_stars["OIII"] = np.mean(o3_stars, axis=0).astype(np.float32)
+            else:
+                s.channel_stars = {}
+            s.kind = "osc_sho"
+            s.filter = " + ".join(dual_f)
+            return s
+        # one picture: the filter with the most exposure among those used
+        f = max(rgbs, key=lambda k: sum(master_depth(m) for m in used if m.filter == k))
+        m = next(x for x in used if x.filter == f)
+        s.rgb = rgbs[f]
         s.kind = "smart" if smart else "osc"
-        s.filter = m.filter
-        if dual_band_filter(m.filter, m.look):
+        s.filter = f
+        if is_dual(m):
             s.kind = "osc_dual"
-        st_img = stars_of(m)
+        st_img = srgbs.get(f)
         if st_img is not None and st_img.shape == s.rgb.shape:
             s.stars, s.stars_out, s.stars_hidden = st_img, True, True
         elif m.look.get("STARLESS"):

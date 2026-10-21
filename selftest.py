@@ -1686,6 +1686,29 @@ def run(app, out_dir: Path) -> int:
               f"Spot Fix keeps the stars inside a big circle at their true brightness ({_pk[0]:.2f}/0.50, "
               f"{_pk[1]:.2f}/0.60) and still removes what is clicked in a small one")
 
+        # colour-camera masters: every master of the filter is used (deepest as reference, noise-weighted),
+        # and unfiltered ones are set aside when there is dual-band data
+        from types import SimpleNamespace as _NS
+        _rg = np.random.default_rng(7)
+        _yy, _xx = np.mgrid[:400, :500]
+        _sk = np.zeros((400, 500))
+        for _ in range(80):
+            _sk += _rg.uniform(2000, 30000) * np.exp(-((_xx - _rg.uniform(15, 485)) ** 2 + (_yy - _rg.uniform(15, 385)) ** 2)
+                                                    / (2 * 1.8 ** 2))
+
+        def _cm(name, filt, exp, noise):
+            d = np.stack([1000 + _sk * k + _rg.normal(0, noise, _sk.shape) for k in (1, .5, .5)]).astype(np.float32)
+            return _NS(path=Path(name + ".xisf"), data=d, cards=[("EXPTOTAL", exp, ""), ("ALIGNREF", "r", "")],
+                       look={}, filter=filt, is_color=True)
+        _deep, _short, _broad = (_cm("deep", "L-Ultimate", 110880, 40), _cm("short", "L-Ultimate", 540, 400),
+                                 _cm("broad", "No filter", 9000, 120))
+        _used, _left = F.pick_colour_masters([_short, _broad, _deep], lambda m: F.dual_band_filter(m.filter, m.look))
+        _rgbs, _srgb, _cn = F.assemble_colour(_used)
+        _noise = F._sky_noise(_rgbs["L-Ultimate"][0] * 65535)[1]
+        check([m.path.stem for m in _left] == ["broad"] and _noise < 60 and "2 L-Ultimate masters combined" in _cn,
+              f"colour masters: all of a filter are combined around the deepest (noise {_noise:.0f} vs deep 40, short "
+              f"400) and unfiltered ones are left out of dual-band pictures")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")
