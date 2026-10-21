@@ -695,7 +695,7 @@ class FinishWindow(QMainWindow):
         self.chk_star_bg = QCheckBox("Show the nebula behind the stars")
         self.chk_star_bg.setToolTip("The star steps show the stars on their own, so you can judge them. Tick to see "
                                     "them over the nebula as they will look in the end.")
-        self.chk_star_bg.setChecked(bool(settings.value("finish/star_bg", False, type=bool)) if settings else False)
+        self.chk_star_bg.setChecked(bool(self.settings.value("finish/star_bg", False, type=bool)) if self.settings else False)
         F.STARS_ALONE = not self.chk_star_bg.isChecked()
         self.chk_star_bg.toggled.connect(self._star_bg_toggled)
         self.chk_star_bg.setVisible(False)
