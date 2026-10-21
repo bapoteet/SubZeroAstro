@@ -634,6 +634,12 @@ def display_fixed(img: np.ndarray, ref: np.ndarray) -> np.ndarray:
 
 
 STAR_TOOLS = ("star_stretch", "shrink", "star_color")
+STARS_ALONE = True        # the star steps show the stars on their own (the window's tick box can add the nebula)
+
+
+def star_view():
+    """How the star steps show the picture: the stars alone, or over the nebula."""
+    return "only" if STARS_ALONE else True
 
 
 def state_display(s: State, linked=True, with_stars=None) -> np.ndarray:
@@ -651,11 +657,13 @@ def state_display(s: State, linked=True, with_stars=None) -> np.ndarray:
             img = next(iter(ch.values()))[None]
         return display_rgb8(img, True, linked=False)
     if with_stars is None:
-        with_stars = s.stars_hidden or bool(s.done and s.done[-1] in STAR_TOOLS)
+        with_stars = star_view() if (s.done and s.done[-1] in STAR_TOOLS) else s.stars_hidden
     img = s.rgb
     if not (with_stars and s.stars_out and s.stars is not None):
         return display_rgb8(img, s.linear, linked)
     st_ = s.stars if s.stars.shape[0] == img.shape[0] else np.repeat(s.stars, img.shape[0], 0)
+    if with_stars == "only":                   # the stars on their own (while the star steps are worked on)
+        return display_rgb8(st_, s.stars_linear, linked)
     if s.linear and s.stars_linear:
         return display_rgb8(img + st_, True, linked)
     if not s.linear and not s.stars_linear:
@@ -762,7 +770,7 @@ class Tool:
 
     def preview(self, s: "State", params: dict) -> np.ndarray:
         """What a version looks like (thumbnails and the live fine-tune preview)."""
-        return state_display(self.apply(s, params), with_stars=True if self.shows_stars else None)
+        return state_display(self.apply(s, params), with_stars=star_view() if self.shows_stars else None)
 
 
 # --------------------------------------------------------------------------

@@ -387,7 +387,7 @@ steps([
   "The card at the top says what is **Recommended next** and why. Click **Do It** (or click any step in the list).",
   "Pick a version: each step shows 3-5 small pictures of **your** image - gentle to strong, or different colour mixes. ★ marks the suggestion. **Clicking only previews it big** - nothing changes yet.",
   "Optional: tick **Fine-tune** and move the plain-language sliders; the preview follows. **Reset** returns to the version you picked. Under the sliders the app says how much of the picture the setting visibly changes - if it says *This barely changes your picture*, there is little for that step to do on this target (no green cast to remove, no burnt-out core to tame), so the sliders have almost nothing to work on.",
-  "Press **Apply** to keep it - or **Cancel** to leave the picture exactly as it was.",
+  "Press the green **Apply** to keep it - or **Cancel** to leave the picture exactly as it was. When the step is done the panel says so in green (**✓ … applied**), Apply disappears and an amber **✓ Applied – Next Step ➜** button takes you straight to the next recommended step - so after a break you can always tell whether a step was applied. Steps that can be repeated also offer **Apply Again**. The picture goes back to the whole view after every step.",
   "Not quite enough? Many steps can be run again on their own result: after one of them the card shows **↻ Do It Again** (and a ✓ step in the list can be clicked to run it again). That works for Balance Colours, Remove Green Cast, Tame Bright Core, Curves, Saturation, Bring Out Hidden Structure, Shrink Stars, Star Colours, Mote Buster, Darken the Sky Background, Final Noise Reduction, Flip, Final Crop and Spot Fix. One-way steps - combining, brightening, taking the stars out or putting them back, signing - are not repeated; use **Go Back to Here** to redo those.",
 ]);
 img("17_finish_brighten_choices.png", "Picking a version: Brighten the Image offers five strengths (example data)");
@@ -417,7 +417,7 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Adjust Brightness & Contrast", "Curves presets, sliders and a curve you can drag", "CurvesTransformation"],
   ["Colour Intensity", "Richer or calmer colour; dark sky protected", "Saturation curve"],
   ["Bring Out Hidden Structure ◇", "Local contrast for dust lanes and cores", "LocalHistogramEqualization"],
-  ["Brighten Stars Separately", "Gentle star stretch - small, colourful stars", "Star stretch"],
+  ["Brighten Stars Separately", "Gentle star stretch - small, colourful stars. The star steps show the stars on their own; tick *Show the nebula behind the stars* to see them over the nebula", "Star stretch"],
   ["Shrink Stars", "Makes stars smaller", "Star reduction / MorphologicalTransformation"],
   ["Star Colours", "Natural star colours (estimated from your data) or clean white stars - recommended for narrowband", "Star colour correction"],
   ["Put Stars Back", "Blends the stars back at the strength you pick", "PixelMath screen blend"],
@@ -434,7 +434,7 @@ p("Dust on a filter or on the camera window casts round shadows - **dust donuts*
 bullets([
   "Open **Mote Buster** while the picture is still unstretched (it comes before *Take Stars Out*). The donuts it finds in the sky are already circled in yellow.",
   "Donuts on bright nebulosity are not searched automatically (a gap between filaments could look like one) - **click** those yourself. Click to place a circle, then **turn the mouse wheel to size that circle** while you watch (just cover the donut). Click a circle to pick it again (it turns blue) and drag to move it; right-click removes it. A dashed ring follows the mouse to show the size of the next circle. Clicks need not be exact: each circle is centred on its donut automatically.",
-  "Check the preview, then press the fix button. Mote Buster stays open on the **fixed picture**, so you can circle any donuts that are left and fix again - as many rounds as you like (each round is its own step; *Undo Last Step* takes back the last one). Press **Done – Next Step ➜** when you are happy. Spot Fix works the same way. For small specks (hot pixels, satellite remnants) use **Spot Fix** instead.",
+  "Check the preview, then press the fix button. Mote Buster stays open on the **fixed picture**, so you can circle any donuts that are left and fix again - as many rounds as you like (each round is its own step; *Undo Last Step* takes back the last one). Press **✓ Applied – Next Step ➜** when you are happy. Spot Fix works the same way. For small specks (hot pixels, satellite remnants) use **Spot Fix** instead.",
 ]);
 sec("9.5", "Stars: take out, brighten, colour, put back", ["Stars workflow", "Starless"]);
 p("Stars and nebula look best when processed separately. **Take Stars Out** hides the stars (the picture shows the nebula alone); the nebula steps follow; then **Brighten Stars Separately**, **Shrink Stars** and **Star Colours** work on the stars (their previews show the stars); **Put Stars Back** recombines them. If you **Skip** Take Stars Out, the stars simply stay in the picture.");

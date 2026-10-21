@@ -1449,6 +1449,7 @@ def run(app, out_dir: Path) -> int:
         import finish as F
         shot("16_finish_palette_choices.png", fw)
         done = []
+        _ui = {}
         for _ in range(16):
             t = F.next_step(fw.state)
             if t is None:
@@ -1475,9 +1476,9 @@ def run(app, out_dir: Path) -> int:
                 QApplication.processEvents()
                 r2 = fw.tool is not None and fw.tool.key == "dust" and len(fw.project.steps) == n0 + 2
                 fw.done_tool()
-                check(r1 and r2 and fw.tool is None and "dust" in fw.state.done
+                check(r1 and r2 and (fw.tool is None or fw.tool.key == "stretch") and "dust" in fw.state.done
                       and F.next_step(fw.state) is not None and F.next_step(fw.state).key == "stretch",
-                      "Mote Buster can be run again on the fixed picture; Done – Next Step moves on")
+                      "Mote Buster can be run again on the fixed picture; ✓ Applied – Next Step opens the next step")
                 again_ok = fw.btn_again.isVisibleTo(fw) and "Mote Buster" in fw.btn_again.toolTip()
                 fw.do_again()
                 QApplication.processEvents()
@@ -1542,8 +1543,31 @@ def run(app, out_dir: Path) -> int:
                 check(fw.curve.isVisible() or fw.curve.isVisibleTo(fw), "Curves shows a curve you can drag")
                 fw.curve.points[2] = [0.5, 0.58]
                 fw._curve_dragged([list(q) for q in fw.curve.points])
+            if t.key == "shrink":
+                _ui["star_box"] = fw.chk_star_bg.isVisibleTo(fw)
+                _ui["star_only"] = (fw.state.stars_out and fw.state.stars is not None and not np.array_equal(
+                    F.state_display(fw.state.small(300), with_stars="only"),
+                    F.state_display(fw.state.small(300), with_stars=True)))
             fw.apply_choice()
+            QApplication.processEvents()
+            if t.key == "stretch":
+                _ui["one_way"] = (fw.applied_label.isVisibleTo(fw) and not fw.btn_apply.isVisibleTo(fw)
+                                  and fw.btn_done_tool.isVisibleTo(fw) and "Next Step" in fw.btn_done_tool.text())
+            if t.key == "curves":
+                _ui["repeat"] = (fw.tool is not None and fw.tool.key == "curves" and fw.btn_apply.text() == "Apply Again"
+                                 and fw.btn_done_tool.isVisibleTo(fw) and fw.applied_label.isVisibleTo(fw))
+            if t.spatial:
+                _side = sys.modules[type(fw).__module__].PREVIEW_SIDE
+                _ui.setdefault("full_view", []).append(
+                    fw.view.pix.pixmap().width() == fw.state.small(_side).shape[1])
             done.append(t.key)
+        check(_ui.get("one_way", True) and _ui.get("repeat", True),
+              f"after Apply the panel says it is applied: one-way steps show only '✓ Applied – Next Step', repeatable "
+              f"ones 'Apply Again' too ({_ui})")
+        check(all(_ui.get("full_view", [True])), "after a step the whole picture is shown again (not the close-up preview)")
+        if "star_box" in _ui:
+            check(_ui["star_box"] and _ui["star_only"], "the star steps show the stars on their own, with a tick box "
+                                                        "for the nebula behind them")
         st_ = fw.state
         check(F.next_step(st_) is None and not st_.linear, f"recommended workflow runs to a finished picture "
                                                            f"({done})")

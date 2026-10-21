@@ -33,6 +33,10 @@ from prepare_window import CropView, save_rgb8
 
 SIGN_DRAGGED = "Where I dragged it"
 LAST_EXPORT_DIR = "finish/export_dir_last"     # the folder the last picture was saved to
+APPLY_STYLE = ("QPushButton { background:#2e9d4f; color:white; font-weight:bold; padding:6px 18px; border-radius:4px; }"
+               "QPushButton:hover { background:#38b45d; } QPushButton:disabled { background:#34443a; color:#8a8a8a; }")
+DONE_STYLE = ("QPushButton { background:#e0a526; color:#1b1b1b; font-weight:bold; padding:6px 14px; border-radius:4px; }"
+              "QPushButton:hover { background:#f0b838; }")
 STATUS_MARK = {"done": "✓", "next": "➜", "later": "○", "skipped": "⤼", "n/a": "–", "optional": "◇"}
 PREVIEW_SIDE = 1400                         # live preview size (fast, still sharp on screen)
 
@@ -688,6 +692,14 @@ class FinishWindow(QMainWindow):
         self.chk_mask.toggled.connect(lambda _on: self.schedule_preview())
         self.chk_mask.setVisible(False)
         tl.addWidget(self.chk_mask)
+        self.chk_star_bg = QCheckBox("Show the nebula behind the stars")
+        self.chk_star_bg.setToolTip("The star steps show the stars on their own, so you can judge them. Tick to see "
+                                    "them over the nebula as they will look in the end.")
+        self.chk_star_bg.setChecked(bool(settings.value("finish/star_bg", False, type=bool)) if settings else False)
+        F.STARS_ALONE = not self.chk_star_bg.isChecked()
+        self.chk_star_bg.toggled.connect(self._star_bg_toggled)
+        self.chk_star_bg.setVisible(False)
+        tl.addWidget(self.chk_star_bg)
         self.choices = QWidget()
         self.grid = QGridLayout(self.choices)
         self.group = QButtonGroup(self)
@@ -778,6 +790,7 @@ class FinishWindow(QMainWindow):
         self.sign_corner.currentTextChanged.connect(self._sign_corner_picked)
         self.sign_colour.currentTextChanged.connect(lambda _t: self.sign_timer.start())
         sc = QScrollArea()
+        self.choice_scroll = sc
         sc.setWidgetResizable(True)
         sc.setWidget(self.choices)
         tl.addWidget(sc, 1)
@@ -823,15 +836,21 @@ class FinishWindow(QMainWindow):
         self.spots = []
         self.spot_r = 10.0
         self.spot_items = []
+        self.applied_label = QLabel()
+        self.applied_label.setWordWrap(True)
+        self.applied_label.setStyleSheet("color:#4cd07a;")
+        self.applied_label.setVisible(False)
+        tl.addWidget(self.applied_label)
         br = QHBoxLayout()
         self.btn_apply = QPushButton("Apply")
-        self.btn_apply.setStyleSheet("QPushButton { font-weight:bold; padding:6px 18px; }")
+        self.btn_apply.setStyleSheet(APPLY_STYLE)
         self.btn_apply.clicked.connect(self.apply_choice)
         self.btn_close_tool = QPushButton("Cancel")
         self.btn_close_tool.setToolTip("Close without changing anything - the picture goes back to how it was")
         self.btn_close_tool.clicked.connect(self.cancel_tool)
-        self.btn_done_tool = QPushButton("Done – Next Step  ➜")
-        self.btn_done_tool.setToolTip("Finished with this tool - the fixes so far are kept; go on to the next step")
+        self.btn_done_tool = QPushButton("✓ Applied – Next Step  ➜")
+        self.btn_done_tool.setStyleSheet(DONE_STYLE)
+        self.btn_done_tool.setToolTip("This step is done and kept - open the next recommended step")
         self.btn_done_tool.clicked.connect(self.done_tool)
         self.btn_done_tool.setVisible(False)
         br.addStretch(1)
@@ -977,6 +996,7 @@ class FinishWindow(QMainWindow):
         self.refresh()
         self.refresh_history(select_last=True)
         self.close_tool()
+        self.show_current()          # the whole picture again (not the last close-up preview), fitted to the window
 
     def refresh(self):
         s = self.state
@@ -1123,6 +1143,9 @@ class FinishWindow(QMainWindow):
         self.close_tool()
         self.tool = F.TOOLS[key]
         self.tool_box.setVisible(True)
+        for w in (self.choice_scroll, self.choice_note, self.btn_apply, self.btn_close_tool):
+            w.setVisible(True)
+        self.chk_star_bg.setVisible(bool(getattr(self.tool, "shows_stars", False)))
         self.tool_title.setText(f"<h3 style='margin:0'>{self.tool.title}</h3>{self.tool.tip}")
         self.method_row.setVisible(key == "stretch")
         self.chk_mask.blockSignals(True)
@@ -1183,7 +1206,7 @@ class FinishWindow(QMainWindow):
                          "circle to pick it again (drag to move); right-click removes it.")
             if again:
                 spot_note = ("<b>Fixed - this is the new picture.</b> Circle any spots that are left and press "
-                             "the button again, or press <b>Done – Next Step</b> when you are happy. "
+                             "the button again, or press <b>✓ Applied – Next Step</b> when you are happy. "
                              "(Undo Last Step takes back the last round.)")
             elif hasattr(self.tool, "found_spots"):
                 try:
@@ -1204,6 +1227,17 @@ class FinishWindow(QMainWindow):
             self.btn_close_tool.setText("Close" if again else "Cancel")
         if key == "final_crop":
             self._set_crop_box("found")
+        if again:
+            # it was just applied: say so plainly, and offer the way on
+            self.applied_label.setText(f"✓ <b>{self.tool.title} applied</b> - this is your picture now. "
+                                       "Run it once more with <b>Apply Again</b>, or go on with "
+                                       "<b>✓ Applied – Next Step</b>.")
+            self.applied_label.setVisible(True)
+            self.btn_done_tool.setText("✓ Applied – Next Step  ➜")
+            self.btn_done_tool.setVisible(True)
+            self.btn_close_tool.setText("Close")
+            if self.btn_apply.text() == "Apply":
+                self.btn_apply.setText("Apply Again")
         if key == "flip" and self.state is not None and "signature" in self.state.done:
             self.choice_note.setText("<b>Your picture is already signed.</b> The preview turns the signature too, "
                                      "but when you keep it, the signature is put back on top the right way round, "
@@ -1211,6 +1245,8 @@ class FinishWindow(QMainWindow):
 
     def close_tool(self):
         self.tool = None
+        self.applied_tool = None
+        self.applied_label.setVisible(False)
         self.btn_done_tool.setVisible(False)
         self.btn_close_tool.setText("Cancel")
         self.variants = []
@@ -1293,12 +1329,46 @@ class FinishWindow(QMainWindow):
 
     def done_tool(self):
         """Finished with a tool that can be run several times: keep what was done and move on."""
-        was = self.tool
+        was = self.tool or getattr(self, "applied_tool", None)
         self.close_tool()
         self.show_current()
         self.refresh()
         if was:
             self.log(f"{was.title}: done")
+        nxt = F.next_step(self.state) if self.state is not None else None
+        if nxt is not None:
+            self.open_tool(nxt.key)
+
+    def show_applied(self, t):
+        """After a one-way step: the panel stays, saying it is done, with the way on (no Apply to press again)."""
+        self.close_tool()
+        self.applied_tool = t
+        self.tool_box.setVisible(True)
+        self.tool_title.setText(f"<h3 style='margin:0'>{t.title}</h3>{t.tip}")
+        self._clear_choices()
+        for w in (self.choice_scroll, self.choice_note, self.fine_box, self.method_row, self.chk_mask, self.chk_star_bg,
+                  self.sign_row, self.crop_row, self.flip_row, self.chk_tool_linked, self.btn_apply):
+            w.setVisible(False)
+        self.preview_hint.setText("")
+        nxt = F.next_step(self.state) if self.state is not None else None
+        self.applied_label.setText(f"✓ <b>{t.title} applied</b> - this is your picture now."
+                                   + (f" Next: <b>{nxt.title}</b>." if nxt else ""))
+        self.applied_label.setVisible(True)
+        self.btn_done_tool.setText("✓ Applied – Next Step  ➜" if nxt else "✓ Applied – Close")
+        self.btn_done_tool.setVisible(True)
+        self.btn_close_tool.setText("Close")
+        self.btn_close_tool.setVisible(True)
+
+    def _star_bg_toggled(self, on):
+        F.STARS_ALONE = not on
+        if self.settings is not None:
+            self.settings.setValue("finish/star_bg", bool(on))
+        self._before_cache = {}
+        if self.tool is not None and getattr(self.tool, "shows_stars", False):
+            self.render_choices()
+            self.schedule_preview()
+        else:
+            self.show_current()
 
     def cancel_tool(self):
         """Close the tool without changing anything; the picture goes back to how it was."""
@@ -1339,7 +1409,7 @@ class FinishWindow(QMainWindow):
             extra = self.extra_params()
             extra.pop("pos", None)                      # font samples: shown in the corner view
             thumbs = [F.state_display(t.apply(small, {**v.params, **extra}),
-                                      with_stars=True if t.shows_stars else None) for v in vs]
+                                      with_stars=F.star_view() if t.shows_stars else None) for v in vs]
             return vs, thumbs
         self.run_job(work, self._choices_ready, "Making the choices…")
 
@@ -1602,7 +1672,7 @@ class FinishWindow(QMainWindow):
             key = (t.key, id(s), t.spatial)
             base = self._before_cache.get(key)
             if base is None:                             # the picture as it is now, at the same size
-                base = F.state_display(ps, with_stars=True if t.shows_stars else None)
+                base = F.state_display(ps, with_stars=F.star_view() if t.shows_stars else None)
                 self._before_cache = {key: base}
             return img, changed_share(base, img)
 
@@ -1828,7 +1898,8 @@ class FinishWindow(QMainWindow):
             t0 = time.time()
             new = t.apply(s, params)
             return new, time.time() - t0
-        again = (lambda: self.open_tool(t.key, again=True)) if getattr(t, "repeatable", False) else None
+        again = ((lambda: self.open_tool(t.key, again=True)) if getattr(t, "repeatable", False)
+                 else (lambda: self.show_applied(t)))
         self.run_job(work, lambda r: (self.log(f"{t.title}: {label}  ({r[1]:.1f} s)"),
                                       self.commit(r[0], t.key, f"{t.title} — {label}", params, then=again)),
                      f"{t.title}…")
@@ -1850,6 +1921,7 @@ class FinishWindow(QMainWindow):
             self.log(f"Flip or Rotate: {label} - your signature was put back on top, the right way round")
             self.close_tool()
             self.after_change()
+            self.open_tool("flip", again=True)
         self.run_job(work, done, "Turning the picture under your signature…")
 
     # ------------------------------------------------------------ undo
