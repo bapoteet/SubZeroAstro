@@ -612,6 +612,7 @@ bullets([
   "**Crop tightly:** at 900 mm M57 is only about 100 pixels across - *Final Crop* makes it fill the picture.",
   "**At the telescope:** shorter subs (60-120 s) keep the brightest part from burning out in the masters; collect plenty of them.",
 ]);
+tip("A recipe that works for M57 (colour camera + L-Ultimate, 3.6 h): *HOO* palette · *Take Stars Out* · *Brighten the Image: Gentle* (Colour-preserving) · skip *Remove Green Cast* · *Curves: Lift faint detail* · *Tame Bright Core: Medium* · *Saturation: Vivid* · *Adjust Colours: Blues and reds* with Blues about 1.3, Reds 0.85 and *Smooth colour transitions* 0.6-1.0 · the star steps · *Put Stars Back* · a tight *Final Crop*. The result: a blue centre, a gold-to-red ring and the faint outer halo.", "Worked example");
 
 sec("15.5", "Dark nebulae and faint dust", ["Dark nebula processing", "Dark nebulae", "IFN", "Barnard"]);
 bullets([
