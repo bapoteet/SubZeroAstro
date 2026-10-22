@@ -1254,6 +1254,10 @@ class Brighten(Tool):
         return True, ""
 
     def recommended_method(self, s):
+        if s.is_color and target_type(s) == "planetary nebula":
+            # small and very bright: a per-colour stretch pushes all three colours to the top together and the
+            # nebula turns grey; brightening the luminance and keeping each pixel's colour mix keeps it colourful
+            return "colour"
         if s.stars_out:
             return "ghs"                 # starless: strong, smooth stretch for faint nebulosity
         if s.is_color:

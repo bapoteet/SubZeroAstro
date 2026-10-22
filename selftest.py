@@ -1861,6 +1861,21 @@ def run(app, out_dir: Path) -> int:
               f"planetary nebula: the part of it star removal took for a star goes back to the nebula (stars image "
               f"{_stk[0][_rgm].mean():.3f} -> {_st2[0][_rgm].mean():.3f}), bright stars stay; the ring is tamed after Curves")
 
+        # a planetary nebula is brightened colour-preserving: its colours survive (a per-colour stretch turned M57 grey)
+        _yy, _xx = np.mgrid[:600, :900]
+        _r = np.hypot(_xx - 450, (_yy - 300) / 1.25)
+        _rg_, _in_ = np.exp(-((_r - 40) / 8) ** 2), np.exp(-(_r / 34) ** 2)
+        _pl = np.stack([0.02 + 0.30 * _rg_ + 0.12 * _in_, 0.02 + 0.15 * _rg_ + 0.17 * _in_,
+                        0.02 + 0.13 * _rg_ + 0.19 * _in_]).astype(np.float32)
+        _pst = F.State(rgb=_pl, kind="osc_dual", target="M57", linear=True, stars_out=True)
+        _bt = F.TOOLS["stretch"]
+        _meth = _bt.recommended_method(_pst)
+        _s1 = _bt.apply(_pst, [x for x in _bt.variants(_pst, _meth) if x.label == "Gentle"][0].params)
+        _ci = _s1.rgb[:, _r < 15].mean(1)
+        check(_meth == "colour" and float(_ci[2] - _ci[0]) > 0.2,
+              f"a planetary nebula is brightened colour-preserving and keeps its colours (inside R {_ci[0]:.2f} "
+              f"G {_ci[1]:.2f} B {_ci[2]:.2f})")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")
