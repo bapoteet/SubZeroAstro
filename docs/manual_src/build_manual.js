@@ -719,6 +719,7 @@ const HIGHLIGHTS = [
     ["Do It Again", "Repeatable steps (curves, saturation, noise, Mote Buster …) can be run once more on their own result", "0.9.48"],
     ["Adjust Colours, Full Window, zoom", "Bring out one colour at a time; see the picture full-window and zoom in to full resolution at any step", "0.9.58"],
     ["“Processed with SubZeroAstro” credit", "A small, optional credit line in the corner of finished pictures - moves aside for your signature; never on XISF / FITS data", "0.9.59"],
+    ["Planetary nebulae recognised", "From the name (M57, M27 …) the whole process is tailored: colour-preserving brightening, the nebula moved back from the stars image, Tame the Ring keeps the centre and halo", "0.9.71-0.9.76"],
     ["Mote Buster – Fix Dust Donuts", "Measures each dust shadow ring by ring and divides it out with a synthetic flat, so the detail underneath comes back; run it in rounds", "0.9.22 / 0.9.47"],
     ["Every master used", "Several masters per filter averaged (less noisy ones count more), other setups bent onto one grid, unmatched ones left out", "0.9.41"],
     ["Target description", "A short write-up from Wikipedia plus SIMBAD facts, credited, saved next to your picture", "0.9.34"],
