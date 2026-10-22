@@ -854,85 +854,59 @@ def split_dual_band(rgb: np.ndarray):
     return ha.astype(np.float32), o3.astype(np.float32)
 
 
-LEAK_MAX = 0.20      # most of a red line a colour camera's green/blue pixels can catch
+LEAK_MAX = 0.10      # most of a red line a colour camera's green/blue pixels catch (typically 5-9 %)
+
+
+def _line_leak(o, line, inner):
+    """How much of a red line (Ha or SII) the green/blue pixels caught, from the data itself. Real OIII is never
+    negative, and among the pixels brightest in the line some always have next to no OIII (dust-bound fronts),
+    so the low end of OIII/line there is the leak. Never more than LEAK_MAX; 0 when it can't be told."""
+    m = inner & (line > np.percentile(line[inner], 95))
+    if m.sum() < 100:
+        return 0.0
+    return float(np.clip(np.percentile(o[m] / np.maximum(line[m], 1e-12), 5), 0.0, LEAK_MAX))
 
 
 def combine_oiii(o3s, lines, depths=None):
     """OIII from two dual-band filters (e.g. Askar D1 = Ha+OIII, D2 = SII+OIII). The camera's green and blue
-    pixels also catch a little of the red line, so each OIII estimate carries some Ha (D1) or SII (D2). The two
-    estimates see the same OIII, so their difference shows that leakage: fitted from the data (o1 = p*o2 +
-    a*line1 + q*line2), it is taken out of both, they are put on one scale, and combined noise-weighted.
-    Falls back to a plain average when the fit is not clear. Returns (oiii, note)."""
+    pixels also catch a little of the red line, so each OIII estimate carries some Ha (D1) or SII (D2): that leak
+    is measured per filter and taken out, filter 2's OIII is put on filter 1's scale, and the two are combined
+    weighted by exposure (or noise). Returns (oiii, note)."""
     if len(o3s) != 2 or len(lines) != 2:
         return np.mean(o3s, axis=0).astype(np.float32), ""
     o1, o2 = (np.asarray(x, np.float64) for x in o3s)
     l1, l2 = (np.asarray(x, np.float64) for x in lines)
     st_ = max(1, int(np.sqrt(o1.size / 400000)))
-    # fitted on smoothed copies: noise in a fitted plane would bias the leak estimate (applied at full detail)
+    # measured on smoothed copies (noise would scatter the ratios) and away from the edges, where fewer frames -
+    # often of one filter only - reached
     sm_ = lambda x: _blur(x.astype(np.float32), 3.0)[::st_, ::st_].astype(np.float64)  # noqa: E731
     a1, a2, b1, b2 = sm_(o1), sm_(o2), sm_(l1), sm_(l2)
-    n1 = _sky_noise(a1)[1]
-    sig = (a1 > 3 * n1) | (b1 > 3 * _sky_noise(b1)[1]) | (b2 > 3 * _sky_noise(b2)[1])
-    if sig.sum() < 500:
-        return (np.mean(o3s, axis=0).astype(np.float32),
-                "OIII from both filters: averaged (too little nebula signal to measure the line leakage)")
-    # one leak fraction for both lines: the same green/blue pixels catch it, and Ha (656 nm) and SII (672 nm)
-    # are close - fitting one shared fraction (o1 - f*line1 = p * (o2 - f*line2)) stays stable even where the
-    # OIII follows the Ha closely, which a free fit of two leaks does not
-    def fit(m):
-        """Best shared leak fraction f and scale p over the pixels in mask m (None when too few)."""
-        if m.sum() < 200:
-            return None
-        y, u1, u2, v2 = a1[m], b1[m], a2[m], b2[m]
-        out = None
-        for f in np.linspace(0.0, LEAK_MAX, 41):
-            z = u2 - f * v2
-            den = float((z * z).sum())
-            if den <= 0:
-                continue
-            pf = float((z * (y - f * u1)).sum()) / den
-            r = float(np.median(np.abs((y - f * u1) - pf * z)))     # robust: stars and artefacts don't steer it
-            if out is None or r < out[0]:
-                out = (r, f, pf)
-        return out
-
-    # measured away from the edges (where fewer frames - often of one filter only - reached), and separately
-    # in four quarters: the median of those is not thrown off by one odd area (an edge, a gradient left over)
     hh, ww = a1.shape
     yy_, xx_ = np.mgrid[:hh, :ww]
-    inner = (yy_ > 0.15 * hh) & (yy_ < 0.85 * hh) & (xx_ > 0.15 * ww) & (xx_ < 0.85 * ww)
-    parts = [fit(sig & inner & ((yy_ < hh / 2) == top) & ((xx_ < ww / 2) == left))
-             for top in (True, False) for left in (True, False)]
-    fs = [q[1] for q in parts if q is not None]
-    whole = fit(sig & inner) or fit(sig)
-    if whole is not None and len(fs) >= 3:
-        f_m = float(np.median(fs))
-        mm = sig & inner
-        z = a2[mm] - f_m * b2[mm]
-        den = float((z * z).sum())
-        best = (whole[0], f_m, float((z * (a1[mm] - f_m * b1[mm])).sum()) / den) if den > 0 else whole
-    else:
-        best = whole
-    if best is None or not (0.05 < best[2] < 20):
+    inner = (yy_ > 0.1 * hh) & (yy_ < 0.9 * hh) & (xx_ > 0.1 * ww) & (xx_ < 0.9 * ww)
+    if inner.sum() < 2000:
         return (np.mean(o3s, axis=0).astype(np.float32),
-                "OIII from both filters: averaged (the two filters' OIII did not match well enough to measure "
-                "the line leakage)")
-    _r, f_, p_ = best
-    a_, q_ = f_, -f_ * p_
-    c1 = o1 - a_ * l1                                       # OIII from filter 1 without its line's leak
-    c2 = p_ * o2 + q_ * l2                                  # filter 2's, on filter 1's scale, without its leak
+                "OIII from both filters: averaged (too little picture to measure the line leakage)")
+    f1, f2 = _line_leak(a1, b1, inner), _line_leak(a2, b2, inner)
+    c1s, c2s = (a1 - f1 * b1)[inner], (a2 - f2 * b2)[inner]
+    span = lambda x: float(np.percentile(x, 97) - np.percentile(x, 50))  # noqa: E731 - the OIII's brightness range
+    p_ = span(c1s) / span(c2s) if span(c2s) > 0 else 1.0
+    if not (0.05 < p_ < 20):
+        p_ = 1.0
+    c1 = o1 - f1 * l1                                       # OIII from filter 1 without its line's leak
+    c2 = p_ * (o2 - f2 * l2)                                # filter 2's, on filter 1's scale, without its leak
     if depths and len(depths) == 2 and min(depths) > 0:
         # by exposure: the masters have been through noise reduction, which leaves pixel noise that says little
         # about how deep each one is; filter 2's OIII is scaled by p, which scales its noise too
-        w1, w2 = float(depths[0]), float(depths[1]) / max(p_, 1e-6) ** 2
+        w1, w2 = float(depths[0]), float(depths[1]) / p_ ** 2
         how = "by exposure"
     else:
-        w1 = 1.0 / max(_sky_noise(c1)[1], 1e-9) ** 2
-        w2 = 1.0 / max(_sky_noise(c2)[1], 1e-9) ** 2
+        w1 = 1.0 / max(_sky_noise(c1)[1], 1e-12) ** 2
+        w2 = 1.0 / max(_sky_noise(c2)[1], 1e-12) ** 2
         how = "noise-weighted"
     share = min(max(w1 / (w1 + w2), 0.2), 0.8)              # both filters hold real OIII - never drop one
     out = c1 * share + c2 * (1 - share)
-    note = (f"OIII from both filters: line leakage taken out ({100 * a_:.0f}% of the Ha and SII), "
+    note = (f"OIII from both filters: line leakage taken out ({100 * f1:.0f}% of the Ha, {100 * f2:.0f}% of the SII), "
             f"combined {how} ({100 * share:.0f}% / {100 * (1 - share):.0f}%)")
     return out.astype(np.float32), note
 
