@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.84 beta"
+APP_VERSION = "0.9.85 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -774,12 +774,21 @@ class LoadDataDialog(QDialog):
         b_proj = self.buttons.addButton("Open a Saved Project…", QDialogButtonBox.ActionRole)
         b_proj.setToolTip("Carry on with a project you saved on Finishing Touches (page 4) - no frames to load")
         b_proj.clicked.connect(self._open_project_instead)
+        self.wants_masters = False
+        b_mast = self.buttons.addButton("Process Existing Masters…", QDialogButtonBox.ActionRole)
+        b_mast.setToolTip("Already stacked? Pick your master lights (or their folder) and go straight to "
+                          "Astro Image Processing (page 2) - no restacking")
+        b_mast.clicked.connect(self._open_masters_instead)
         for src in initial or []:
             self.add_source(src)
         self.update_total()
 
     def _open_project_instead(self):
         self.wants_project = True
+        self.reject()
+
+    def _open_masters_instead(self):
+        self.wants_masters = True
         self.reject()
 
     # -- adding
@@ -1231,6 +1240,10 @@ class MainWindow(QMainWindow):
                                     "Ctrl+Shift+O", QStyle.SP_DialogOpenButton,
                                     "Open a project you saved on Finishing Touches (page 4) and carry on where "
                                     "you left off")
+        self.act_open_masters = act("Process Existing Master Lights…", self.open_existing_masters, "Ctrl+Shift+M",
+                                    QStyle.SP_DirOpenIcon,
+                                    "Already stacked? Pick your master lights and go straight to Astro Image "
+                                    "Processing (page 2) - no restacking")
         self.act_start_over = act("Start Over – Load New Data…", self.start_over, "Ctrl+N",
                                   QStyle.SP_BrowserReload,
                                   "Clear this session and open a new folder (Ctrl+N)")
@@ -1303,7 +1316,7 @@ class MainWindow(QMainWindow):
 
         mb = self.menuBar()
         m = mb.addMenu("&File")
-        for a in (self.act_load, self.act_open_project, self.act_open, self.act_reopen, self.act_start_over, self.act_fresh,
+        for a in (self.act_load, self.act_open_project, self.act_open_masters, self.act_open, self.act_reopen, self.act_start_over, self.act_fresh,
                   self.act_reload, self.act_remeasure):
             m.addAction(a)
         m.addSeparator()
@@ -1459,6 +1472,25 @@ class MainWindow(QMainWindow):
             self.open_sources(dlg.sources(), filter_name=dlg.filter_override())
         elif getattr(dlg, "wants_project", False):
             self.open_saved_project()
+        elif getattr(dlg, "wants_masters", False):
+            self.open_existing_masters()
+
+    def open_existing_masters(self, files=None):
+        """Master lights stacked earlier: pick them and go straight to Astro Image Processing (page 2)."""
+        if not isinstance(files, (list, tuple)):          # from a menu: Qt passes 'checked'
+            files = None
+        if files is None:
+            start = self.settings.value("stack/masters_root", "") or self.settings.value("last_folder", str(Path.home()))
+            files, _ = QFileDialog.getOpenFileNames(
+                self, "Pick your master lights (e.g. the D1 and D2 masters of one target)", start,
+                "Master lights (*.fits *.fit *.fts *.xisf)")
+            if not files:
+                return None
+        files = [Path(f) for f in files]
+        self.settings.setValue("stack/masters_root", str(files[0].parent))
+        import prepare_window
+        return ui_header.open_page(self, "prep_win", tuple(str(f) for f in files),
+                                   lambda: prepare_window.PrepareWindow(self, self.settings, files))
 
     def open_saved_project(self, folder=None):
         """Open a project saved on Finishing Touches and go straight there."""

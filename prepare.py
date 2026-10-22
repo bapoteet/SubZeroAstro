@@ -98,6 +98,27 @@ def is_master_light(look: dict, name: str) -> bool:
         "_master" in name.lower() and "flat" not in t and "dark" not in t and "bias" not in t)
 
 
+_VERSION = re.compile(r"(\d{4}-\d{2}-\d{2})_(\d+)$")
+
+
+def newest_versions(files) -> list:
+    """Restacking the same target saves ..._2026-07-03_2, _3, ... next to the first master: from a folder only
+    the newest of each is used (pick an older one with Add Masters… to work on it)."""
+    groups = {}
+    for f in files:
+        m = _VERSION.search(f.stem)
+        key = (f.parent, f.stem[:m.start(2) - 1] if m else f.stem)
+        groups.setdefault(key, []).append(f)
+    out = []
+    for fs in groups.values():
+        def ver(f):
+            m = _VERSION.search(f.stem)
+            return int(m.group(2)) if m else 1
+        top = max(ver(f) for f in fs)
+        out += [f for f in fs if ver(f) == top]
+    return out
+
+
 def find_masters(paths) -> list:
     """Master light files in the given files / folders (one per base name; FITS preferred)."""
     files = []
@@ -108,8 +129,9 @@ def find_masters(paths) -> list:
             stems = {f.stem for f in here}
             # a comet's extra masters (_Comet, _Stars) stay out when the joined master is there too -
             # pick one of them with Add Masters… to work on it
-            files += [f for f in here if not (f.stem.endswith(("_Comet", "_Stars")) and
-                                              f.stem.rsplit("_", 1)[0] in stems)]
+            here = [f for f in here if not (f.stem.endswith(("_Comet", "_Stars")) and
+                                            f.stem.rsplit("_", 1)[0] in stems)]
+            files += newest_versions(here)
         elif p.suffix.lower() in st.IMAGE_EXTS:
             files.append(p)
     by_base = {}

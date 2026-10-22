@@ -2346,6 +2346,18 @@ def run(app, out_dir: Path) -> int:
               f"page 1 opens a saved project straight onto Finishing Touches ({_n} steps from {_p3.dir.name})")
         if _fwp is not None:
             _fwp.close()
+        # Process Existing Masters from page 1: a button and a menu item; from a folder only the newest restack
+        _ld2 = fb.LoadDataDialog(w, w.settings)
+        _mb = [b for b in _ld2.buttons.buttons() if b.text() == "Process Existing Masters…"]
+        if _mb:
+            _mb[0].click()
+        _askedm = bool(_mb) and _ld2.wants_masters
+        _ld2.deleteLater()
+        import prepare as _prp
+        _vs = [Path(f"/x/T_Ha_Master_2026-06-29_to_2026-07-03{v}.fits") for v in ("", "_4", "_8")] + [Path("/x/T_OIII_Master.fits")]
+        _nv = sorted(f.name for f in _prp.newest_versions(_vs))
+        check(_askedm and "act_open_masters" in vars(w) and _nv == ["T_Ha_Master_2026-06-29_to_2026-07-03_8.fits", "T_OIII_Master.fits"],
+              f"page 1 can go straight to existing master lights; a folder gives the newest restack only ({_nv})")
         # Zip My Logs: every open page's log plus a note about this computer, in one zip
         import zip_logs as _zl
         import zipfile as _zf
