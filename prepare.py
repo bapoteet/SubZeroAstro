@@ -285,6 +285,26 @@ def common_autocrop(masters: list):
     return (x0, y0, x1, y1) if x1 > x0 and y1 > y0 else None
 
 
+def crop_outside_note(rect, covered):
+    """A warning when a hand-drawn crop reaches past the area ~all frames cover (the stack's auto-crop):
+    there only some frames - often only one filter - fill the picture, so it shows up as a coloured, noisier
+    band along that edge."""
+    if rect is None or covered is None:
+        return ""
+    x0, y0, x1, y1 = (int(v) for v in rect)
+    cx0, cy0, cx1, cy1 = (int(v) for v in covered)
+    area = max(1, (x1 - x0) * (y1 - y0))
+    ix = max(0, min(x1, cx1) - max(x0, cx0))
+    iy = max(0, min(y1, cy1) - max(y0, cy0))
+    out = 1.0 - ix * iy / area
+    if out < 0.02:
+        return ""
+    sides = [n for n, bad in (("top", y0 < cy0), ("bottom", y1 > cy1), ("left", x0 < cx0), ("right", x1 > cx1)) if bad]
+    return (f"Note: {100 * out:.0f}% of this crop ({', '.join(sides)} edge) is outside the area 90% of the frames "
+            f"cover (x {cx0}-{cx1}, y {cy0}-{cy1}) - fewer frames there, so it is noisier, and a coloured band can "
+            f"show at the very edge where only one filter reached; crop inside that area to avoid it")
+
+
 def crop(m: Master, rect):
     x0, y0, x1, y1 = (int(v) for v in rect)
     h, w = m.shape
@@ -994,9 +1014,12 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
             pr("Cropping", s0)
             if overlap is not None:                  # stay inside the area all lined-up masters cover
                 extra = _intersect(tuple(int(v) for v in extra), overlap)
+            edge_note = crop_outside_note(extra, common_autocrop(masters))
             for m in masters:
                 crop(m, extra)
             lg(f"Cropped {n} master(s) to {extra}")
+            if edge_note:
+                lg(edge_note)
         elif step == "solve":
             astap = tools.ASTAP(opts.astap)
             solve_memo = {}

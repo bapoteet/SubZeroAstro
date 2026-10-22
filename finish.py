@@ -873,7 +873,8 @@ def combine_oiii(o3s, lines):
     n1 = _sky_noise(a1)[1]
     sig = (a1 > 3 * n1) | (b1 > 3 * _sky_noise(b1)[1]) | (b2 > 3 * _sky_noise(b2)[1])
     if sig.sum() < 500:
-        return np.mean(o3s, axis=0).astype(np.float32), ""
+        return (np.mean(o3s, axis=0).astype(np.float32),
+                "OIII from both filters: averaged (too little nebula signal to measure the line leakage)")
     # one leak fraction for both lines: the same green/blue pixels catch it, and Ha (656 nm) and SII (672 nm)
     # are close - fitting one shared fraction (o1 - f*line1 = p * (o2 - f*line2)) stays stable even where the
     # OIII follows the Ha closely, which a free fit of two leaks does not
@@ -890,7 +891,9 @@ def combine_oiii(o3s, lines):
         if best is None or r < best[0]:
             best = (r, f, pf)
     if best is None or not (0.05 < best[2] < 20):
-        return np.mean(o3s, axis=0).astype(np.float32), ""
+        return (np.mean(o3s, axis=0).astype(np.float32),
+                "OIII from both filters: averaged (the two filters' OIII did not match well enough to measure "
+                "the line leakage)")
     _r, f_, p_ = best
     a_, q_ = f_, -f_ * p_
     c1 = o1 - a_ * l1                                       # OIII from filter 1 without its line's leak
