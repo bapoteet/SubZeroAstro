@@ -1178,8 +1178,43 @@ class TakeStarsOut(Tool):
             starless, stars = self.runner(s.rgb, s.linear)
             s.rgb, s.stars = starless.astype(np.float32), stars.astype(np.float32)
             s.stars_out, s.stars_linear = True, s.linear
+        if (s.stars is not None and s.rgb is not None and s.stars.shape[1:] == s.rgb.shape[1:]
+                and s.stars_linear == s.linear and target_type(s) == "planetary nebula"):
+            s.rgb, s.stars, _moved = rescue_object(s.rgb, s.stars)
         s.done.append(self.key)
         return s
+
+
+def rescue_object(rgb: np.ndarray, stars: np.ndarray):
+    """Star removal (StarXTerminator) can take a small, bright nebula - a planetary nebula like M57 - for a
+    star and put (part of) it in the stars-only image, where no nebula step reaches it and Put Stars Back
+    makes it white again. Anything in the central part of the stars image that is much wider than a star
+    is moved back into the nebula image. Returns (rgb, stars, share of the stars image's light moved)."""
+    lum = stars.mean(axis=0) if stars.shape[0] > 1 else stars[0]
+    h, w = lum.shape
+    f = max(1, int(np.ceil(max(h, w) / 1500)))
+    sm, _f = _small_plane(lum, 1500)
+    r = max(3, int(round(12 / f)))                        # wider than ~25 px: not a star
+    opened = -_min_filter(-_min_filter(sm, r), r)
+    med = float(np.median(sm))
+    noise = float(np.median(np.abs(sm - med))) * 1.4826 + 1e-6
+    if float(opened.max()) <= med + 5 * noise:
+        return rgb, stars, 0.0
+    m = opened > max(med + 5 * noise, med + 0.08 * (float(opened.max()) - med))
+    sh, sw = m.shape
+    box = np.zeros_like(m)
+    box[int(sh * 0.3):int(sh * 0.7), int(sw * 0.3):int(sw * 0.7)] = True   # the target sits near the middle
+    m &= box
+    if not m.any():
+        return rgb, stars, 0.0
+    wgt = _blur((-_min_filter(-m.astype(np.float32), r) > 0.5).astype(np.float32), max(1.0, r / 2))
+    wgt = np.clip(_resize(np.clip(wgt * 1.5, 0, 1), sh * f, sw * f), 0, 1)
+    full = np.zeros((h, w), np.float32)
+    full[:min(h, wgt.shape[0]), :min(w, wgt.shape[1])] = wgt[:h, :w]
+    moved = stars * full[None]
+    share = float(moved.sum() / max(float(stars.sum()), 1e-9))
+    return (rgb + (moved if moved.shape[0] == rgb.shape[0] else moved.mean(0, keepdims=True))).astype(np.float32), \
+        (stars - moved).astype(np.float32), share
 
 
 # --------------------------------------------------------------------------
@@ -3168,8 +3203,12 @@ def workflow(s: State) -> list:
     """[(tool, status)] in the recommended order; status: done / skipped / next / later / n/a.
     The kind of object (galaxy, star cluster, comet …) only moves steps between recommended and
     optional - none is ever taken away."""
-    steps = WORKFLOWS.get(s.kind, WORKFLOWS["osc"])
+    steps = list(WORKFLOWS.get(s.kind, WORKFLOWS["osc"]))
     tune = TYPE_TUNING.get(target_type(s), {})
+    if target_type(s) == "planetary nebula" and "core" in steps and "curves" in steps:
+        # a planetary's ring is tamed after Curves (whose contrast would make it white again), before Saturation
+        steps.remove("core")
+        steps.insert(steps.index("curves") + 1, "core")
     out, found_next = [], False
     for key in steps:
         t = TOOLS[key]

@@ -1835,6 +1835,29 @@ def run(app, out_dir: Path) -> int:
               f"planetary nebula: the ring is taken below white ({_yr[_rgm].mean():.2f} -> {_po[_rgm].mean():.2f}), "
               f"the centre ({_yr[_cnm].mean():.2f} -> {_po[_cnm].mean():.2f}) and halo stay; the tint shows in green")
 
+        # a planetary nebula that star removal put (partly) into the stars image is moved back to the nebula,
+        # bright stars stay; and its ring is tamed after Curves
+        _H, _W = 1200, 1800
+        _sl = np.zeros((_H, _W), np.float32)
+        _yy, _xx = np.mgrid[:_H, :_W]
+        _pts = [(_rg.uniform(20, _W - 20), _rg.uniform(20, _H - 20), _rg.uniform(0.002, 0.1), 1.0) for _ in range(300)]
+        _pts += [(1000, 700, 0.9, 4.0), (800, 520, 0.9, 4.0)]
+        for _x, _y, _a, _sg in _pts:
+            _y0, _y1, _x0, _x1 = int(_y) - 20, int(_y) + 21, int(_x) - 20, int(_x) + 21
+            _gy, _gx = np.mgrid[_y0:_y1, _x0:_x1]
+            _sl[_y0:_y1, _x0:_x1] += (_a * np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * _sg * _sg))).astype(np.float32)
+        _rr = np.hypot(_xx - 900, (_yy - 600) / 1.25)
+        _sl += (0.06 * np.exp(-((_rr - 42) / 10) ** 2)).astype(np.float32)
+        _stk = np.stack([_sl, _sl * 0.9, _sl * 0.8])
+        _rgb2, _st2, _sh = F.rescue_object(np.full_like(_stk, 0.01), _stk)
+        _rgm = (_rr > 34) & (_rr < 50)
+        _wf_p = [t.key for t, _ in F.workflow(F.State(rgb=np.full((3, 40, 40), 0.3, np.float32), kind="osc_dual",
+                                                      target="M57", linear=False))]
+        check(float(_st2[0][_rgm].mean()) < 0.1 * float(_stk[0][_rgm].mean()) and abs(float(_st2[0][700, 1000]) - 0.9) < 0.02
+              and float(_rgb2[0][_rgm].mean()) > 0.04 and _wf_p.index("curves") < _wf_p.index("core") < _wf_p.index("saturation"),
+              f"planetary nebula: the part of it star removal took for a star goes back to the nebula (stars image "
+              f"{_stk[0][_rgm].mean():.3f} -> {_st2[0][_rgm].mean():.3f}), bright stars stay; the ring is tamed after Curves")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")
