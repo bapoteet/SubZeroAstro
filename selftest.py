@@ -1917,7 +1917,7 @@ def run(app, out_dir: Path) -> int:
               f"error {float((_occ - _O3c)[_hm].mean()):+.4f})")
         import prepare as _pp
         _cn1 = _pp.crop_outside_note((1923, 0, 4157, 1312), (1914, 649, 5049, 2981))
-        _o0, _on0 = F.combine_oiii([_o1, _o2 * 0 + 1e-9], [_Ha, _S2])
+        _o0, _on0 = F.combine_oiii([_o1[:20, :20], _o2[:20, :20]], [_Ha[:20, :20], _S2[:20, :20]])
         check("top edge" in _cn1 and _pp.crop_outside_note((2000, 700, 4000, 2900), (1914, 649, 5049, 2981)) == ""
               and "averaged" in _on0,
               f"a hand crop past the well-covered area is flagged ({_cn1[:60]}...); an OIII fallback says why ({_on0[:60]}...)")
