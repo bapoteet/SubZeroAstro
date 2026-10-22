@@ -1925,6 +1925,17 @@ def run(app, out_dir: Path) -> int:
         check("top edge" in _cn1 and _pp.crop_outside_note((2000, 700, 4000, 2900), (1914, 649, 5049, 2981)) == ""
               and "averaged" in _on0,
               f"a hand crop past the well-covered area is flagged ({_cn1[:60]}...); an OIII fallback says why ({_on0[:60]}...)")
+        # SHO: Remove Green Cast turns the Ha green gold (keeps its brightness) instead of deleting it
+        _rgt = F.TOOLS["scnr"]
+        _sg = F.State()
+        _sg.rgb = np.ones((3, 8, 8), np.float32) * np.array([0.1, 0.8, 0.1], np.float32)[:, None, None]
+        _sg.kind, _sg.palette = "osc_sho", "SHO"
+        _gv = [v for v in _rgt.variants(_sg) if v.recommended][0]
+        _gp = _rgt.apply(_sg, _gv.params).rgb[:, 0, 0]
+        _sg.palette = "HOO"
+        check(_gv.label == "Gold 100%" and _gp[0] > _gp[1] > 0.4 and _gp[2] < 0.15
+              and all("Gold" not in v.label for v in _rgt.variants(_sg)),
+              f"SHO green (Ha) turned gold, not deleted ({_gv.label}: {np.round(_gp, 2).tolist()}); HOO keeps plain removal")
         _names = {n: _fc.normalize_filter(n) for n in ("D1", "Askar D2", "D1 Ha/OIII", "SII-OIII", "Ha/OIII")}
         check(abs(float((_oc - _O3)[_hm].mean())) < 0.003 and "leakage" in _on
               and _names == {"D1": "Askar D1", "Askar D2": "Askar D2", "D1 Ha/OIII": "Askar D1",

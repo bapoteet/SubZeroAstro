@@ -1176,28 +1176,49 @@ class RemoveGreen(Tool):
     def applicable(self, s):
         return (True, "") if s.is_color else (False, "Needs a colour image")
 
+    def _narrowband(self, s):
+        return s.kind in ("mono_nb", "osc_dual", "osc_sho") and s.palette not in ("NATURAL", None)
+
+    GOLD_PALETTES = ("SHO", "HHO")         # palettes whose green is the Ha
+
     def variants(self, s):
+        if self._narrowband(s) and s.palette not in self.GOLD_PALETTES:
+            return [Variant(f"{int(a * 100)}%", {"amount": a}, "", a == 1.0) for a in (0.25, 0.5, 0.75, 1.0)]
+        if self._narrowband(s):
+            # narrowband: the green is real signal (Ha in SHO) - turn it gold instead of deleting it, so the
+            # brightest structure keeps its brightness and the classic gold and blue appears
+            return ([Variant(f"Gold {int(a * 100)}%", {"amount": a, "gold": True}, "", a == 1.0) for a in (0.5, 0.75, 1.0)]
+                    + [Variant("Remove only", {"amount": 1.0, "gold": False},
+                               "plain SCNR: takes the green away - darker, more blue and magenta")])
         g = s.rgb[1] - np.maximum(s.rgb[0], s.rgb[2])
         excess = float(np.mean(g[::3, ::3] > 0))
-        best = 1.0 if s.kind in ("mono_nb", "osc_dual", "osc_sho") and s.palette not in ("NATURAL", None) \
-            else (0.75 if excess > 0.5 else 0.5)
+        best = 0.75 if excess > 0.5 else 0.5
         return [Variant(f"{int(a * 100)}%", {"amount": a}, "", a == best) for a in (0.25, 0.5, 0.75, 1.0)]
 
     def sliders(self, s, params):
         return [Slider("amount", "Amount", 0.0, 1.0, params["amount"], "How much of the green cast to remove")]
+
+    GOLD_RED, GOLD_GREEN = 0.75, 0.45     # pure green (0,1,0) at 100% -> (0.75, 0.55, 0): gold
 
     def apply(self, s, params):
         s = s.copy()
         a = float(params["amount"])
         r, g, b = s.rgb
         neutral = np.minimum(g, (r + b) / 2)
-        s.rgb = np.stack([r, g * (1 - a) + neutral * a, b]).astype(np.float32)
+        if params.get("gold"):
+            ex = (g - neutral) * a                               # the green above the neutral level
+            s.rgb = np.stack([np.minimum(r + self.GOLD_RED * ex, 1.0), g - self.GOLD_GREEN * ex, b]).astype(np.float32)
+        else:
+            s.rgb = np.stack([r, g * (1 - a) + neutral * a, b]).astype(np.float32)
         s.done.append(self.key)
         return s
 
     def why(self, s):
         if s.kind in ("mono_nb", "osc_dual", "osc_sho") and s.palette not in ("NATURAL", None):
-            return "Narrowband palettes are very green straight out of combination - this gives the classic gold and blue."
+            if s.palette in self.GOLD_PALETTES:
+                return ("The green here is your Ha - the strongest signal. Gold turns it gold instead of removing it, "
+                        "so the bright structure keeps its brightness: the classic Hubble gold and blue.")
+            return "Narrowband palettes are very green straight out of combination - this tames it."
         return "Colour cameras usually leave a slight green tint after colour balancing."
 
 
