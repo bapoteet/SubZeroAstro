@@ -569,7 +569,7 @@ bullets([
   "**Tame Bright Core** is recommended for every galaxy, right after Brighten the Image. Start with *Medium*; use *Strong* or *Maximum* for a very bright nucleus. Drag *Core size* to the left when the bright area is larger than the tint of *Show what will change*.",
   "**Bring Out Hidden Structure** (*Moderate* or *Strong*) after Curves shows the dust lanes and spiral arms.",
   "**HII regions:** with a mono RGB set plus Ha, *Add Hydrogen Glow* puts the red knots along the arms; with a colour camera, a few hours through a dual-band filter can be added the same way.",
-  "**Filters:** dual-band filters (L-eNhance, L-Ultimate) cut most of a galaxy's starlight - broadband (or a mild light-pollution filter) gives brighter arms and natural colours.",
+  "**Filters:** broadband (or a mild light-pollution filter) gives the brightest arms and most natural colours. A dual-band filter (L-eNhance, L-Ultimate) lets through only a little of a galaxy's starlight, but with long integration it works well and makes the red HII regions stand out - M31 with a 55 mm refractor, an ASI2600MC and an L-Ultimate over about 20 hours shows the disc, the dust lanes and the HII regions clearly.",
   "**Small galaxies:** crop tightly at the end (*Final Crop*), keep the stars in check (*Shrink Stars Moderate*, *Put Stars Back 80-100%*) so the galaxy stays the subject.",
   "**Don't darken the sky too much** - *Slightly darker* keeps the faint outer arms and halo that make a galaxy look real.",
 ]);
