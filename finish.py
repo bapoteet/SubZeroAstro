@@ -2428,6 +2428,23 @@ def hue_degrees(rgb: np.ndarray):
     return (h * 60.0) % 360.0, c, mx
 
 
+def smooth_colour(rgb: np.ndarray, amount: float) -> np.ndarray:
+    """Blend the colours over a few pixels while keeping each pixel's brightness - abrupt colour edges and colour
+    noise soften, detail (which lives in the brightness) stays sharp. amount 0..1; the width follows the
+    picture's size, so a preview and the full picture look alike."""
+    if amount <= 0 or rgb.shape[0] != 3:
+        return rgb
+    h, w = rgb.shape[1:]
+    sig = max(0.6, amount * max(h, w) / 600.0)
+    y = rgb.mean(0)
+    by = _blur(y.astype(np.float32), sig)
+    col = np.stack([_blur(c.astype(np.float32), sig) for c in rgb]) / np.maximum(by, 1e-6)[None]
+    out = col * y[None]
+    mx = out.max(0)
+    out = np.where(mx > 1, out / np.maximum(mx, 1e-6), out)
+    return np.clip(out, 0, 1).astype(np.float32)
+
+
 class AdjustColours(Tool):
     key = "colours"
     title = "Adjust Colours"
@@ -2449,7 +2466,7 @@ class AdjustColours(Tool):
     def variants(self, s):
         sky = float(np.median(_lum(s.rgb)[::3, ::3]))
         base = {name: 1.0 for name, _h in COLOUR_BANDS}
-        base.update({"bright": 0.5, "protect": 0.8, "sky": sky})
+        base.update({"bright": 0.5, "protect": 0.8, "sky": sky, "smooth": 0.3})
         looks = (("Boost blues", {"blues": 1.7, "cyans": 1.35}),
                  ("Boost reds", {"reds": 1.6, "magentas": 1.2}),
                  ("Blues and reds", {"blues": 1.6, "cyans": 1.3, "reds": 1.4}),
@@ -2465,6 +2482,9 @@ class AdjustColours(Tool):
                           "Also brighten the colours you boost (faint blue or red nebulosity shows more)", 0.05))
         out.append(Slider("protect", "Protect the sky", 0.0, 1.0, params["protect"],
                           "Keeps the dark background from getting colourful noise"))
+        out.append(Slider("smooth", "Smooth colour transitions", 0.0, 1.0, params.get("smooth", 0.0),
+                          "Blends the colours where they change abruptly (and calms colour noise); detail stays sharp",
+                          0.05))
         return out
 
     def apply(self, s, params):
@@ -2484,6 +2504,7 @@ class AdjustColours(Tool):
         if br > 0:                                  # lift the boosted colours a little too
             colourful = np.clip(c / np.maximum(mx, 1e-6), 0, 1)
             out = out * (1 + br * np.clip(eff - 1, 0, None) * colourful * 0.5)[None]
+        out = smooth_colour(np.clip(out, 0, 1).astype(np.float32), float(params.get("smooth", 0.0)))
         s.rgb = np.clip(out, 0, 1).astype(np.float32)
         s.done.append(self.key)
         return s

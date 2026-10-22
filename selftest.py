@@ -684,6 +684,10 @@ def run(app, out_dir: Path) -> int:
         sp.show()
         check(sp.xray_img is not None and sp.xray_img.width() > 100,
               "intro animation finds its radiograph picture (assets/splash_radiograph.png)")
+        _xi = sp.xray_img
+        check(_xi is not None and _xi.pixelColor(0, 0).alpha() == 0
+              and _xi.pixelColor(_xi.width() // 2, _xi.height() // 2).alpha() > 200,
+              "the radiograph's edges fade away softly (no hard rectangle)")
         for t_ in (0.5, 1.0, 1.5, 1.9, 2.3, 2.7, 3.1, 3.5, 4.0, 4.6, 5.2):
             sp.set_time(t_)
             QApplication.processEvents()
@@ -1875,6 +1879,21 @@ def run(app, out_dir: Path) -> int:
         check(_meth == "colour" and float(_ci[2] - _ci[0]) > 0.2,
               f"a planetary nebula is brightened colour-preserving and keeps its colours (inside R {_ci[0]:.2f} "
               f"G {_ci[1]:.2f} B {_ci[2]:.2f})")
+
+        # Adjust Colours smooths abrupt colour changes (colour only - the brightness, and so the detail, stays)
+        _yy, _xx = np.mgrid[:400, :600]
+        _band = (_xx // 30) % 2 == 0
+        _cb = np.stack([np.where(_band, 0.7, 0.2), np.full((400, 600), 0.4), np.where(_band, 0.2, 0.7)]).astype(np.float32)
+        _cs = F.State(rgb=_cb, linear=False, kind="osc", target="x")
+        _ct = F.TOOLS["colours"]
+        _cp = dict([x for x in _ct.variants(_cs) if x.label == "Blues and reds"][0].params)
+        _c0 = _ct.apply(_cs, dict(_cp, smooth=0.0)).rgb
+        _c1 = _ct.apply(_cs, dict(_cp, smooth=0.6)).rgb
+        _step = lambda im: float(np.abs(np.diff(im[0, 200, :] / np.maximum(im[:, 200, :].mean(0), 1e-6))).max())  # noqa: E731
+        check(_step(_c1) < 0.6 * _step(_c0) and float(np.abs(_c1.mean(0) - _c0.mean(0)).max()) < 0.06
+              and "smooth" in _cp,
+              f"Adjust Colours can smooth abrupt colour changes ({_step(_c0):.2f} -> {_step(_c1):.2f} per pixel) "
+              "keeping the brightness")
 
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)

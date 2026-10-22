@@ -105,7 +105,31 @@ def load_radiograph():
     q.setCompositionMode(QPainter.CompositionMode_Multiply)
     q.fillRect(img.rect(), QColor(206, 226, 255))
     q.end()
-    return img
+    return feather_edges(img)
+
+
+FEATHER = 0.16          # share of the film's shorter side over which its edges fade away
+
+
+def feather_edges(img):
+    """Fade the film's edges smoothly to transparent, so it melts into whatever is behind it instead of
+    showing a hard rectangle."""
+    try:
+        import numpy as np
+        w, h = img.width(), img.height()
+        bpl = img.bytesPerLine()
+        raw = np.frombuffer(bytes(img.constBits()), np.uint8).reshape(h, bpl)[:, :w * 4].reshape(h, w, 4)
+        f = max(2.0, FEATHER * min(w, h))
+        xs = np.minimum(np.arange(w), np.arange(w)[::-1]) / f
+        ys = np.minimum(np.arange(h), np.arange(h)[::-1]) / f
+        ax, ay = np.clip(xs, 0, 1), np.clip(ys, 0, 1)
+        ax, ay = ax * ax * (3 - 2 * ax), ay * ay * (3 - 2 * ay)          # smoothstep
+        a = (ay[:, None] * ax[None, :]).astype(np.float32)
+        out = np.ascontiguousarray((raw.astype(np.float32) * a[..., None] + 0.5).astype(np.uint8))  # premultiplied
+        res = QImage(out.data, w, h, w * 4, QImage.Format_ARGB32_Premultiplied).copy()
+        return res if not res.isNull() else img
+    except Exception:  # noqa: BLE001 - a hard edge is better than no splash
+        return img
 
 
 # --------------------------------------------------------------------------
@@ -321,11 +345,6 @@ class Splash(QWidget):
                 p.setOpacity(noise)
                 p.drawImage(local, self.grain)
             p.setClipping(False)
-            if xray > 0.005 and lifted > 0:                        # a faint edge once it is off the box
-                p.setOpacity(1.0)
-                p.setBrush(Qt.NoBrush)
-                p.setPen(QPen(QColor(150, 195, 255, int(110 * xray * lifted)), 1.2))
-                p.drawRoundedRect(local, 6, 6)
             p.restore()
         for (x0, y0, rot, d), k in zip(self.films, land):        # films sliding onto the box
             if 0 < k < 1:
