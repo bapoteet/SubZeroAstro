@@ -1896,6 +1896,25 @@ def run(app, out_dir: Path) -> int:
               f"Adjust Colours can smooth abrupt colour changes ({_step(_c0):.2f} -> {_step(_c1):.2f} per pixel) "
               "keeping the brightness")
 
+        # Askar D1 + D2 (or L-Ultimate + L-Synergy): OIII from both, with the Ha / SII leakage measured and taken out
+        import fits_core as _fc
+        _rg2 = np.random.default_rng(0)
+        _yy, _xx = np.mgrid[:600, :900]
+        _Ha = 0.3 * np.exp(-((_xx - 380) ** 2 / (2 * 110 ** 2) + (_yy - 300) ** 2 / (2 * 70 ** 2)))
+        _S2 = 0.12 * np.exp(-((_xx - 490) ** 2 / (2 * 90 ** 2) + (_yy - 260) ** 2 / (2 * 60 ** 2)))
+        _O3 = 0.15 * np.exp(-((_xx - 320) ** 2 / (2 * 70 ** 2) + (_yy - 340) ** 2 / (2 * 45 ** 2)))
+        _o1 = _O3 + 0.08 * _Ha + _rg2.normal(0, 0.004, _Ha.shape)
+        _o2 = 0.6 * _O3 + 0.07 * _S2 + _rg2.normal(0, 0.008, _Ha.shape)
+        _oc, _on = F.combine_oiii([_o1, _o2], [_Ha + _rg2.normal(0, 0.004, _Ha.shape), _S2 + _rg2.normal(0, 0.008, _Ha.shape)])
+        _hm = _Ha > 0.1
+        _names = {n: _fc.normalize_filter(n) for n in ("D1", "Askar D2", "D1 Ha/OIII", "SII-OIII", "Ha/OIII")}
+        check(abs(float((_oc - _O3)[_hm].mean())) < 0.003 and "leakage" in _on
+              and _names == {"D1": "Askar D1", "Askar D2": "Askar D2", "D1 Ha/OIII": "Askar D1",
+                             "SII-OIII": "Dual-band SII/OIII", "Ha/OIII": "Dual-band"}
+              and _fc.band_lines("SII-OIII")[0] == "SII",
+              f"two dual-band filters: the Ha/SII leakage is taken out of the OIII (Ha left {float((_oc - _O3)[_hm].mean()):+.4f}; "
+              f"{_on}); D1/D2-style names recognised")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")

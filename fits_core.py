@@ -534,8 +534,8 @@ _FILTER_MAP = {
 }
 
 DUAL_BAND = {"L-Ultimate", "L-eXtreme", "L-eNhance", "ALP-T", "NBZ", "NBX", "Dual-band", "Duo-band", "L-Synergy",
-             "Askar D1", "Askar D2"}
-SII_OIII_BAND = {"L-Synergy", "Askar D2"}   # pass SII + OIII (the others pass Ha + OIII)
+             "Askar D1", "Askar D2", "Dual-band SII/OIII"}
+SII_OIII_BAND = {"L-Synergy", "Askar D2", "Dual-band SII/OIII"}   # pass SII + OIII (the others pass Ha + OIII)
 
 
 def is_dual_band(filter_name) -> bool:
@@ -577,6 +577,14 @@ def normalize_filter(raw) -> str:
         return "No filter"
     up = s.upper().replace("Α", "A").replace("α".upper(), "A")
     key = re.sub(r"[\s_\-.,()]", "", up)
+    # names that spell out two lines ("Ha/OIII", "D1 Ha-OIII", "SII+OIII"): a dual-band filter
+    k3 = key.replace("/", "").replace("+", "").replace("&", "")
+    if ("OIII" in k3 or "O3" in k3) and ("SII" in k3 or "S2" in k3 or "HA" in k3 or "HALPHA" in k3):
+        if re.search(r"(?<![A-Z0-9])D1|ASKARD1", up.replace(" ", "")) or k3.startswith("D1"):
+            return "Askar D1"
+        if re.search(r"(?<![A-Z0-9])D2|ASKARD2", up.replace(" ", "")) or k3.startswith("D2"):
+            return "Askar D2"
+        return "Dual-band SII/OIII" if ("SII" in k3 or "S2" in k3) else "Dual-band"
     if key in _FILTER_MAP:
         return _FILTER_MAP[key]
     if key in _LETTER:
