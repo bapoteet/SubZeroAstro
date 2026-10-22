@@ -2435,7 +2435,7 @@ def smooth_colour(rgb: np.ndarray, amount: float) -> np.ndarray:
     if amount <= 0 or rgb.shape[0] != 3:
         return rgb
     h, w = rgb.shape[1:]
-    sig = max(0.6, amount * max(h, w) / 600.0)
+    sig = max(0.6, amount * max(h, w) / 150.0)           # 1.0: about the width of a planetary's colour zones
     y = rgb.mean(0)
     by = _blur(y.astype(np.float32), sig)
     col = np.stack([_blur(c.astype(np.float32), sig) for c in rgb]) / np.maximum(by, 1e-6)[None]
