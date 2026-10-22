@@ -685,9 +685,10 @@ def run(app, out_dir: Path) -> int:
         check(sp.xray_img is not None and sp.xray_img.width() > 100,
               "intro animation finds its radiograph picture (assets/splash_radiograph.png)")
         _xi = sp.xray_img
-        check(_xi is not None and _xi.pixelColor(0, 0).alpha() == 0
-              and _xi.pixelColor(_xi.width() // 2, _xi.height() // 2).alpha() > 200,
-              "the radiograph's edges fade away softly (no hard rectangle)")
+        _alphas = [_xi.pixelColor(int(_xi.width() * fx), int(_xi.height() * fy)).alpha()
+                   for fx in (0.3, 0.4, 0.5, 0.6, 0.7) for fy in (0.3, 0.4, 0.5, 0.6, 0.7)] if _xi is not None else [0]
+        check(_xi is not None and _xi.pixelColor(0, 0).alpha() == 0 and max(_alphas) > 200,
+              "the radiograph's edges and its black film fade away softly (no hard rectangle); the X-ray shows")
         for t_ in (0.5, 1.0, 1.5, 1.9, 2.3, 2.7, 3.1, 3.5, 4.0, 4.6, 5.2):
             sp.set_time(t_)
             QApplication.processEvents()

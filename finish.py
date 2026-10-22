@@ -2466,7 +2466,9 @@ class AdjustColours(Tool):
     def variants(self, s):
         sky = float(np.median(_lum(s.rgb)[::3, ::3]))
         base = {name: 1.0 for name, _h in COLOUR_BANDS}
-        base.update({"bright": 0.5, "protect": 0.8, "sky": sky, "smooth": 0.3})
+        # colour smoothing: on for planetary nebulae (their colour zones meet in hard bands), off otherwise
+        base.update({"bright": 0.5, "protect": 0.8, "sky": sky,
+                     "smooth": 0.4 if target_type(s) == "planetary nebula" else 0.0})
         looks = (("Boost blues", {"blues": 1.7, "cyans": 1.35}),
                  ("Boost reds", {"reds": 1.6, "magentas": 1.2}),
                  ("Blues and reds", {"blues": 1.6, "cyans": 1.3, "reds": 1.4}),

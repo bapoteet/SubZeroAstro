@@ -109,6 +109,7 @@ def load_radiograph():
 
 
 FEATHER = 0.16          # share of the film's shorter side over which its edges fade away
+DARK_CUT = (0.05, 0.30)  # film brightness: fully transparent below the first, fully shown above the second
 
 
 def feather_edges(img):
@@ -125,6 +126,11 @@ def feather_edges(img):
         ax, ay = np.clip(xs, 0, 1), np.clip(ys, 0, 1)
         ax, ay = ax * ax * (3 - 2 * ax), ay * ay * (3 - 2 * ay)          # smoothstep
         a = (ay[:, None] * ax[None, :]).astype(np.float32)
+        # the film's own black is not part of the picture: dark areas turn transparent too, so only the X-ray
+        # itself glows over the stars (no dark block around the dog)
+        lum = raw[..., :3].astype(np.float32).mean(axis=2) / 255.0
+        la = np.clip((lum - DARK_CUT[0]) / (DARK_CUT[1] - DARK_CUT[0]), 0, 1)
+        a = a * (la * la * (3 - 2 * la))
         out = np.ascontiguousarray((raw.astype(np.float32) * a[..., None] + 0.5).astype(np.uint8))  # premultiplied
         res = QImage(out.data, w, h, w * 4, QImage.Format_ARGB32_Premultiplied).copy()
         return res if not res.isNull() else img
