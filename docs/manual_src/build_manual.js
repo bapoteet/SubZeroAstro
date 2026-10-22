@@ -147,6 +147,21 @@ table(["Word", "What it means"], [
   ["Starless / stars-only", "The picture split in two by StarXTerminator, so the nebula and the stars can be processed separately."],
 ], [2600, 6760]);
 
+sec("1.4", "Your data, improved - never painted", ["Honest processing", "AI", "Painting", "Real data"]);
+p("SubZeroAstro brings out what your camera **recorded** - it does not invent detail or paint the target. Every step works from your own data:");
+bullets([
+  "**Brightness and colour:** brightening, Curves, Saturation and the colour tools re-map the brightness and colour your camera measured. The colour-preserving stretch keeps each pixel's measured colour mix; palettes such as HOO and Foraxx assign your filters' real signal to colours.",
+  "**Bright cores and rings:** Tame Bright Core and Tame the Ring re-make bright areas from your own unstretched (linear) data - detail they show was in your frames, hidden by the brightening.",
+  "**AI, used the accepted way:** BlurXTerminator sharpens by deconvolution using the blur measured from your own stars; NoiseXTerminator removes noise; GraXpert models the light-pollution gradient so it can be subtracted. None of them adds structure that is not in the data.",
+  "**Smoothing** (colour transitions, noise reduction) only averages what is there.",
+]);
+p("**Where pixels are replaced - always to remove a flaw, never to add to the target:**");
+bullets([
+  "**Spot Fix** fills a blemish you circle (a hot pixel, a satellite remnant, a dust speck) from the sky around it - like PixInsight's CloneStamp, and only where you ask.",
+  "**Star removal** (StarXTerminator) has to fill in the background behind each star it lifts out; *Put Stars Back* covers those places again with your real stars.",
+  "**Mote Buster** and flats correct dust shadows and vignetting - artefacts of the optics, not of the sky.",
+]);
+
 ch(2, "What you need");
 sec("2.1", "Computer requirements", ["Hardware requirements", "System requirements", "Memory (RAM)", "Disk space", "Graphics card (GPU)"]);
 p("SubZeroAstro runs on **Windows** and on **Macs with Apple silicon**. Astro images are big (a 26-megapixel camera makes ~50 MB files; a night can easily be 20-50 GB), so more memory and a fast disk make everything quicker.");
