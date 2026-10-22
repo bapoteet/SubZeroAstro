@@ -1815,11 +1815,12 @@ def run(app, out_dir: Path) -> int:
         check("L-eNhance" in _db and _db["L-eNhance"].shape[0] == 3,
               f"dual-band colour masters from different runs are combined in every colour ({list(_db)})")
 
-        # a planetary nebula: Tame Bright Core works as "Tame the Ring" - the bright ring goes below white,
-        # the faint centre and the outer halo are left as they are; the mask tint shows in green
+        # a planetary nebula: Tame Bright Core works as "Tame the Ring" - the nebula is brightened again gently
+        # from the linear data: a ring AND interior burnt out white come back well below white, the ring
+        # brighter than the inside, the faint halo untouched; the mask tint shows in green
         _yy, _xx = np.mgrid[:1000, :1500]
         _r = np.hypot(_xx - 750, (_yy - 500) / 1.25)
-        _lin = (0.01 + 0.25 * np.exp(-((_r - 38) / 9) ** 2) + 0.035 * np.exp(-(_r / 30) ** 2)
+        _lin = (0.01 + 0.25 * np.exp(-((_r - 38) / 9) ** 2) + 0.16 * np.exp(-(_r / 32) ** 2)
                 + 0.015 * np.exp(-((_r - 75) / 25) ** 2)).astype(np.float32)
         _yr = np.clip(np.arcsinh(_lin * 80) / np.arcsinh(0.25 * 80) * 1.25, 0, 1).astype(np.float32)
         _ps = F.State(rgb=np.stack([_yr] * 3), linear=False, lin_lum=_lin, target="M57")
@@ -1828,12 +1829,12 @@ def run(app, out_dir: Path) -> int:
         _rgm, _cnm, _hlm = (_r > 32) & (_r < 44), _r < 12, (_r > 65) & (_r < 85)
         _prev = F.TOOLS["core"].preview(_ps.small(600), dict(_pv[1].params, show_mask=True))
         _green = bool(((_prev[..., 1] > 150) & (_prev[..., 0] < 150)).any())
-        check(all(v.params.get("ring") for v in _pv) and float((_yr[_rgm] > 0.97).mean()) > 0.9
-              and float((_po[_rgm] > 0.97).mean()) < 0.02
-              and abs(float(_po[_cnm].mean()) - float(_yr[_cnm].mean())) < 0.03
+        check(all(v.params.get("ring") for v in _pv) and float(_yr[_rgm].mean()) > 0.97 and float(_yr[_cnm].mean()) > 0.97
+              and float(_po[_rgm].mean()) < 0.82 and float(_po[_cnm].mean()) < float(_po[_rgm].mean()) - 0.04
               and abs(float(_po[_hlm].mean()) - float(_yr[_hlm].mean())) < 0.03 and _green,
-              f"planetary nebula: the ring is taken below white ({_yr[_rgm].mean():.2f} -> {_po[_rgm].mean():.2f}), "
-              f"the centre ({_yr[_cnm].mean():.2f} -> {_po[_cnm].mean():.2f}) and halo stay; the tint shows in green")
+              f"planetary nebula (Medium): a white ring and interior come back below white - ring "
+              f"{_yr[_rgm].mean():.2f} -> {_po[_rgm].mean():.2f}, inside {_yr[_cnm].mean():.2f} -> {_po[_cnm].mean():.2f}, "
+              "halo unchanged; the tint shows in green")
 
         # a planetary nebula that star removal put (partly) into the stars image is moved back to the nebula,
         # bright stars stay; and its ring is tamed after Curves

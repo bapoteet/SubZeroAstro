@@ -2950,9 +2950,9 @@ class TameCore(Tool):
         if self.ring_target(s):
             # Tame the Ring: lower everything brighter than the ring level, leave the faint centre as it is
             return [Variant(n, {"amount": 1.0, "size": 0.5, "detail": 30.0, "ring": k},
-                            "lowers the bright ring or shell; the faint centre is left as it is", i == 1)
-                    for i, (n, k) in enumerate((("Gentle", 0.8), ("Medium", 0.7), ("Strong", 0.6),
-                                                ("Maximum", 0.5)))]
+                            "the nebula brightened again, gently: ring below white, room for colour", i == 1)
+                    for i, (n, k) in enumerate((("Gentle", 0.85), ("Medium", 0.75), ("Strong", 0.65),
+                                                ("Maximum", 0.55)))]
         note = "core saturated in the masters: smooths rather than recovers" if s.sat_core else ""
         # stronger versions also take in more of the area around the core, so a peaked galaxy nucleus
         # fades smoothly into the tamed core instead of staying a small bright dot
@@ -2962,8 +2962,8 @@ class TameCore(Tool):
 
     def sliders(self, s, params):
         if params.get("ring"):
-            return [Slider("ring", "Ring level", 0.3, 0.9, params["ring"],
-                           "Everything brighter than this is lowered below white (left = more of the ring)"),
+            return [Slider("ring", "Ring brightness", 0.35, 0.95, params["ring"],
+                           "How bright the brightest part of the ring becomes (left = darker, more room for colour)"),
                     Slider("size", "Area", 0.2, 0.95, params["size"],
                            "Bigger area (left) <-> only the very brightest part (right) - make sure the tint covers "
                            "the whole ring"),
@@ -2994,6 +2994,7 @@ class TameCore(Tool):
     PEAK_ROOM = 0.3            # the glow peak lands this share of the way from the edge brightness to white
     DETAIL_CAP = 0.08          # structure brighter than this above the lowered glow is squeezed (smoothly)
     SHOULDER = (0.80, 0.15)    # roll-off: starts here, approaches start + this
+    RING_CURVE = 6.0           # ring mode: how much the bright end is compressed (log curve)
     TOP_SOFTEN = 1.5           # a clipped flat top is rounded off with a blur of its radius x this
     CORE_FLATTEN = 0.85        # share of the core's glow (above its edge's brightness) taken away at full strength
 
@@ -3034,13 +3035,23 @@ class TameCore(Tool):
                 u = np.clip((n - n_e) / max(n_max - n_e, 1e-9), 0, None)
                 rec = e + (top - e) * np.log1p(c * u) / np.log1p(c)
                 src = np.where(n > n_e, np.minimum(rec, 1.0), y).astype(np.float32)
-        knee = float(params.get("ring", 0) or 0)
-        if knee > 0:
-            # a ring or shell (planetary nebula): the bright part is the ring, the centre is faint and
-            # see-through. Everything brighter than the knee is rolled off smoothly below white (its structure
-            # comes from the linear data above); everything fainter - the centre - is left exactly as it is.
-            top = knee + (0.95 - knee) * 0.6
-            v = np.where(src > knee, knee + (top - knee) * np.tanh((src - knee) / max(top - knee, 1e-3)), src)
+        ring_top = float(params.get("ring", 0) or 0)
+        if ring_top > 0:
+            # a ring or shell (planetary nebula): the nebula inside the mask is brightened again, more gently,
+            # from the linear data - its edge keeps the brightness it has now, its brightest part goes to
+            # ring_top, and everything between follows the real brightness of the nebula (a log curve)
+            n = s.lin_lum if (s.lin_lum is not None and s.lin_lum.shape == y.shape) else y
+            e_y = float(np.median(y[edge])) if edge.any() else float(np.percentile(y[inside], 5))
+            e_n = float(np.median(n[edge])) if edge.any() else float(np.percentile(n[inside], 5))
+            n_top = float(np.percentile(n[inside], 99.9))
+            top = max(ring_top, e_y + 0.05)
+            if n_top <= e_n:
+                return y
+            u = np.clip((n - e_n) / (n_top - e_n), 0, None)
+            k = self.RING_CURVE
+            v = e_y + (top - e_y) * np.log1p(k * u) / np.log1p(k)
+            v = np.where(n > e_n, v, y)
+            v = np.where(v > 0.92, 0.92 + 0.06 * np.tanh((v - 0.92) / 0.06), v)   # never pure white
             return np.clip(v, 0, 1).astype(np.float32)
         # a nucleus burnt out even in the masters is a flat disc with a hard rim: round it off into a soft
         # peak (no detail is lost - there is none in a clipped area)
