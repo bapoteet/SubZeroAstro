@@ -2893,13 +2893,31 @@ class TameCore(Tool):
         return not hot_core(s)            # recommended only when a burnt core is detected
 
     def why(self, s):
+        if self.ring_target(s):
+            return ("A planetary nebula: its ring is far brighter than everything around it, so it turns white and "
+                    "loses its colour. This lowers the ring below white and leaves the faint centre as it is - check "
+                    "with 'Show what will change' that the green tint covers the whole ring.")
         if s.sat_core:
             return ("The core looks burnt out - and it was already saturated in the masters, so its detail "
                     "can't be recovered; this makes it look smooth and natural instead of a flat white disc.")
         return ("The core looks burnt out (pure white) - bring its detail back without touching the rest. Best done "
                 "now, before Curves and Saturation brighten it further.")
 
+    @staticmethod
+    def ring_target(s) -> bool:
+        """A planetary nebula: its bright part is a ring or shell around a faint centre."""
+        try:
+            return target_type(s) == "planetary nebula"
+        except Exception:  # noqa: BLE001
+            return False
+
     def variants(self, s):
+        if self.ring_target(s):
+            # Tame the Ring: lower everything brighter than the ring level, leave the faint centre as it is
+            return [Variant(n, {"amount": 1.0, "size": 0.5, "detail": 30.0, "ring": k},
+                            "lowers the bright ring or shell; the faint centre is left as it is", i == 1)
+                    for i, (n, k) in enumerate((("Gentle", 0.8), ("Medium", 0.7), ("Strong", 0.6),
+                                                ("Maximum", 0.5)))]
         note = "core saturated in the masters: smooths rather than recovers" if s.sat_core else ""
         # stronger versions also take in more of the area around the core, so a peaked galaxy nucleus
         # fades smoothly into the tamed core instead of staying a small bright dot
@@ -2908,8 +2926,15 @@ class TameCore(Tool):
                            ("Maximum", 1.0, 0.55)))]
 
     def sliders(self, s, params):
+        if params.get("ring"):
+            return [Slider("ring", "Ring level", 0.3, 0.9, params["ring"],
+                           "Everything brighter than this is lowered below white (left = more of the ring)"),
+                    Slider("size", "Area", 0.2, 0.95, params["size"],
+                           "Bigger area (left) <-> only the very brightest part (right) - make sure the tint covers "
+                           "the whole ring"),
+                    Slider("amount", "Strength", 0.0, 1.0, params["amount"], "How much of the change is used")]
         return [Slider("amount", "Strength", 0.0, 1.0, params["amount"], "How much the core is toned down"),
-                Slider("size", "Core size", 0.5, 0.95, params["size"],
+                Slider("size", "Core size", 0.2, 0.95, params["size"],
                        "Bigger area (left) <-> only the very brightest part (right)"),
                 Slider("detail", "Detail", 3.0, 150.0, params["detail"],
                        "More = more structure brought out inside the core", 1.0)]
@@ -2974,13 +2999,21 @@ class TameCore(Tool):
                 u = np.clip((n - n_e) / max(n_max - n_e, 1e-9), 0, None)
                 rec = e + (top - e) * np.log1p(c * u) / np.log1p(c)
                 src = np.where(n > n_e, np.minimum(rec, 1.0), y).astype(np.float32)
+        knee = float(params.get("ring", 0) or 0)
+        if knee > 0:
+            # a ring or shell (planetary nebula): the bright part is the ring, the centre is faint and
+            # see-through. Everything brighter than the knee is rolled off smoothly below white (its structure
+            # comes from the linear data above); everything fainter - the centre - is left exactly as it is.
+            top = knee + (0.95 - knee) * 0.6
+            v = np.where(src > knee, knee + (top - knee) * np.tanh((src - knee) / max(top - knee, 1e-3)), src)
+            return np.clip(v, 0, 1).astype(np.float32)
         # a nucleus burnt out even in the masters is a flat disc with a hard rim: round it off into a soft
         # peak (no detail is lost - there is none in a clipped area)
         flat_top = (src >= float(src[inside].max()) - 0.004) & inside
         if s.lin_lum is not None and s.lin_lum.shape == y.shape:
             n_ = s.lin_lum
             flat_top |= (n_ >= float(n_[inside].max()) * 0.995) & inside
-        if flat_top.sum() > 8:
+        if 8 < flat_top.sum() < 0.15 * inside.sum():      # a small burnt-out nucleus - not a whole clipped ring
             rp = float(np.sqrt(flat_top.sum() / np.pi))
             sig = max(1.5, rp * self.TOP_SOFTEN)
             wgt = np.clip(_blur(flat_top.astype(np.float32), sig) * 2.0, 0, 1)
@@ -3026,9 +3059,13 @@ class TameCore(Tool):
     def preview(self, s, params):
         img = state_display(self.apply(s, params))
         if params.get("show_mask"):
-            m = self.mask(s, params)[..., None]
-            tint = np.array([255, 70, 40], np.float32)
-            img = (img * (1 - 0.45 * m) + tint * 0.45 * m).astype(np.uint8)
+            m2 = self.mask(s, params)
+            m = m2[..., None]
+            tint = np.array([40, 230, 110], np.float32)           # green: shows on red nebulae too
+            img = img * (1 - 0.45 * m) + tint * 0.45 * m
+            edge = (m2 > 0.4) & (m2 < 0.6)                         # a yellow line along the mask's edge
+            img[edge] = np.array([255, 225, 40], np.float32)
+            img = np.clip(img, 0, 255).astype(np.uint8)
         return img
 
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
@@ -3109,6 +3146,7 @@ WHY = {
 # What kind of object it is changes only what is RECOMMENDED - every step stays available
 TYPE_TUNING = {
     "galaxy": {"recommend": {"local", "core"}, "optional": set()},
+    "planetary nebula": {"recommend": {"core"}, "optional": set()},
     "star cluster": {"recommend": set(), "optional": {"stars_out", "shrink", "local"}},
     "comet": {"recommend": {"sky"}, "optional": {"stars_out", "shrink", "local"}},
 }

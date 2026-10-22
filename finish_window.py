@@ -688,7 +688,7 @@ class FinishWindow(QMainWindow):
         mr.addWidget(self.chk_tool_linked)
         tl.addWidget(self.method_row)
         self.chk_mask = QCheckBox("Show what will change")
-        self.chk_mask.setToolTip("Tints the area this tool works on (the mask SubZeroAstro made for you) in red")
+        self.chk_mask.setToolTip("Tints the area this tool works on (the mask SubZeroAstro made for you) in green, with a yellow line along its edge")
         self.chk_mask.toggled.connect(lambda _on: self.schedule_preview())
         self.chk_mask.setVisible(False)
         tl.addWidget(self.chk_mask)
@@ -1166,7 +1166,8 @@ class FinishWindow(QMainWindow):
         self.chk_mask.setVisible(has_mask)
         self.chk_mask.setText(getattr(self.tool, "mask_label", "Show what will change"))
         self.chk_mask.setToolTip(getattr(self.tool, "mask_tip", "Tints the area this tool works on (the mask "
-                                                                   "SubZeroAstro made for you) in red"))
+                                                                   "SubZeroAstro made for you) in green, with a yellow line "
+                                                                   "along its edge"))
         self.sign_row.setVisible(key == "signature")
         self.crop_row.setVisible(key == "final_crop")
         self.flip_row.setVisible(key == "flip")

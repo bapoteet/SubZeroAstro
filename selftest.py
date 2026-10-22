@@ -1815,6 +1815,26 @@ def run(app, out_dir: Path) -> int:
         check("L-eNhance" in _db and _db["L-eNhance"].shape[0] == 3,
               f"dual-band colour masters from different runs are combined in every colour ({list(_db)})")
 
+        # a planetary nebula: Tame Bright Core works as "Tame the Ring" - the bright ring goes below white,
+        # the faint centre and the outer halo are left as they are; the mask tint shows in green
+        _yy, _xx = np.mgrid[:1000, :1500]
+        _r = np.hypot(_xx - 750, (_yy - 500) / 1.25)
+        _lin = (0.01 + 0.25 * np.exp(-((_r - 38) / 9) ** 2) + 0.035 * np.exp(-(_r / 30) ** 2)
+                + 0.015 * np.exp(-((_r - 75) / 25) ** 2)).astype(np.float32)
+        _yr = np.clip(np.arcsinh(_lin * 80) / np.arcsinh(0.25 * 80) * 1.25, 0, 1).astype(np.float32)
+        _ps = F.State(rgb=np.stack([_yr] * 3), linear=False, lin_lum=_lin, target="M57")
+        _pv = F.TOOLS["core"].variants(_ps)
+        _po = F.TOOLS["core"].apply(_ps, _pv[1].params).rgb[0]
+        _rgm, _cnm, _hlm = (_r > 32) & (_r < 44), _r < 12, (_r > 65) & (_r < 85)
+        _prev = F.TOOLS["core"].preview(_ps.small(600), dict(_pv[1].params, show_mask=True))
+        _green = bool(((_prev[..., 1] > 150) & (_prev[..., 0] < 150)).any())
+        check(all(v.params.get("ring") for v in _pv) and float((_yr[_rgm] > 0.97).mean()) > 0.9
+              and float((_po[_rgm] > 0.97).mean()) < 0.02
+              and abs(float(_po[_cnm].mean()) - float(_yr[_cnm].mean())) < 0.03
+              and abs(float(_po[_hlm].mean()) - float(_yr[_hlm].mean())) < 0.03 and _green,
+              f"planetary nebula: the ring is taken below white ({_yr[_rgm].mean():.2f} -> {_po[_rgm].mean():.2f}), "
+              f"the centre ({_yr[_cnm].mean():.2f} -> {_po[_cnm].mean():.2f}) and halo stay; the tint shows in green")
+
         # the "Processed with SubZeroAstro" credit: small, bottom-left (bottom-right when the signature is there)
         _dark = np.full((3, 600, 900), 0.05, np.float32)
         _cr = F.add_credit(_dark, "bottom left")
