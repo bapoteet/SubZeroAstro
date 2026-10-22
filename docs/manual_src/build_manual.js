@@ -476,7 +476,7 @@ sec("10.6", "Comets", ["Comets", "Comet stack", "_Comet master", "_Stars master"
 p("A comet moves against the stars while you image it, so a normal stack (lined up on the stars) smears it, and a stack lined up on the comet trails the stars. SubZeroAstro does both and joins them. It recognises a comet by its name (*C/2023 A3*, *12P/Pons-Brooks*, *161P Hartley-IRAS*, or any name containing *comet*) - page 2's plan shows ☄ for it. While stacking it finds the comet's head in every frame, works out its motion from the frames' times, makes a **second stack that follows the comet** (the stars, which move through it, are rejected), and saves three masters: the main one with **sharp stars and a sharp comet**, plus **_Comet** (comet only) and **_Stars** (star-aligned) next to it. The log says how far the comet moved.");
 p("When the comet barely moved during the session (under 3 pixels - common with short sessions), or it is too faint or too uncertain to follow, only the ordinary stack is saved and the log says why. Long sessions of several frames per minute work best. On page 4 the main master goes through the usual steps; for a comet **Darken the Sky** is recommended, while star steps (*Take Stars Out*, *Shrink Stars*) are optional.");
 sec("10.7", "Target types", ["Target types", "Galaxy", "Nebula", "Star cluster", "Planetary nebula"]);
-p("From the target's name SubZeroAstro works out what kind of object it is - **galaxy, nebula, planetary nebula, star cluster or comet** - and shows it in the title of page 4. The type only fine-tunes the recommendations; **no step is ever taken away**. Galaxies get *Tame Bright Core* (right after brightening - skip it if the core already shows its detail) and *Local Contrast* recommended, and HII regions in *Add Hydrogen Glow*; other targets get Tame Bright Core recommended only when a burnt-out core is found; star clusters make star removal and shrinking optional (the stars are the subject); comets get a comet stack on page 2. When the name gives nothing away, the usual workflow for your data applies.");
+p("From the target's name SubZeroAstro works out what kind of object it is - **galaxy, nebula, planetary nebula, star cluster or comet** - and shows it in the title of page 4. The type only fine-tunes the recommendations; **no step is ever taken away**. Galaxies get *Tame Bright Core* (right after brightening - skip it if the core already shows its detail) and *Local Contrast* recommended, and HII regions in *Add Hydrogen Glow*; other targets get Tame Bright Core recommended only when a burnt-out core is found; star clusters make star removal and shrinking optional (the stars are the subject); comets get a comet stack on page 2. When the name gives nothing away, the usual workflow for your data applies. Tips for each kind of target are in chapter 15.");
 
 ch(11, "Troubleshooting and questions");
 sec("11.1", "Common questions", ["Troubleshooting", "FAQ"]);
@@ -552,7 +552,89 @@ sec("14.2", "Licence and credits", ["Licence", "MIT License", "Credits"]);
 p("SubZeroAstro is free software under the **MIT License**. Created by **Brian A. Poteet**, built with Claude (Anthropic). The culling view was inspired by FITS Blaster for macOS by Tom van Peer. PixInsight, BlurXTerminator, NoiseXTerminator, StarXTerminator, GraXpert, ASTAP, AstroBin and the telescope and filter names mentioned are trademarks of their respective owners.");
 
 // ------------------------------------------------------------------ index (own two-column section)
-ch(15, "Index");
+ch(15, "Processing Techniques and Tips");
+p("Every target type has its own small tricks. These are the ones that work best with SubZeroAstro - short points to try, gathered from real data (yours included). The names in *italics* are the versions and sliders on page 4. Nothing here is a rule: if a picture looks right to you, it is right.");
+
+sec("15.1", "Tips for every target", ["Processing tips", "Headroom", "Colour headroom"]);
+bullets([
+  "**Follow the recommended order.** The card at the top of page 4 knows what your data needs; skipping ahead (Curves before Tame Bright Core, say) makes later steps work harder.",
+  "**Colour needs room below white.** Anything brightened close to white cannot show colour - Saturation and Adjust Colours only tint its edges. Lower the brightness first (*Protect bright areas* in Brighten the Image, or Tame Bright Core); the colour then comes back on its own.",
+  "**Small steps, then Do It Again.** A gentle version run twice usually looks more natural than the strongest version once - and each round can be undone on its own.",
+  "**Judge at full size.** *Full Window*, the mouse wheel to zoom, and *Hold for Before* show what a step really does. The little versions are for choosing a direction, not for judging detail.",
+  "**Good data beats any processing.** Flats every night (a flat panel at the end of the session is ideal), a dark and bias library at one fixed camera temperature (0 °C works well for modern CMOS), and as many hours as you can: noise halves for every four times the exposure.",
+]);
+
+sec("15.2", "Galaxies", ["Galaxy processing", "Galaxies"]);
+bullets([
+  "**Tame Bright Core** is recommended for every galaxy, right after Brighten the Image. Start with *Medium*; use *Strong* or *Maximum* for a very bright nucleus. Drag *Core size* to the left when the bright area is larger than the tint of *Show what will change*.",
+  "**Bring Out Hidden Structure** (*Moderate* or *Strong*) after Curves shows the dust lanes and spiral arms.",
+  "**HII regions:** with a mono RGB set plus Ha, *Add Hydrogen Glow* puts the red knots along the arms; with a colour camera, a few hours through a dual-band filter can be added the same way.",
+  "**Filters:** dual-band filters (L-eNhance, L-Ultimate) cut most of a galaxy's starlight - broadband (or a mild light-pollution filter) gives brighter arms and natural colours.",
+  "**Small galaxies:** crop tightly at the end (*Final Crop*), keep the stars in check (*Shrink Stars Moderate*, *Put Stars Back 80-100%*) so the galaxy stays the subject.",
+  "**Don't darken the sky too much** - *Slightly darker* keeps the faint outer arms and halo that make a galaxy look real.",
+]);
+
+sec("15.3", "Emission nebulae", ["Emission nebula processing", "Nebulae", "HOO", "Foraxx"]);
+bullets([
+  "**Palettes for a colour camera with a dual-band filter:** *HOO* (Ha red, OIII teal - natural), *HOO (vivid)*, *Gold & blue*, or *Foraxx (dynamic)*. With a mono camera, *Hubble (SHO)* or *HOO + SII*.",
+  "**Take the stars out before brightening** - the nebula can then be brightened strongly without bloating the stars, and they go back at the end.",
+  "**Separate Ha and OIII:** *Adjust Colours › Blues and reds* makes the blue OIII and red Ha stand apart; *Calm the greens* for leftover green.",
+  "**Bright centres** (Bubble, Orion, Lagoon): *Tame Bright Core* right after Brighten the Image.",
+  "**Targets that fill the frame** (Veil, North America): a SkyFlat made from that target's own lights can leave faint dark copies of the nebula - use real flats, or untick *SkyFlats (Mote Buster)* and let gradient removal and Mote Buster deal with vignetting and dust.",
+  "**Stars:** *Star Colours › Natural* (narrowband paints stars one colour) and *Put Stars Back 80-100%* keep the nebula the star of the picture.",
+]);
+
+sec("15.4", "Planetary nebulae", ["Planetary nebula processing", "Planetary nebulae", "M57", "Ring Nebula", "M27"]);
+bullets([
+  "**They are tiny and very bright.** Brighten the Image sets the brightness for the faint background, which pushes the nebula to nearly white - that is why it looks \"hot\" and colourless. Use *Gentle* and raise *Protect bright areas*.",
+  "**Tame Bright Core** is the key step: *Strong* or *Maximum*, with *Core size* dragged left until *Show what will change* tints the whole shell, not just the middle. The darker centre and the ring's structure come back.",
+  "**Palette HOO:** Ha gives the red outer ring, OIII the teal-blue inside - the classic Ring Nebula look. *As captured* tends to look pale.",
+  "**Colour:** *Saturation Vivid* or *Rich* (Bold mostly bleeds colour into the edges), then *Adjust Colours › Blues and reds*.",
+  "**Faint outer halo:** after taming, *Curves › Lift faint detail* can show the dim shell around the bright ring (M57 has one).",
+  "**Crop tightly:** at 900 mm M57 is only about 100 pixels across - *Final Crop* makes it fill the picture.",
+  "**At the telescope:** shorter subs (60-120 s) keep the brightest part from burning out in the masters; collect plenty of them.",
+]);
+
+sec("15.5", "Dark nebulae and faint dust", ["Dark nebula processing", "Dark nebulae", "IFN", "Barnard"]);
+bullets([
+  "**The darkness is the subject.** Leave *Darken the Sky Background* off (or *Slightly darker*): darkening the sky erases the faint glow the dark clouds stand out against.",
+  "**Broadband, dark skies and many hours** - dust shows up in broadband light only; dual-band filters hide it.",
+  "**Gradients matter most here:** check the GraXpert result on page 3; a raised *GraXpert smoothing* keeps it from mistaking large faint dust for a gradient.",
+  "**Lift, don't stretch:** *Curves › Lift faint detail* and a light *Bring Out Hidden Structure* (*Subtle*).",
+  "**Tame the star field:** *Shrink Stars Strong* and *Put Stars Back 60-80%* so the dust shapes are not lost among thousands of stars.",
+]);
+
+sec("15.6", "Reflection nebulae and star clusters", ["Reflection nebula processing", "Star cluster processing", "Globular clusters", "M45", "M13"]);
+bullets([
+  "**Reflection nebulae** (Pleiades, Iris, M78) shine by reflected starlight: broadband only, no dual-band filter. *Balance Colours › Neutral sky only* keeps their blue.",
+  "**Bright stars inside a nebula:** BlurXTerminator's *Adjust Star Halos* on page 3, and *Shrink Stars* with *Halo reduction*, calm the glow around them.",
+  "**Star clusters:** the stars *are* the subject - taking them out is optional. *Star Colours › Natural, vivid* shows the mix of blue and orange stars.",
+  "**Globular clusters** (M13, M92): *Brighten Gentle* keeps the core resolved; *Tame Bright Core* if the centre turns into a white disc.",
+]);
+
+sec("15.7", "Comets (more coming)", ["Comet processing"]);
+p("SubZeroAstro already makes a second stack that follows the comet (10.6). A full comet guide comes with the comet update. For now: many short subs (the comet moves), and process the *_Comet* master for the comet and the *_Stars* master for the stars.");
+
+sec("15.8", "Moon and planets (coming)", ["Planetary imaging", "Moon processing", "Lucky imaging"]);
+p("A page for video of the Moon and planets (lucky imaging: grade thousands of frames, stack the best, sharpen) is on the way. For now: video (SER/AVI) with very short exposures for planets and Moon close-ups; single frames, stacked, for a full Moon; the best 10-25% of the frames usually give the sharpest result.");
+
+sec("15.9", "Questions and fixes", ["FAQ", "Bloated stars", "Fuzzy stars", "Washed-out colours", "Burnt-out core"]);
+table(["Problem", "What to try"], [
+  ["My stars look bloated and have fuzzy edges", "Page 3: BlurXTerminator *Sharpen Stars* about 0.5 and *Adjust Star Halos* 0.3-0.5. Page 4: *Brighten Stars Separately › Subtle*, *Put Stars Back 80-100%* (not 120%), *Shrink Stars* with *Halo reduction* - and *Do It Again* if needed. If the stars are large on page 1 too (FWHM), it is focus or seeing."],
+  ["The core of my galaxy or nebula is a white blob", "*Tame Bright Core* right after *Brighten the Image* - *Strong* or *Maximum*, *Core size* to the left. Raise *Protect bright areas* in Brighten the Image."],
+  ["My colours look washed out, or the object stays white", "Colour needs room below white: lower the brightness first (above), then *Saturation Vivid* and *Adjust Colours*. Saturation on a white area does nothing."],
+  ["The background is green or magenta", "*Remove Green Cast*; *Balance Colours › Neutral sky only*; *Adjust Colours › Calm the greens*."],
+  ["The background is blotchy or noisy", "More hours of data helps most. Then *Final Noise Reduction* (*Medium*), a gentler *Brighten*, and *Darken the Sky Background*."],
+  ["Dark rings (dust donuts)", "Flats taken the same night fix them at the source. Afterwards: *Mote Buster* (9.4) for donuts, *Spot Fix* for single blemishes."],
+  ["A faint dark copy of the nebula, turned or shifted", "A SkyFlat made from a target that fills the frame. Use real flats, or stack again with *SkyFlats (Mote Buster)* unticked (15.3)."],
+  ["Double stars, or coloured edges on stars near the corners", "Masters from different nights or setups that did not line up - the page 4 log says which master was left out. Stack those nights together on page 2 if you can."],
+  ["The faint outer parts disappeared", "The sky was darkened too much, or noise reduction was too strong. Use *Slightly darker*, *Curves › Lift faint detail*, a lighter *Final Noise Reduction*."],
+  ["The picture looks over-sharpened or crunchy", "Use a lower *Bring Out Hidden Structure* version (or skip it), and *Sharpen Nonstellar* about 0.3-0.5 on page 3."],
+  ["Satellite trails", "Many frames and sigma clipping on page 2 remove most of them; *Spot Fix* (with its stars kept) cleans up what is left."],
+  ["Dew on the camera window", "Put the imaging train together indoors, add a dew strip around the filter drawer or spacer, and keep a desiccant pack in the train; a fixed 0 °C camera temperature also helps."],
+], [3300, 6060]);
+
+ch(16, "Index");
 const indexBody = [];
 const IDX_TAB = 4200;
 const SPECIAL = { "Stop Here – Continue in PixInsight": 1 };
