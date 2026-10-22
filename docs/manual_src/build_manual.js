@@ -586,8 +586,8 @@ bullets([
 
 sec("15.4", "Planetary nebulae", ["Planetary nebula processing", "Planetary nebulae", "M57", "Ring Nebula", "M27"]);
 bullets([
-  "**They are tiny and very bright.** Brighten the Image sets the brightness for the faint background, which pushes the nebula to nearly white - that is why it looks \"hot\" and colourless. Use *Gentle* and raise *Protect bright areas*.",
-  "**Tame Bright Core** is the key step: *Strong* or *Maximum*, with *Core size* dragged left until *Show what will change* tints the whole shell, not just the middle. The darker centre and the ring's structure come back.",
+  "**They are tiny and very bright.** Brighten the Image sets the brightness for the faint background, which pushes the bright ring or shell to nearly white - that is why it looks \"hot\" and colourless. Use *Gentle* and raise *Protect bright areas* until the ring sits clearly below white.",
+  "**Their centre is the dim part.** A planetary's bright light is in its ring or shell; the middle is faint and see-through. *Tame Bright Core* is made for a bright centre, so it helps little here - keep the ring below white with Brighten the Image instead. (A dedicated *Tame the Ring* tool is planned.)",
   "**Palette HOO:** Ha gives the red outer ring, OIII the teal-blue inside - the classic Ring Nebula look. *As captured* tends to look pale.",
   "**Colour:** *Saturation Vivid* or *Rich* (Bold mostly bleeds colour into the edges), then *Adjust Colours › Blues and reds*.",
   "**Faint outer halo:** after taming, *Curves › Lift faint detail* can show the dim shell around the bright ring (M57 has one).",
