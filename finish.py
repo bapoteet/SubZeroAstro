@@ -525,7 +525,8 @@ def load_state(paths) -> State:
                 if st_img is not None and st_img.shape == rgbs[f].shape:
                     s.channel_stars[name] = st_img[0]
                     o3_stars.append((st_img[1] + st_img[2]) / 2)
-            o3, o3_note = combine_oiii(o3s, [s.channels[core.band_lines(f)[0]] for f in dual_f])
+            o3, o3_note = combine_oiii(o3s, [s.channels[core.band_lines(f)[0]] for f in dual_f],
+                                       [sum(master_depth(m) for m in used if m.filter == f) for f in dual_f])
             s.channels["OIII"] = o3                                               # OIII from both filters
             if o3_note:
                 s.load_note = "; ".join(x for x in (s.load_note, o3_note) if x)
@@ -856,7 +857,7 @@ def split_dual_band(rgb: np.ndarray):
 LEAK_MAX = 0.20      # most of a red line a colour camera's green/blue pixels can catch
 
 
-def combine_oiii(o3s, lines):
+def combine_oiii(o3s, lines, depths=None):
     """OIII from two dual-band filters (e.g. Askar D1 = Ha+OIII, D2 = SII+OIII). The camera's green and blue
     pixels also catch a little of the red line, so each OIII estimate carries some Ha (D1) or SII (D2). The two
     estimates see the same OIII, so their difference shows that leakage: fitted from the data (o1 = p*o2 +
@@ -898,11 +899,19 @@ def combine_oiii(o3s, lines):
     a_, q_ = f_, -f_ * p_
     c1 = o1 - a_ * l1                                       # OIII from filter 1 without its line's leak
     c2 = p_ * o2 + q_ * l2                                  # filter 2's, on filter 1's scale, without its leak
-    w1 = 1.0 / max(_sky_noise(c1)[1], 1e-9) ** 2
-    w2 = 1.0 / max(_sky_noise(c2)[1], 1e-9) ** 2
-    out = (c1 * w1 + c2 * w2) / (w1 + w2)
+    if depths and len(depths) == 2 and min(depths) > 0:
+        # by exposure: the masters have been through noise reduction, which leaves pixel noise that says little
+        # about how deep each one is; filter 2's OIII is scaled by p, which scales its noise too
+        w1, w2 = float(depths[0]), float(depths[1]) / max(p_, 1e-6) ** 2
+        how = "by exposure"
+    else:
+        w1 = 1.0 / max(_sky_noise(c1)[1], 1e-9) ** 2
+        w2 = 1.0 / max(_sky_noise(c2)[1], 1e-9) ** 2
+        how = "noise-weighted"
+    share = min(max(w1 / (w1 + w2), 0.2), 0.8)              # both filters hold real OIII - never drop one
+    out = c1 * share + c2 * (1 - share)
     note = (f"OIII from both filters: line leakage taken out ({100 * a_:.0f}% of the Ha and SII), "
-            f"combined noise-weighted ({100 * w1 / (w1 + w2):.0f}% / {100 * w2 / (w1 + w2):.0f}%)")
+            f"combined {how} ({100 * share:.0f}% / {100 * (1 - share):.0f}%)")
     return out.astype(np.float32), note
 
 

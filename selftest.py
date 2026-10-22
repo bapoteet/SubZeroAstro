@@ -1917,6 +1917,10 @@ def run(app, out_dir: Path) -> int:
               f"error {float((_occ - _O3c)[_hm].mean()):+.4f})")
         import prepare as _pp
         _cn1 = _pp.crop_outside_note((1923, 0, 4157, 1312), (1914, 649, 5049, 2981))
+        _ow, _onw = F.combine_oiii([_o1, _o2], [_Ha, _S2], [25380, 1])
+        _sh = re.search(r"by exposure \((\d+)% / (\d+)%\)", _onw)
+        check(_sh is not None and _sh.group(1) == "80",
+              f"OIII weighted by each filter's exposure, never more than 80/20 ({_onw})")
         _o0, _on0 = F.combine_oiii([_o1[:20, :20], _o2[:20, :20]], [_Ha[:20, :20], _S2[:20, :20]])
         check("top edge" in _cn1 and _pp.crop_outside_note((2000, 700, 4000, 2900), (1914, 649, 5049, 2981)) == ""
               and "averaged" in _on0,
