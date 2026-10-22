@@ -879,18 +879,40 @@ def combine_oiii(o3s, lines, depths=None):
     # one leak fraction for both lines: the same green/blue pixels catch it, and Ha (656 nm) and SII (672 nm)
     # are close - fitting one shared fraction (o1 - f*line1 = p * (o2 - f*line2)) stays stable even where the
     # OIII follows the Ha closely, which a free fit of two leaks does not
-    y = a1[sig]
-    best = None
-    for f in np.linspace(0.0, LEAK_MAX, 41):
-        z = a2[sig] - f * b2[sig]
+    def fit(m):
+        """Best shared leak fraction f and scale p over the pixels in mask m (None when too few)."""
+        if m.sum() < 200:
+            return None
+        y, u1, u2, v2 = a1[m], b1[m], a2[m], b2[m]
+        out = None
+        for f in np.linspace(0.0, LEAK_MAX, 41):
+            z = u2 - f * v2
+            den = float((z * z).sum())
+            if den <= 0:
+                continue
+            pf = float((z * (y - f * u1)).sum()) / den
+            r = float(np.median(np.abs((y - f * u1) - pf * z)))     # robust: stars and artefacts don't steer it
+            if out is None or r < out[0]:
+                out = (r, f, pf)
+        return out
+
+    # measured away from the edges (where fewer frames - often of one filter only - reached), and separately
+    # in four quarters: the median of those is not thrown off by one odd area (an edge, a gradient left over)
+    hh, ww = a1.shape
+    yy_, xx_ = np.mgrid[:hh, :ww]
+    inner = (yy_ > 0.15 * hh) & (yy_ < 0.85 * hh) & (xx_ > 0.15 * ww) & (xx_ < 0.85 * ww)
+    parts = [fit(sig & inner & ((yy_ < hh / 2) == top) & ((xx_ < ww / 2) == left))
+             for top in (True, False) for left in (True, False)]
+    fs = [q[1] for q in parts if q is not None]
+    whole = fit(sig & inner) or fit(sig)
+    if whole is not None and len(fs) >= 3:
+        f_m = float(np.median(fs))
+        mm = sig & inner
+        z = a2[mm] - f_m * b2[mm]
         den = float((z * z).sum())
-        if den <= 0:
-            continue
-        pf = float((z * (y - f * b1[sig])).sum()) / den
-        res = (y - f * b1[sig]) - pf * z
-        r = float(np.median(np.abs(res)))                    # robust: stars and artefacts don't steer it
-        if best is None or r < best[0]:
-            best = (r, f, pf)
+        best = (whole[0], f_m, float((z * (a1[mm] - f_m * b1[mm])).sum()) / den) if den > 0 else whole
+    else:
+        best = whole
     if best is None or not (0.05 < best[2] < 20):
         return (np.mean(o3s, axis=0).astype(np.float32),
                 "OIII from both filters: averaged (the two filters' OIII did not match well enough to measure "

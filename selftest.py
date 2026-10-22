@@ -1917,6 +1917,12 @@ def run(app, out_dir: Path) -> int:
               f"error {float((_occ - _O3c)[_hm].mean()):+.4f})")
         import prepare as _pp
         _cn1 = _pp.crop_outside_note((1923, 0, 4157, 1312), (1914, 649, 5049, 2981))
+        _o2e = _o2.copy()
+        _o2e[:, :120] *= 0.3                                  # an edge only some filter-2 frames reached
+        _one = F.combine_oiii([_o1, _o2e], [_Ha, _S2])[1]
+        _lk = lambda t: re.search(r"out \((\d+)% of", t)  # noqa: E731
+        check(_lk(_one) is not None and _lk(_on) is not None and abs(int(_lk(_one).group(1)) - int(_lk(_on).group(1))) <= 1,
+              f"the leak is measured away from poorly covered edges (clean: {_on[33:75]}; with a bad edge: {_one[33:75]})")
         _ow, _onw = F.combine_oiii([_o1, _o2], [_Ha, _S2], [25380, 1])
         _sh = re.search(r"by exposure \((\d+)% / (\d+)%\)", _onw)
         check(_sh is not None and _sh.group(1) == "80",
