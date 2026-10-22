@@ -1907,6 +1907,14 @@ def run(app, out_dir: Path) -> int:
         _o2 = 0.6 * _O3 + 0.07 * _S2 + _rg2.normal(0, 0.008, _Ha.shape)
         _oc, _on = F.combine_oiii([_o1, _o2], [_Ha + _rg2.normal(0, 0.004, _Ha.shape), _S2 + _rg2.normal(0, 0.008, _Ha.shape)])
         _hm = _Ha > 0.1
+        # IC1396-like: the OIII follows the Ha closely - the leak must not swallow real OIII
+        _O3c = 0.4 * _Ha + 0.3 * _O3
+        _occ, _onc = F.combine_oiii([_O3c + 0.08 * _Ha + _rg2.normal(0, 0.004, _Ha.shape),
+                                     0.6 * _O3c + 0.08 * _S2 + _rg2.normal(0, 0.006, _Ha.shape)],
+                                    [_Ha + _rg2.normal(0, 0.004, _Ha.shape), _S2 + _rg2.normal(0, 0.006, _Ha.shape)])
+        check(abs(float((_occ - _O3c)[_hm].mean())) < 0.004 and "(8% of" in _onc,
+              f"OIII that follows the Ha is kept, only the 8% leak taken out ({_onc}; "
+              f"error {float((_occ - _O3c)[_hm].mean()):+.4f})")
         _names = {n: _fc.normalize_filter(n) for n in ("D1", "Askar D2", "D1 Ha/OIII", "SII-OIII", "Ha/OIII")}
         check(abs(float((_oc - _O3)[_hm].mean())) < 0.003 and "leakage" in _on
               and _names == {"D1": "Askar D1", "Askar D2": "Askar D2", "D1 Ha/OIII": "Askar D1",

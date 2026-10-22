@@ -853,6 +853,9 @@ def split_dual_band(rgb: np.ndarray):
     return ha.astype(np.float32), o3.astype(np.float32)
 
 
+LEAK_MAX = 0.20      # most of a red line a colour camera's green/blue pixels can catch
+
+
 def combine_oiii(o3s, lines):
     """OIII from two dual-band filters (e.g. Askar D1 = Ha+OIII, D2 = SII+OIII). The camera's green and blue
     pixels also catch a little of the red line, so each OIII estimate carries some Ha (D1) or SII (D2). The two
@@ -871,25 +874,31 @@ def combine_oiii(o3s, lines):
     sig = (a1 > 3 * n1) | (b1 > 3 * _sky_noise(b1)[1]) | (b2 > 3 * _sky_noise(b2)[1])
     if sig.sum() < 500:
         return np.mean(o3s, axis=0).astype(np.float32), ""
-    A = np.stack([a2[sig], b1[sig], b2[sig]], 1)
+    # one leak fraction for both lines: the same green/blue pixels catch it, and Ha (656 nm) and SII (672 nm)
+    # are close - fitting one shared fraction (o1 - f*line1 = p * (o2 - f*line2)) stays stable even where the
+    # OIII follows the Ha closely, which a free fit of two leaks does not
     y = a1[sig]
-    keep = np.ones(y.size, bool)
-    coef = None
-    for _ in range(4):                                      # robust: drop outliers (stars, artefacts)
-        coef, *_r = np.linalg.lstsq(A[keep], y[keep], rcond=None)
-        res = y - A @ coef
-        sd = float(np.median(np.abs(res[keep]))) * 1.4826 + 1e-12
-        keep = np.abs(res) < 4 * sd
-    p_, a_, q_ = (float(v) for v in coef)
-    if not (0.05 < p_ < 20) or not (-0.05 <= a_ <= 0.35) or not (-0.35 * p_ <= q_ <= 0.05 * p_):
+    best = None
+    for f in np.linspace(0.0, LEAK_MAX, 41):
+        z = a2[sig] - f * b2[sig]
+        den = float((z * z).sum())
+        if den <= 0:
+            continue
+        pf = float((z * (y - f * b1[sig])).sum()) / den
+        res = (y - f * b1[sig]) - pf * z
+        r = float(np.median(np.abs(res)))                    # robust: stars and artefacts don't steer it
+        if best is None or r < best[0]:
+            best = (r, f, pf)
+    if best is None or not (0.05 < best[2] < 20):
         return np.mean(o3s, axis=0).astype(np.float32), ""
-    a_, q_ = max(a_, 0.0), min(q_, 0.0)
+    _r, f_, p_ = best
+    a_, q_ = f_, -f_ * p_
     c1 = o1 - a_ * l1                                       # OIII from filter 1 without its line's leak
     c2 = p_ * o2 + q_ * l2                                  # filter 2's, on filter 1's scale, without its leak
     w1 = 1.0 / max(_sky_noise(c1)[1], 1e-9) ** 2
     w2 = 1.0 / max(_sky_noise(c2)[1], 1e-9) ** 2
     out = (c1 * w1 + c2 * w2) / (w1 + w2)
-    note = (f"OIII from both filters: line leakage taken out ({100 * a_:.0f}% and {100 * -q_ / p_:.0f}%), "
+    note = (f"OIII from both filters: line leakage taken out ({100 * a_:.0f}% of the Ha and SII), "
             f"combined noise-weighted ({100 * w1 / (w1 + w2):.0f}% / {100 * w2 / (w1 + w2):.0f}%)")
     return out.astype(np.float32), note
 
