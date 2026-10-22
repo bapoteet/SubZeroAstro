@@ -2991,6 +2991,14 @@ class TameCore(Tool):
         t0 = sky + (t1 - sky) * 0.72
         m = np.clip((b - t0) / max(t1 - t0, 1e-3), 0, 1)
         m = m * m * (3 - 2 * m)                                  # smoothstep
+        if params.get("ring"):
+            # a ring: grow the area past the ring's outer edge (a third of its radius), so the whole ring is
+            # well inside it and the feathered edge falls on the faint halo, not on the ring
+            core = m > 0.5
+            if core.any():
+                rc = float(np.sqrt(core.sum() / np.pi))
+                g = max(1, int(round(rc / 4)))
+                m = np.maximum(m, (-_min_filter(-core.astype(np.float32), g) > 0.5).astype(np.float32))
         m = _blur(m, sig)                                        # feather the edge
         return np.clip(_resize(m, *y.shape), 0, 1)
 
@@ -3112,7 +3120,7 @@ class TameCore(Tool):
             m2 = self.mask(s, params)
             m = m2[..., None]
             tint = np.array([40, 230, 110], np.float32)           # green: shows on red nebulae too
-            img = img * (1 - 0.45 * m) + tint * 0.45 * m
+            img = img * (1 - 0.18 * m) + tint * 0.18 * m           # light, so the result shows through
             edge = (m2 > 0.4) & (m2 < 0.6)                         # a yellow line along the mask's edge
             img[edge] = np.array([255, 225, 40], np.float32)
             img = np.clip(img, 0, 255).astype(np.uint8)

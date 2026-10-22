@@ -1827,14 +1827,16 @@ def run(app, out_dir: Path) -> int:
         _pv = F.TOOLS["core"].variants(_ps)
         _po = F.TOOLS["core"].apply(_ps, _pv[1].params).rgb[0]
         _rgm, _cnm, _hlm = (_r > 32) & (_r < 44), _r < 12, (_r > 65) & (_r < 85)
-        _prev = F.TOOLS["core"].preview(_ps.small(600), dict(_pv[1].params, show_mask=True))
-        _green = bool(((_prev[..., 1] > 150) & (_prev[..., 0] < 150)).any())
+        _prev = F.TOOLS["core"].preview(_ps.small(600), dict(_pv[1].params, show_mask=True)).astype(np.float32)
+        _pnm = F.TOOLS["core"].preview(_ps.small(600), dict(_pv[1].params)).astype(np.float32)
+        _green = (float((_prev[..., 1] - _pnm[..., 1]).mean()) > float((_prev[..., 0] - _pnm[..., 0]).mean()) + 0.2
+                  and bool(((_prev[..., 0] > 200) & (_prev[..., 1] > 180) & (_prev[..., 2] < 100)).any()))
         check(all(v.params.get("ring") for v in _pv) and float(_yr[_rgm].mean()) > 0.97 and float(_yr[_cnm].mean()) > 0.97
               and float(_po[_rgm].mean()) < 0.82 and float(_po[_cnm].mean()) < float(_po[_rgm].mean()) - 0.04
               and abs(float(_po[_hlm].mean()) - float(_yr[_hlm].mean())) < 0.03 and _green,
               f"planetary nebula (Medium): a white ring and interior come back below white - ring "
               f"{_yr[_rgm].mean():.2f} -> {_po[_rgm].mean():.2f}, inside {_yr[_cnm].mean():.2f} -> {_po[_cnm].mean():.2f}, "
-              "halo unchanged; the tint shows in green")
+              "halo unchanged; the area shows as a light green wash with a yellow edge")
 
         # a planetary nebula that star removal put (partly) into the stars image is moved back to the nebula,
         # bright stars stay; and its ring is tamed after Curves
