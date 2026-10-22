@@ -572,6 +572,8 @@ bullets([
   "**Filters:** broadband (or a mild light-pollution filter) gives the brightest arms and most natural colours. A dual-band filter (L-eNhance, L-Ultimate) lets through only a little of a galaxy's starlight, but with long integration it works well and makes the red HII regions stand out - M31 with a 55 mm refractor, an ASI2600MC and an L-Ultimate over about 20 hours shows the disc, the dust lanes and the HII regions clearly.",
   "**Small galaxies:** crop tightly at the end (*Final Crop*), keep the stars in check (*Shrink Stars Moderate*, *Put Stars Back 80-100%*) so the galaxy stays the subject.",
   "**Don't darken the sky too much** - *Slightly darker* keeps the faint outer arms and halo that make a galaxy look real.",
+  "**Warm core, blue arms:** a spiral's bulge is old, yellowish starlight and its arms young, blue stars. If the disc looks grey, a gentle *Adjust Colours › Boost reds* (with *Protect the sky* up) warms the core, and *Boost blues* the arms.",
+  "**The faint outer disc:** a gentle *Curves › Lift faint detail* before *Darken the Sky Background* shows more of the outer arms and halo, when the data is deep enough.",
 ]);
 
 sec("15.3", "Emission nebulae", ["Emission nebula processing", "Nebulae", "HOO", "Foraxx"]);
