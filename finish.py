@@ -54,6 +54,7 @@ class State:
     load_note: str = ""                    # message for the user about how the masters were read
     stars_hidden: bool = False             # stars separated by Prepare but still shown in the picture:
                                            # "Take Stars Out" makes the separation visible
+    step_note: str = ""                    # what the last step found out, for the log (not saved)
 
     def copy(self) -> "State":
         return replace(self, channels=dict(self.channels), channel_stars=dict(self.channel_stars),
@@ -1181,6 +1182,9 @@ class TakeStarsOut(Tool):
         if (s.stars is not None and s.rgb is not None and s.stars.shape[1:] == s.rgb.shape[1:]
                 and s.stars_linear == s.linear and target_type(s) == "planetary nebula"):
             s.rgb, s.stars, _moved = rescue_object(s.rgb, s.stars)
+            s.step_note = (f"moved {_moved:.0%} of the stars image's light - the part of the planetary nebula star "
+                           "removal had taken for a star - back to the nebula" if _moved > 0.001 else
+                           "checked the stars image for parts of the planetary nebula - none found")
         s.done.append(self.key)
         return s
 

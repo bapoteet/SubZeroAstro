@@ -1925,7 +1925,12 @@ class FinishWindow(QMainWindow):
             return new, time.time() - t0
         again = ((lambda: self.open_tool(t.key, again=True)) if getattr(t, "repeatable", False)
                  else (lambda: self.show_applied(t)))
-        self.run_job(work, lambda r: (self.log(f"{t.title}: {label}  ({r[1]:.1f} s)"),
+        def _note(st_):
+            n_ = getattr(st_, "step_note", "")
+            if n_:
+                self.log(f"   {n_}")
+                st_.step_note = ""
+        self.run_job(work, lambda r: (self.log(f"{t.title}: {label}  ({r[1]:.1f} s)"), _note(r[0]),
                                       self.commit(r[0], t.key, f"{t.title} — {label}", params, then=again)),
                      f"{t.title}…")
 
