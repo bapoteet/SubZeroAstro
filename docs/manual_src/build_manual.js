@@ -120,7 +120,7 @@ function table(headers, rows, widths, out = body, size = undefined) {
 // ================================================================== THE MANUAL
 ch(1, "Welcome to SubZeroAstro");
 sec("1.1", "What SubZeroAstro does", ["Four pages", "Workflow overview"]);
-p("SubZeroAstro takes you **from a folder of raw sub-frames to a finished astrophoto** - with as little hassle as possible. It walks you through four pages, one after the other, like turning the pages of a book:");
+p("SubZeroAstro takes you **from a folder of raw sub-frames to a finished astrophoto** - with as little hassle as possible. It walks you through four pages, one after the other, like turning the pages of a book (each shows **Page 1 of 4**, **Page 2 of 4** … next to its title at the top, the same numbers this manual uses):");
 table(["Page", "What happens there"], [
   ["1. Astro Image Quality and Cull", "Every sub-frame is measured (star size, roundness, signal, cloud). You keep the good ones and set aside the bad ones."],
   ["2. Calibrate and Stack", "Your kept frames are calibrated with darks, flats and bias and combined into one clean **master** per filter."],

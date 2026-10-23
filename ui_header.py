@@ -21,6 +21,7 @@ PAGE_CULL = "Astro Image Quality and Cull"
 PAGE_STACK = "Calibrate and Stack"
 PAGE_PREPARE = "Astro Image Processing"
 PAGE_FINISH = "Finishing Touches"
+PAGE_NUMBERS = {PAGE_CULL: 1, PAGE_STACK: 2, PAGE_PREPARE: 3, PAGE_FINISH: 4}
 
 
 import sys as _sys
@@ -108,11 +109,23 @@ class AppHeader(QWidget):
         self.by.setStyleSheet(f"color:#8a93a6; font-size:{_PT(7.5)}pt; font-style:italic; margin-top:-3px;"
                               "background:transparent; border:none;")
         v.addWidget(self.by)
+        # "Page 2 of 4" beside the title, so the manual's and the app's page numbers are easy to match
+        prow = QHBoxLayout()
+        prow.setContentsMargins(0, 0, 0, 0)
+        prow.setSpacing(8)
+        prow.addStretch(1)
+        self.num = QLabel("")
+        self.num.setStyleSheet(f"color:#0b1420; background:#9fc0ec; border-radius:7px; padding:0px 7px;"
+                               f"font-size:{_PT(8.5)}pt; font-weight:700; margin-top:1px;")
+        prow.addWidget(self.num, 0, Qt.AlignVCenter)
         self.page = QLabel(page_title)
         self.page.setAlignment(Qt.AlignCenter)
         self.page.setStyleSheet(f"color:#9fc0ec; font-size:{_PT(11)}pt; font-weight:600; background:transparent;"
                                 "border:none; margin-top:1px;")
-        v.addWidget(self.page)
+        prow.addWidget(self.page, 0, Qt.AlignVCenter)
+        prow.addStretch(1)
+        v.addLayout(prow)
+        self._set_num(page_title)
         g.addWidget(mid, 0, 1)
         self.right = QHBoxLayout()
         rw = QWidget()
@@ -122,8 +135,14 @@ class AppHeader(QWidget):
         g.setColumnStretch(0, 1)          # equal side columns keep the title centred
         g.setColumnStretch(2, 1)
 
+    def _set_num(self, title: str):
+        n = PAGE_NUMBERS.get(title)
+        self.num.setText(f"Page {n} of {len(PAGE_NUMBERS)}" if n else "")
+        self.num.setVisible(bool(n))
+
     def set_page(self, title: str):
         self.page.setText(title)
+        self._set_num(title)
 
     def add_next(self, button, text=None):
         """Show a 'next step' button at the top right, with a right arrow - like turning a page."""
