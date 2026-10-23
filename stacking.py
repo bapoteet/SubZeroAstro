@@ -496,6 +496,25 @@ class LightGroup:
         return f"{self.target} · {self.filter} · {cam} · {self.rig}"
 
 
+NARROW_LINES = ("Ha", "OIII", "SII", "Hβ")
+BROAD_ORDER = ("L", "R", "G", "B")
+
+
+def filter_band(name) -> str:
+    """'broad' (L, R, G, B, no filter, light-pollution filters) or 'narrow' (Ha, OIII, SII, dual-band)."""
+    n = name or ""
+    return "narrow" if n in NARROW_LINES or core.is_dual_band(n) else "broad"
+
+
+def _filter_order(name):
+    n = name or ""
+    if n in BROAD_ORDER:
+        return (0, BROAD_ORDER.index(n), n)
+    if filter_band(n) == "broad":
+        return (0, 9, n)
+    return (1, NARROW_LINES.index(n) if n in NARROW_LINES else 9, n)
+
+
 def group_lights(lights: list[LightFrame], rigs: Rigs) -> list[LightGroup]:
     groups = {}
     for lf in lights:
@@ -507,7 +526,8 @@ def group_lights(lights: list[LightFrame], rigs: Rigs) -> list[LightGroup]:
     for key, lst in groups.items():
         lst.sort(key=lambda f: (f.info.date_obs or "", str(f.info.path)))
         out.append(LightGroup(key[0], key[1], lst[0].info.camera, key[9], lst))
-    out.sort(key=lambda g: (g.target, g.camera or "", g.filter))
+    # per target: broadband first (L, R, G, B), then narrowband (Ha, OIII, SII)
+    out.sort(key=lambda g: (g.target, g.camera or "", _filter_order(g.filter)))
     return out
 
 

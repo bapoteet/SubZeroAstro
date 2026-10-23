@@ -996,6 +996,16 @@ def run(app, out_dir: Path) -> int:
         state["win"] = win
         check(len(win.groups) == 2, f"stacking window groups lights by filter ({[g.label() for g in win.groups]})")
         check(all(len(g.frames) == 16 for g in win.groups), "each group has its 16 kept frames")
+        import stacking as _stb
+        _ord = sorted(["SII", "B", "Ha", "L", "OIII", "G", "R", "L-Ultimate"], key=_stb._filter_order)
+        _bands = {_stb.filter_band(g.filter) for g in win.groups}
+        _b0 = next(iter(_bands))
+        win.set_band_enabled(_b0, False)
+        _off = all(not g.enabled for g in win.groups if _stb.filter_band(g.filter) == _b0)
+        win.set_band_enabled(_b0, True)
+        check(_ord == ["L", "R", "G", "B", "Ha", "OIII", "SII", "L-Ultimate"] and _off
+              and all(g.enabled for g in win.groups) and hasattr(win, "chk_broad") and hasattr(win, "chk_narrow"),
+              f"stacking rows: broadband first (L R G B), then narrowband; one tick box per kind ({_ord})")
         check(all(any(k == "dark" for k, _ in g.plan.warnings) for g in win.groups),
               "missing darks are reported before calibration is added")
         win._add_cal_paths([raw_cal])

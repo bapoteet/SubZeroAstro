@@ -370,6 +370,20 @@ class StackWindow(QMainWindow):
             hh.setSectionResizeMode(c, QHeaderView.Fixed)
             self.table.setColumnWidth(c, 64)
         self.table.itemSelectionChanged.connect(self.show_plan_details)
+        # one click includes or leaves out a whole kind of filter
+        brow = QHBoxLayout()
+        brow.addWidget(QLabel("Stack:"))
+        self.chk_broad = QCheckBox("Broadband (L, R, G, B)")
+        self.chk_narrow = QCheckBox("Narrowband (Ha, OIII, SII)")
+        for cb_, band in ((self.chk_broad, "broad"), (self.chk_narrow, "narrow")):
+            cb_.setTristate(False)
+            cb_.setChecked(True)
+            cb_.setToolTip("Tick or untick every row of this kind at once (blue rows: broadband, red rows: "
+                           "narrowband)")
+            cb_.clicked.connect(lambda v, band=band: self.set_band_enabled(band, v))
+            brow.addWidget(cb_)
+        brow.addStretch(1)
+        gl.addLayout(brow)
         gl.addWidget(self.table, 2)
         self.details = QLabel("Select a row to see which calibration will be used.")
         self.details.setWordWrap(True)
@@ -632,7 +646,7 @@ class StackWindow(QMainWindow):
         for r, g in enumerate(self.groups):
             cb = QCheckBox()
             cb.setChecked(g.enabled)
-            cb.toggled.connect(lambda v, g=g: setattr(g, "enabled", v))
+            cb.toggled.connect(lambda v, g=g: (setattr(g, "enabled", v), self._sync_band_boxes()))
             holder = QWidget()
             hl = QHBoxLayout(holder)
             hl.setContentsMargins(8, 0, 0, 0)
@@ -642,10 +656,17 @@ class StackWindow(QMainWindow):
             vals = [g.target, g.filter, st.short_camera(g.camera), None, str(len(g.frames)),
                     f"{g.total_exposure / 3600:.2f} h",
                     (nights[0] if len(nights) == 1 else f"{nights[0]} … {nights[-1]} ({len(nights)})") if nights else "?"]
+            band = st.filter_band(g.filter)
+            tint = QColor(70, 110, 190, 45) if band == "broad" else QColor(200, 70, 70, 45)
             for c, v in enumerate(vals, start=1):
                 if v is None:
                     continue
-                self.table.setItem(r, c, QTableWidgetItem(v))
+                it_ = QTableWidgetItem(v)
+                it_.setBackground(tint)                    # blue = broadband, red = narrowband
+                if c == 1:
+                    it_.setToolTip("Broadband filter (L, R, G, B…)" if band == "broad" else
+                                   "Narrowband filter (Ha, OIII, SII, dual-band)")
+                self.table.setItem(r, c, it_)
             # filter: editable combo - force the filter when the header has it wrong / missing
             fcombo = QComboBox()
             fcombo.setEditable(True)
@@ -684,10 +705,28 @@ class StackWindow(QMainWindow):
                 it.setToolTip(tip)
                 self.table.setItem(r, c, it)
         self.table.blockSignals(False)
+        self._sync_band_boxes()
         self.table.setColumnWidth(2, max(self.table.columnWidth(2), 130))   # room for the filter name
         if self.groups:
             self.table.selectRow(0)
         self.show_plan_details()
+
+    def set_band_enabled(self, band, on):
+        """Tick / untick every light group of one kind (broadband or narrowband)."""
+        for g in self.groups:
+            if st.filter_band(g.filter) == band:
+                g.enabled = bool(on)
+        self.fill_table()
+
+    def _sync_band_boxes(self):
+        for cb_, band in ((getattr(self, "chk_broad", None), "broad"), (getattr(self, "chk_narrow", None), "narrow")):
+            if cb_ is None:
+                continue
+            gs = [g for g in self.groups if st.filter_band(g.filter) == band]
+            cb_.blockSignals(True)
+            cb_.setVisible(bool(gs))
+            cb_.setChecked(bool(gs) and all(g.enabled for g in gs))
+            cb_.blockSignals(False)
 
     def set_group_filter(self, g, name):
         import fits_core as core

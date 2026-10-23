@@ -320,7 +320,8 @@ p("When you are happy, click **Calibrate and Stack ➜** at the top right. Only 
 
 ch(7, "Page 2 – Calibrate and Stack");
 img("10_stacking_done.png", "Page 2 after stacking: one row per target and filter, with the calibration found for each (example data)");
-sec("7.1", "The light frame groups", ["Light groups", "Filter column", "Telescope (rig)"]);
+sec("7.1", "The light frame groups", ["Light groups", "Filter column", "Telescope (rig)", "Broadband and narrowband rows"]);
+p("Each target's rows come **broadband first** (L, R, G, B - tinted blue), then **narrowband** (Ha, OIII, SII and dual-band filters - tinted red). The **Stack: Broadband / Narrowband** tick boxes above the table include or leave out a whole kind at once - handy when one target has both, and you want, say, only the LRGB + Ha of a galaxy (untick a single row with its own box).");
 p("Your kept frames are grouped by **target + filter + camera + telescope** - one row each, with the number of frames, total exposure and nights. The **Filter** of a row can be changed from its drop-down (for example to match your flats).");
 sec("7.2", "Calibration: what the ✓ ⚠ ✗ mean", ["Calibration", "Old flats", "Missing calibration", "Flat warnings", "Calibration check", "Light leak", "SkyFlats (Mote Buster)", "Sky flat", "No flats"]);
 table(["Mark", "Meaning"], [
