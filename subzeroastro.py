@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.86 beta"
+APP_VERSION = "0.9.87 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -1138,15 +1138,12 @@ class MainWindow(QMainWindow):
         rb.setContentsMargins(12, 6, 8, 6)
         self.ready_label = QLabel()
         rb.addWidget(self.ready_label, 1)
-        b_go = QToolButton()
-        b_go.setText("Open Stacking Window")
-        b_go.setStyleSheet("QToolButton { background: #4a86e8; color: white; border-radius: 4px; "
-                           "padding: 4px 14px; font-weight: bold; }")
-        b_go.clicked.connect(self.open_stacking)
+        # one way on: the "Calibrate and Stack ➜" button at the top right - this bar only says you're ready
         b_x = QToolButton()
-        b_x.setText("Not yet")
+        b_x.setText("✕")
+        b_x.setToolTip("Hide this note")
+        b_x.setAutoRaise(True)
         b_x.clicked.connect(lambda: self.ready_bar.hide())
-        rb.addWidget(b_go)
         rb.addWidget(b_x)
         self.ready_bar.hide()
         central = QWidget()
@@ -2462,7 +2459,8 @@ class MainWindow(QMainWindow):
         if not kept:
             return
         hours = sum(float((f.info or {}).get("exptime") or 0) for f in kept) / 3600
-        self.ready_label.setText(f"<b>{len(kept)} frames kept</b> ({hours:.1f} h) — ready to stack?")
+        self.ready_label.setText(f"<b>{len(kept)} frames kept</b> ({hours:.1f} h) — ready to stack: click "
+                                 "<b>Calibrate and Stack ➜</b> at the top right")
         self.ready_bar.show()
 
     def open_stacking(self):
