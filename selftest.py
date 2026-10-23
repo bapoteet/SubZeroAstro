@@ -2289,6 +2289,35 @@ def run(app, out_dir: Path) -> int:
               and F.WORKFLOWS["osc"].index("dust") < F.WORKFLOWS["osc"].index("stretch"),
               f"Mote Buster finds the donut ({[[round(v) for v in d] for d in _found]}) and divides it out "
               f"(shadow {_eb:+.3f} -> {_ea:+.3f}); offered while the picture is unstretched")
+        # Mote Buster also flattens a BRIGHT over-corrected ring (dust that moved between flats and lights),
+        # in the one colour that has it, and leaves the other colours alone
+        _rb = np.hypot(_x2 - 300, _y2 - 300) / 70
+        _ringb = 0.05 * np.exp(-((_rb - 0.7) / 0.18) ** 2) * (_rb < 1.05)
+        _bimg = np.stack([_clean, _clean, _clean * (1 + _ringb)]) + _r2.normal(0, 0.0012, (3, _H2, _W2))
+        _bst = F.State(rgb=_bimg.astype(np.float32), linear=True)
+        _bfx = F.TOOLS["dust"].apply(_bst, {"spots": [[300, 300, 75]]}).rgb
+        _ann = (_rb > 0.55) & (_rb < 0.85)
+        _rex = lambda a: float(np.median(((a - _clean) / _clean)[_ann]))  # noqa: E731
+        _bfound = F.find_donuts(_clean * (1 + 2.5 * _ringb) + _r2.normal(0, 0.0012, (_H2, _W2)), bright=True)
+        check(_rex(_bimg[2]) > 0.03 and abs(_rex(_bfx[2])) < 0.006 and abs(_rex(_bfx[0]) - _rex(_bimg[0])) < 0.003
+              and any(abs(x - 300) < 20 and abs(y - 300) < 20 for x, y, _r in _bfound),
+              f"Mote Buster: a bright over-corrected ring is found and flattened in its own colour "
+              f"({_rex(_bimg[2]):+.3f} -> {_rex(_bfx[2]):+.3f}), the others untouched")
+        # Brighten Stars Separately keeps bright stars their real size (no big soft discs); faint ones as before
+        _sy3, _sx3 = np.mgrid[:200, :400].astype(np.float32)
+        _bstar = np.exp(-((_sx3 - 100) ** 2 + (_sy3 - 100) ** 2) / (2 * 2.0 ** 2)) \
+            + 0.004 * np.exp(-np.hypot(_sx3 - 100, _sy3 - 100) / 8.0)               # a bright star and its glow
+        _fstar = 0.03 * np.exp(-((_sx3 - 300) ** 2 + (_sy3 - 100) ** 2) / (2 * 2.0 ** 2))   # a faint star
+        _sl = np.clip(_bstar + _fstar, 0, 1).astype(np.float32)
+        _ss = F.State(rgb=np.stack([_sl] * 3), stars=np.stack([_sl] * 3), stars_out=True, linear=False)
+        _bt = F.TOOLS["star_stretch"]
+        _bv = [v for v in _bt.variants(_ss) if v.recommended][0]
+        _big = _bt.apply(_ss, {**_bv.params, "small": 0.0}).stars[0]
+        _sm3 = _bt.apply(_ss, _bv.params).stars[0]
+        _rad = lambda im: int(np.sum(im[100, 100:200] > 0.25))  # noqa: E731
+        check(_rad(_sm3) < 0.6 * _rad(_big) and abs(float(_sm3[100, 300]) - float(_big[100, 300])) < 0.02,
+              f"Brighten Stars keeps a bright star small ({_rad(_big)} -> {_rad(_sm3)} px) and a faint star as bright "
+              f"({float(_big[100, 300]):.2f} -> {float(_sm3[100, 300]):.2f})")
         # Final Noise Reduction (NoiseXTerminator) - through the stand-in rc-astro when it is there
         _dn = F.TOOLS["denoise"]
         if state["fake"]:

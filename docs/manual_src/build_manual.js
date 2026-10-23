@@ -450,6 +450,7 @@ p("Dust on a filter or on the camera window casts round shadows - **dust donuts*
 bullets([
   "Open **Mote Buster** while the picture is still unstretched (it comes before *Take Stars Out*). The donuts it finds in the sky are already circled in yellow.",
   "Donuts on bright nebulosity are not searched automatically (a gap between filaments could look like one) - **click** those yourself. Click to place a circle, then **turn the mouse wheel to size that circle** while you watch (just cover the donut). Click a circle to pick it again (it turns blue) and drag to move it; right-click removes it. A dashed ring follows the mouse to show the size of the next circle. Clicks need not be exact: each circle is centred on its donut automatically.",
+  "**Bright rings count too.** When the dust moved between the flats and the lights (or a filter was cleaned), the flat over-corrects: you get a *brighter* ring, often with a dark centre, and with mono filters it is usually in one filter only - a coloured (e.g. purple) halo. Mote Buster finds and fixes these as well, dimming the bright part and lifting the dark part. Every colour is centred and measured on its own (the same speck sits a little differently in each filter), and lopsided rings are followed too.",
   "Check the preview, then press the fix button. Mote Buster stays open on the **fixed picture**, so you can circle any donuts that are left and fix again - as many rounds as you like (each round is its own step; *Undo Last Step* takes back the last one). Press **✓ Applied – Next Step ➜** when you are happy. Spot Fix works the same way. For small specks (hot pixels, satellite remnants) use **Spot Fix** instead.",
 ]);
 sec("9.5", "Stars: take out, brighten, colour, put back", ["Stars workflow", "Starless"]);
@@ -640,6 +641,7 @@ p("A page for video of the Moon and planets (lucky imaging: grade thousands of f
 
 sec("15.9", "Questions and fixes", ["FAQ", "Bloated stars", "Fuzzy stars", "Washed-out colours", "Burnt-out core"]);
 table(["Problem", "What to try"], [
+  ["Bright stars turn into big soft discs", "*Brighten Stars Separately* keeps bright stars their real size (fine-tune *Keep bright stars small*, about 0.85): one brightening curve for everything would lift a bright star's faint outer glow as much as a faint star's core. Turn it down toward 0 only if you want the big-glow look."],
   ["My stars look bloated and have fuzzy edges", "Page 3: BlurXTerminator *Sharpen Stars* about 0.5 and *Adjust Star Halos* 0.3-0.5. Page 4: *Brighten Stars Separately › Subtle*, *Put Stars Back 80-100%* (not 120%), *Shrink Stars* with *Halo reduction* - and *Do It Again* if needed. If the stars are large on page 1 too (FWHM), it is focus or seeing."],
   ["The core of my galaxy or nebula is a white blob", "*Tame Bright Core* right after *Brighten the Image* - *Strong* or *Maximum*, *Core size* to the left. Raise *Protect bright areas* in Brighten the Image."],
   ["My colours look washed out, or the object stays white", "Colour needs room below white: lower the brightness first (above), then *Saturation Vivid* and *Adjust Colours*. Saturation on a white area does nothing."],

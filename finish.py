@@ -608,6 +608,25 @@ def _mtf(m, x):
     return ((m - 1) * x) / ((2 * m - 1) * x - m)
 
 
+STAR_KEEP_SMALL = 0.85
+
+
+def _local_max(a: np.ndarray, r: int) -> np.ndarray:
+    """Largest value within about r pixels (fast: on 4x4 blocks, then grown back), never below a itself."""
+    f = 4
+    h, w = a.shape
+    hh, ww = max(f, h // f * f), max(f, w // f * f)
+    if h < f or w < f:
+        return a.copy()
+    b = a[:hh, :ww].reshape(hh // f, f, ww // f, f).max(axis=(1, 3))
+    for _ in range(int(np.ceil(r / f))):
+        p = np.pad(b, 1, mode="edge")
+        b = np.maximum.reduce([p[1:-1, :-2], p[1:-1, 1:-1], p[1:-1, 2:], p[:-2, 1:-1], p[2:, 1:-1]])
+    m = np.repeat(np.repeat(b, f, axis=0), f, axis=1)
+    m = np.pad(m, ((0, h - hh), (0, w - ww)), mode="edge")
+    return np.maximum(m, a)
+
+
 def _min_filter(a: np.ndarray, r: int) -> np.ndarray:
     """Grey-level erosion with a (2r+1)^2 square (separable)."""
     h, w = a.shape
@@ -1477,13 +1496,26 @@ class BrightenStars(Tool):
                         "", i == 2) for i, v in enumerate((3.0, 4.0, 5.0, 6.0, 7.0))]
 
     def sliders(self, s, params):
-        return [Slider("s", "Star brightness", 2.0, 8.0, params["s"], "How bright the stars become", 0.1)]
+        return [Slider("s", "Star brightness", 2.0, 8.0, params["s"], "How bright the stars become", 0.1),
+                Slider("small", "Keep bright stars small", 0.0, 1.0, params.get("small", STAR_KEEP_SMALL),
+                       "Bright stars keep their real size instead of swelling into big soft discs; faint "
+                       "stars are brightened as before")]
 
     def apply(self, s, params):
         s = s.copy()
         k = 3.0 ** float(params["s"])
         x = np.clip(np.stack([(c - b) for c, b in zip(s.stars, params["bgs"])]) / params["hi"], 0, 1)
-        s.stars = np.clip((k * x) / ((k - 1) * x + 1), 0, 1).astype(np.float32)
+        y = (k * x) / ((k - 1) * x + 1)
+        keep = float(params.get("small", STAR_KEEP_SMALL))
+        if keep > 0:
+            # one curve for every pixel lifts a bright star's faint outer glow (0.5 % of its peak) as much as
+            # a faint star's core - the star swells into a big soft disc. Around bright stars, brighten the
+            # peak and keep the star's own profile instead, so it stays its real size.
+            peak = _local_max(x.max(axis=0), max(12, int(round(max(x.shape[1:]) / 260))))
+            w = keep * np.clip((peak - 0.15) / 0.45, 0, 1) ** 2            # only where a bright star is
+            shaped = ((k * peak) / ((k - 1) * peak + 1))[None] * x / np.maximum(peak, 1e-9)[None]
+            y = (1 - w)[None] * y + w[None] * shaped
+        s.stars = np.clip(y, 0, 1).astype(np.float32)
         s.stars_linear = False
         s.done.append(self.key)
         return s
@@ -1820,7 +1852,8 @@ def _opening(a: np.ndarray, r: int) -> np.ndarray:
     return -_min_filter(-_min_filter(a, r), r)
 
 
-def donut_profile(plane: np.ndarray, x: float, y: float, r: float, sectors: int = 16, bins: int = 28):
+def donut_profile(plane: np.ndarray, x: float, y: float, r: float, sectors: int = 16, bins: int = 28,
+                  harmonics: bool = False):
     """How much light a donut at (x, y) of radius r lets through, ring by ring: (rho, through) with
     rho in units of r and through = 1 outside the shadow. Measured in every direction against the sky
     just outside the circle *in that direction*, then the median over directions - so a nebula or a
@@ -1840,19 +1873,24 @@ def donut_profile(plane: np.ndarray, x: float, y: float, r: float, sectors: int 
     th = ((np.arctan2(yy - y, xx - x) + np.pi) / (2 * np.pi) * sectors).astype(int) % sectors
     edges = np.linspace(0, 1.25, bins + 1)
     ref_ring = (rho >= 1.3) & (rho <= 1.7)
+    # the sky without the donut: a tilted plane (in log) fitted to the ring just outside, so a gradient or a
+    # nebula's edge across the donut is not taken for part of it
+    ratio = None
+    if ref_ring.sum() >= 20 and float(np.median(small[ref_ring])) > 0:
+        lg = np.log(np.maximum(small, 1e-9))
+        A = np.stack([np.ones(int(ref_ring.sum())), (xx[ref_ring] - x) / r, (yy[ref_ring] - y) / r], 1)
+        cf, *_ = np.linalg.lstsq(A, lg[ref_ring], rcond=None)
+        ratio = small / np.exp(cf[0] + cf[1] * (xx - x) / r + cf[2] * (yy - y) / r)
     prof = np.full((sectors, bins), np.nan)
     for k in range(sectors):
         sel = th == k
         ref = small[sel & ref_ring]
-        if ref.size < 3:
-            continue
-        rv = float(np.median(ref))
-        if rv <= 0:
+        if ref.size < 3 or ratio is None:
             continue
         for i in range(bins):
-            v = small[sel & (rho >= edges[i]) & (rho < edges[i + 1])]
+            v = ratio[sel & (rho >= edges[i]) & (rho < edges[i + 1])]
             if v.size:
-                prof[k, i] = float(np.median(v)) / rv
+                prof[k, i] = float(np.median(v))
     ok_rows = ~np.all(np.isnan(prof), axis=1)
     if ok_rows.sum() < sectors // 2:
         return None
@@ -1865,13 +1903,27 @@ def donut_profile(plane: np.ndarray, x: float, y: float, r: float, sectors: int 
     through = np.where(np.isnan(through), 1.0, through)
     mid = 0.5 * (edges[1:] + edges[:-1])
     dark_dirs = int(np.sum(dark_rows < 1.0))
-    return mid, through, dark_dirs, int(ok_rows.sum())
+    if not harmonics:
+        return mid, through, dark_dirs, int(ok_rows.sum())
+    # a donut is rarely perfectly round in its light: dust that moved between flats and lights leaves a
+    # brighter crescent on one side. Per ring, the profile around the circle is fitted with its average
+    # and the first two angular waves - enough for an off-centre ring, too smooth to follow a nebula's detail
+    ang = (np.arange(sectors) + 0.5) / sectors * 2 * np.pi - np.pi
+    basis = np.stack([np.ones(sectors), np.cos(ang), np.sin(ang), np.cos(2 * ang), np.sin(2 * ang)], 1)
+    coefs = np.zeros((bins, 5))
+    coefs[:, 0] = through
+    for i in range(bins):
+        ok = ~np.isnan(prof[:, i])
+        if ok.sum() >= 10:
+            coefs[i], *_ = np.linalg.lstsq(basis[ok], prof[ok, i], rcond=None)
+    return mid, through, dark_dirs, int(ok_rows.sum()), coefs
 
 
-def donut_flat(shape, x, y, r, mid, through):
-    """The synthetic flat for one donut: 1 everywhere except the shadow (smooth, never above 1)."""
-    t = np.convolve(np.pad(through, 2, mode="edge"), np.ones(5) / 5, mode="valid")     # gentle smoothing
-    t = np.clip(t, 0.3, 1.0)
+def donut_flat(shape, x, y, r, mid, through, coefs=None):
+    """The synthetic flat for one donut: 1 everywhere except the donut (smooth) - below 1 where dust
+    shadows the light, above 1 where a flat over-corrected it (dust that moved between flats and lights)."""
+    t = np.convolve(np.pad(through, 1, mode="edge"), np.ones(3) / 3, mode="valid")     # gentle smoothing
+    t = np.clip(t, 0.3, 2.0)        # a shadow (< 1) or a bright over-corrected ring (> 1)
     taper = np.clip((1.18 - mid) / 0.18, 0, 1)                    # back to exactly 1 at the edge
     t = 1.0 - (1.0 - t) * taper
     h, w = shape
@@ -1879,8 +1931,19 @@ def donut_flat(shape, x, y, r, mid, through):
     x0, x1, y0, y1 = max(0, int(x) - R), min(w, int(x) + R + 1), max(0, int(y) - R), min(h, int(y) + R + 1)
     yy, xx = np.mgrid[y0:y1, x0:x1]
     rho = np.hypot(yy - y, xx - x) / r
-    patch = np.interp(rho, mid, t, left=t[0], right=1.0).astype(np.float32)
-    return (y0, y1, x0, x1), patch
+    if coefs is None:
+        patch = np.interp(rho, mid, t, left=t[0], right=1.0).astype(np.float32)
+        return (y0, y1, x0, x1), patch
+    sm = np.stack([np.convolve(np.pad(coefs[:, j], 1, mode="edge"), np.ones(3) / 3, mode="valid")
+                   for j in range(coefs.shape[1])], 1)
+    a = np.arctan2(yy - y, xx - x)
+    parts = [np.interp(rho, mid, sm[:, j], left=sm[0, j], right=1.0 if j == 0 else 0.0) for j in range(5)]
+    damp = np.clip(rho / 0.45, 0, 1) ** 2          # near the centre the direction means little: round there
+    val = parts[0] + damp * (parts[1] * np.cos(a) + parts[2] * np.sin(a) + parts[3] * np.cos(2 * a)
+                             + parts[4] * np.sin(2 * a))
+    val = np.clip(val, 0.3, 2.0)
+    tp = np.clip((1.25 - rho) / 0.15, 0, 1)        # measured out to 1.25 r: fade to 1 over its last part
+    return (y0, y1, x0, x1), (1.0 - (1.0 - val) * tp).astype(np.float32)
 
 
 def _sector_depths(plane, x, y, r, sectors=16):
@@ -1922,13 +1985,13 @@ def centre_donut(plane, x, y, r):
                 if d.size < 12:
                     continue
                 med = float(np.median(d))
-                sc = med - 1.5 * float(np.median(np.abs(d - med))) * 1.4826
+                sc = abs(med) - 1.5 * float(np.median(np.abs(d - med))) * 1.4826      # dark or bright
                 if sc > best:
                     best, bx, by = sc, cx, cy
     return bx, by
 
 
-def find_donuts(y: np.ndarray, max_n: int = 12) -> list:
+def find_donuts(y: np.ndarray, max_n: int = 12, bright: bool = False) -> list:
     """Dust donuts in an unstretched (linear) luminance plane: [[x, y, r], ...] full-size.
     Candidates come from round 'disc' and 'ring' shaped dips at several sizes; one is kept only when
     every direction around it agrees on how much darker the inside is (a dark gap in a nebula does
@@ -1937,6 +2000,8 @@ def find_donuts(y: np.ndarray, max_n: int = 12) -> list:
     base = _opening(small, 2)
     sky, noise, _d, _b = sky_level(small)
     lg = np.log(np.maximum(base, sky * 0.2) + noise).astype(np.float32)
+    sg = -1.0 if bright else 1.0                     # bright: over-corrected rings, found as dips of -log
+    lg = sg * lg
     h, w = small.shape
     dif = (small[:, 1:] - small[:, :-1]).ravel()                  # pixel-to-pixel noise (gradients cancel)
     pix_noise = float(np.median(np.abs(dif - np.median(dif)))) * 1.4826 / np.sqrt(2) / max(sky, 1e-9)
@@ -1968,9 +2033,10 @@ def find_donuts(y: np.ndarray, max_n: int = 12) -> list:
             if taken[cy, cx]:
                 continue
             yl, yh, xl, xh = max(0, int(cy - 1.7 * R)), int(cy + 1.7 * R) + 1, max(0, int(cx - 1.7 * R)), int(cx + 1.7 * R) + 1
-            if float(np.median(base[yl:yh, xl:xh])) > sky * 1.25 + 3 * noise:
+            loc = float(np.median(base[yl:yh, xl:xh]))
+            if loc > sky * 1.25 + 3 * noise:
                 continue                       # inside bright nebulosity: too easy to mistake - click those
-            d = _sector_depths(base, cx, cy, R)
+            d = sg * _sector_depths(base, cx, cy, R)
             if d.size < 12:
                 continue
             med = float(np.median(d))
@@ -1979,14 +2045,16 @@ def find_donuts(y: np.ndarray, max_n: int = 12) -> list:
             if med < max(0.015, 6 * chance) or med > 0.6 or np.mean(d > 0) < 0.94 or spread > 0.35 * med:
                 continue
             # the true outer edge: where the shadow has faded, measured outwards from the centre
-            res = donut_profile(small, cx, cy, R * 1.5)
+            # (a bright over-corrected ring is often found at a smaller scale than its full size: look wider)
+            reach = 3.0 if bright else 1.5
+            res = donut_profile(small, cx, cy, R * reach)
             r_out = R
             if res is not None:
                 mid, thr, _dk, _tt = res
-                dep = 1 - thr
+                dep = sg * (1 - thr)
                 inside = np.nonzero(dep > 0.2 * max(dep.max(), 1e-6))[0]
                 if inside.size:
-                    r_out = float(np.clip(mid[inside[-1]] * R * 1.5 * 1.08, 0.7 * R, 1.4 * R))
+                    r_out = float(np.clip(mid[inside[-1]] * R * reach * 1.08, 0.7 * R, (2.8 if bright else 1.4) * R))
             ex, ey = centre_donut(base, cx, cy, R)
             found.append([ex * f, ey * f, r_out * f, med])
             yy, xx = np.ogrid[:h, :w]
@@ -2019,7 +2087,15 @@ class DustDonuts(Tool):
         return True, ""
 
     def found_spots(self, s):
-        return find_donuts(_lum(s.rgb))
+        # shadows and over-corrected bright rings (dust that moved between the flats and the lights) alike;
+        # one circle per donut. Each colour is then measured on its own when the circles are applied.
+        lum = _lum(s.rgb)
+        out = []
+        for br in (False, True):
+            for x, y, r in find_donuts(lum, bright=br):
+                if all(np.hypot(x - a, y - b) > 0.6 * (r + c) for a, b, c in out):
+                    out.append([x, y, r])
+        return out[:14]
 
     def variants(self, s):
         return [Variant("Fix the marked donuts", {"spots": []},
@@ -2029,19 +2105,24 @@ class DustDonuts(Tool):
     def apply(self, s, params):
         s = s.copy()
         img = s.rgb.copy()
-        small, f = _small_plane(_lum(img), 900)
-        base = _opening(small, 2)
-        spots = []
-        for x, y, r in params.get("spots", []):        # clicks need not be exact: centre each one
-            ex, ey = centre_donut(base, x / f, y / f, r / f)
-            spots.append((ex * f, ey * f, r))
-        for x, y, r in spots:
+        # each filter has its own dust - and the same speck sits a little differently in each - so every
+        # colour is centred and measured on its own (clicks need not be exact)
+        bases = []
+        for c in range(img.shape[0]):
+            small, f = _small_plane(img[c], 900)
+            bases.append((_opening(small, 2), f))
+        for x, y, r in params.get("spots", []):
             for c in range(img.shape[0]):
-                res = donut_profile(img[c], x, y, r)
+                base, f = bases[c]
+                ex, ey = centre_donut(base, x / f, y / f, r / f)
+                if np.hypot(ex * f - x, ey * f - y) > 0.3 * r:          # wandered off: keep the click
+                    ex, ey = x / f, y / f
+                x_c, y_c = ex * f, ey * f
+                res = donut_profile(img[c], x_c, y_c, r, harmonics=True)
                 if res is None:
                     continue
-                mid, thr, _dark, _tot = res
-                (y0, y1, x0, x1), flat = donut_flat(img[c].shape, x, y, r, mid, thr)
+                mid, thr, _dark, _tot, coefs = res
+                (y0, y1, x0, x1), flat = donut_flat(img[c].shape, x_c, y_c, r, mid, thr, coefs)
                 img[c, y0:y1, x0:x1] = img[c, y0:y1, x0:x1] / flat
         s.rgb = img.astype(np.float32)
         if self.key not in s.done:
