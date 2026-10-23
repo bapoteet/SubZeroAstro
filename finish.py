@@ -2731,22 +2731,35 @@ class LocalContrast(Tool):
         return True, ""
 
     def variants(self, s):
-        return [Variant(n, {"amount": a, "grid": 8, "clip": 2.5}, "", i == 1) for i, (n, a) in
+        sky = float(np.median(_lum(s.rgb)[::3, ::3]))
+        return [Variant(n, {"amount": a, "grid": 8, "clip": 2.5, "protect": 0.85, "sky": sky}, "", i == 1)
+                for i, (n, a) in
                 enumerate((("Subtle", 0.15), ("Moderate", 0.3), ("Strong", 0.45), ("Very strong", 0.65)))]
 
     def sliders(self, s, params):
         return [Slider("amount", "Strength", 0.0, 1.0, params["amount"], "How much local contrast to add"),
-                Slider("grid", "Detail size", 4, 16, params["grid"], "Large structures (4) <-> fine detail (16)", 1)]
+                Slider("grid", "Detail size", 4, 16, params["grid"], "Large structures (4) <-> fine detail (16)", 1),
+                Slider("protect", "Protect the sky", 0.0, 1.0, params.get("protect", 0.85),
+                       "Leaves the empty background alone - boosting it only shows faint blotches of leftover "
+                       "noise (they can look like a moire pattern)")]
 
     def apply(self, s, params):
         s = s.copy()
         a = float(params["amount"])
+        pr = float(params.get("protect", 0.0))
+        sky = params.get("sky")
         eq = None
 
         def fn(y):
             nonlocal eq
             eq = clahe(np.clip(y, 0, 1), int(round(params["grid"])), float(params["clip"]))
-            return (1 - a) * y + a * eq
+            if pr <= 0:
+                return (1 - a) * y + a * eq
+            # only where there is something above the sky (judged on a smoothed copy, so noise doesn't decide)
+            sk = float(np.median(y[::3, ::3])) if sky is None else float(sky)
+            w = np.clip((_blur(y.astype(np.float32), 3.0) - sk * 1.1 - 0.01) / 0.15, 0, 1)
+            aa = a * ((1 - pr) + pr * w)
+            return (1 - aa) * y + aa * eq
         s.rgb = _apply_lum(s.rgb, fn)
         s.done.append(self.key)
         return s

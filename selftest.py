@@ -2308,6 +2308,22 @@ def run(app, out_dir: Path) -> int:
               and F.WORKFLOWS["osc"].index("dust") < F.WORKFLOWS["osc"].index("stretch"),
               f"Mote Buster finds the donut ({[[round(v) for v in d] for d in _found]}) and divides it out "
               f"(shadow {_eb:+.3f} -> {_ea:+.3f}); offered while the picture is unstretched")
+        # Bring Out Hidden Structure leaves the empty sky alone (boosting it shows leftover blotches - "moire")
+        _ry = np.random.default_rng(3)
+        _yy4, _xx4 = np.mgrid[:300, :400].astype(np.float32)
+        _blot = F._blur(_ry.normal(0, 1, (300, 400)).astype(np.float32), 12.0)
+        _blot = 0.004 * _blot / float(_blot.std())
+        _gal = 0.6 * np.exp(-((_xx4 - 280) ** 2 + (_yy4 - 150) ** 2) / (2 * 40.0 ** 2))
+        _sky4 = np.clip(0.08 + _blot + _gal, 0, 1).astype(np.float32)
+        _ls = F.State(rgb=np.stack([_sky4] * 3), linear=False)
+        _lt = F.TOOLS["local"]
+        _lv = [v for v in _lt.variants(_ls) if v.recommended][0]
+        _sk = (slice(20, 120), slice(10, 110))
+        _s0 = float(_ls.rgb[1][_sk].std())
+        _s1 = float(_lt.apply(_ls, {**_lv.params, "protect": 0.0}).rgb[1][_sk].std())
+        _s2 = float(_lt.apply(_ls, _lv.params).rgb[1][_sk].std())
+        check(_s2 < 1.15 * _s0 < _s1, f"Bring Out Hidden Structure protects the sky (blotches {_s0:.4f}: "
+                                       f"unprotected {_s1:.4f}, protected {_s2:.4f})")
         # Mote Buster also flattens a BRIGHT over-corrected ring (dust that moved between flats and lights),
         # in the one colour that has it, and leaves the other colours alone
         _rb = np.hypot(_x2 - 300, _y2 - 300) / 70
