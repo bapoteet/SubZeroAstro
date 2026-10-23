@@ -335,6 +335,12 @@ class CropView(QGraphicsView):
         if self.zoomable:                                # pan a zoomed picture when no tool needs the mouse
             pan = self._zoomed and self.locked and not self.on_drag and not self.on_click
             self.setDragMode(QGraphicsView.ScrollHandDrag if pan else QGraphicsView.NoDrag)
+        # on a Mac a "right-click" is often Control-click (or Option / Command-click): treat it as one
+        mods = e.modifiers() & (Qt.MetaModifier | Qt.ControlModifier | Qt.AltModifier)
+        if self.locked and self.on_click and self.full[0] and e.button() == Qt.LeftButton and mods:
+            p = self.mapToScene(e.position().toPoint())
+            self.on_click(p.x(), p.y(), Qt.RightButton)
+            return
         if self.locked and self.on_drag and self.full[0] and e.button() == Qt.LeftButton:
             p = self.mapToScene(e.position().toPoint())
             self._ext_drag = True

@@ -1211,11 +1211,19 @@ class FinishWindow(QMainWindow):
             self.show_current()
             self.view.on_click = self._spot_click
             self.view.on_drag = self._spot_drag
+            if getattr(self, "_spot_del_keys", None) is None:     # Delete / Backspace removes the picked circle
+                self._spot_del_keys = []
+                for ks in (QKeySequence(Qt.Key_Delete), QKeySequence(Qt.Key_Backspace)):
+                    sc = QShortcut(ks, self)
+                    sc.setContext(Qt.WindowShortcut)
+                    sc.activated.connect(self._spot_delete_key)
+                    self._spot_del_keys.append(sc)
             self.view.on_hover = self._spot_hover
             self.view.on_wheel = self._spot_wheel
             self.spot_active = None
             spot_note = ("Click a blemish to circle it, then turn the mouse wheel to size that circle. Click a "
-                         "circle to pick it again (drag to move); right-click removes it.")
+                         "circle to pick it again (drag to move). To remove one: right-click it, Control-click it (Mac), or pick "
+                         "it and press Delete.")
             if again:
                 spot_note = ("<b>Fixed - this is the new picture.</b> Circle any spots that are left and press "
                              "the button again, or press <b>✓ Applied – Next Step</b> when you are happy. "
@@ -1231,7 +1239,8 @@ class FinishWindow(QMainWindow):
                 spot_note = ((f"Found {len(found)} donut(s) - circled in yellow. " if found else
                               "No donuts found automatically (ones on bright nebulosity are left to you). ") +
                              "Click a blemish to circle it, then turn the mouse wheel to size that circle. Click a "
-                             "circle to pick it again (drag to move); right-click removes it.")
+                             "circle to pick it again (drag to move). To remove one: right-click it, Control-click it (Mac), or pick "
+                         "it and press Delete.")
         self.render_choices()
         if getattr(self.tool, "editor", None) == "spots":
             self.choice_note.setText(spot_note)
@@ -1794,7 +1803,8 @@ class FinishWindow(QMainWindow):
         size = (f"Picked circle: {self.spots[act][2]:.0f} px" if act is not None and act < n
                 else f"Next circle: {self.spot_r:.0f} px")
         self.choice_note.setText(f"{n} circle(s) marked. {size} - turn the mouse wheel to resize it. Click a "
-                                 "circle to pick it (drag to move), right-click removes the picked one.")
+                                 "circle to pick it (drag to move). Remove: right-click or Control-click it, or press Delete "
+                                 "for the picked (blue) one.")
 
     def _spot_hit(self, x, y):
         """Index of the circle under (x, y) in shown pixels, or None (the smallest one wins)."""
@@ -1841,6 +1851,15 @@ class FinishWindow(QMainWindow):
             self._remove_spot(len(self.spots) - 1 if i is None else i)
             self._spot_note()
             self.schedule_preview()
+
+    def _spot_delete_key(self):
+        """Delete / Backspace: remove the picked (blue) circle while circles are being edited."""
+        if self.tool is None or getattr(self.tool, "editor", None) != "spots" or not self.spots:
+            return
+        i = getattr(self, "spot_active", None)
+        self._remove_spot(len(self.spots) - 1 if i is None or i >= len(self.spots) else i)
+        self._spot_note()
+        self.schedule_preview()
 
     def _spot_wheel(self, steps):
         lo, hi = getattr(self.tool, "spot_range", (3.0, 80.0))

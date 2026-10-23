@@ -1621,6 +1621,22 @@ def run(app, out_dir: Path) -> int:
                 fw._spot_hover(300.0, 200.0)
                 _ring = getattr(fw, "hover_ring", None) is not None and fw.hover_ring.isVisible()
                 fw._spot_click(200.0, 150.0, Qt.RightButton)    # right-click removes the circle under the mouse
+                # Mac-friendly ways too: Delete removes the picked circle; Control-click acts as a right-click
+                _nb = len(fw.spots)
+                fw._spot_drag(260.0, 180.0, "press")
+                fw._spot_drag(260.0, 180.0, "release")
+                fw._spot_delete_key()
+                _del_ok = len(fw.spots) == _nb
+                fw._spot_drag(260.0, 180.0, "press")
+                fw._spot_drag(260.0, 180.0, "release")
+                from PySide6.QtGui import QMouseEvent as _QME
+                from PySide6.QtCore import QEvent as _QEv, QPointF as _QPF
+                _vp = fw.view.mapFromScene(_QPF(260.0, 180.0))
+                _ev = _QME(_QEv.MouseButtonPress, _QPF(_vp), _QPF(fw.view.mapToGlobal(_vp)), Qt.LeftButton,
+                           Qt.LeftButton, Qt.MetaModifier)
+                fw.view.mousePressEvent(_ev)
+                check(_del_ok and len(fw.spots) == _nb,
+                      "a circle can also be removed with Delete (the picked one) or Control-click on a Mac")
                 check(len(fw.spots) == 1 and _r1 > _r0 * 1.3 and abs(_rect.width() * _f / 2 - _r1) < 1e-3
                       and _moved and _ring,
                       f"Spot Fix: click places a circle, the wheel resizes it at once ({_r0:.0f} -> {_r1:.0f} px), "
