@@ -2324,6 +2324,21 @@ def run(app, out_dir: Path) -> int:
         _s2 = float(_lt.apply(_ls, _lv.params).rgb[1][_sk].std())
         check(_s2 < 1.15 * _s0 < _s1, f"Bring Out Hidden Structure protects the sky (blotches {_s0:.4f}: "
                                        f"unprotected {_s1:.4f}, protected {_s2:.4f})")
+        # ... and without a dark square or moat around a bright star's glow (M33 report)
+        _c5 = 300
+        _yy5, _xx5 = np.mgrid[:601, :601].astype(np.float32)
+        _r5 = np.hypot(_xx5 - _c5, _yy5 - _c5)
+        _g5 = np.clip(np.clip(np.exp(-_r5 ** 2 / 18.0) * 3, 0, 1) + 0.01 * np.exp(-_r5 / 12), 0, 1).astype(np.float32)
+        _s5 = F.State(rgb=np.stack([_g5] * 3), stars=np.stack([_g5] * 3), stars_out=True, linear=False)
+        _bt5 = F.TOOLS["star_stretch"]
+        _o5 = _bt5.apply(_s5, [v for v in _bt5.variants(_s5) if v.recommended][0].params).stars[0]
+        _ri5 = _r5.astype(int)
+        _pr5 = np.bincount(_ri5.ravel(), _o5.ravel()) / np.bincount(_ri5.ravel())
+        _rise5 = float(np.diff(_pr5[12:200]).max())
+        _round5 = max(float(np.ptp(_o5[_ri5 == k])) for k in range(14, 120, 4))
+        check(_rise5 < 0.005 and _round5 < 0.02,
+              f"a bright star's glow fades smoothly and round - no dark square or ring (largest rise {_rise5:.4f}, "
+              f"unevenness around a circle {_round5:.3f})")
         # Mote Buster also flattens a BRIGHT over-corrected ring (dust that moved between flats and lights),
         # in the one colour that has it, and leaves the other colours alone
         _rb = np.hypot(_x2 - 300, _y2 - 300) / 70

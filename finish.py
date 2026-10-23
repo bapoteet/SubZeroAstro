@@ -619,9 +619,12 @@ def _local_max(a: np.ndarray, r: int) -> np.ndarray:
     if h < f or w < f:
         return a.copy()
     b = a[:hh, :ww].reshape(hh // f, f, ww // f, f).max(axis=(1, 3))
-    for _ in range(int(np.ceil(r / f))):
+    for k in range(int(np.ceil(r / f))):               # square and cross steps in turn: a round (octagon) reach
         p = np.pad(b, 1, mode="edge")
-        b = np.maximum.reduce([p[1:-1, :-2], p[1:-1, 1:-1], p[1:-1, 2:], p[:-2, 1:-1], p[2:, 1:-1]])
+        nb = [p[1:-1, :-2], p[1:-1, 1:-1], p[1:-1, 2:], p[:-2, 1:-1], p[2:, 1:-1]]
+        if k % 2 == 0:
+            nb += [p[:-2, :-2], p[:-2, 2:], p[2:, :-2], p[2:, 2:]]
+        b = np.maximum.reduce(nb)
     m = np.repeat(np.repeat(b, f, axis=0), f, axis=1)
     m = np.pad(m, ((0, h - hh), (0, w - ww)), mode="edge")
     return np.maximum(m, a)
@@ -1511,8 +1514,31 @@ class BrightenStars(Tool):
             # one curve for every pixel lifts a bright star's faint outer glow (0.5 % of its peak) as much as
             # a faint star's core - the star swells into a big soft disc. Around bright stars, brighten the
             # peak and keep the star's own profile instead, so it stays its real size.
-            peak = _local_max(x.max(axis=0), max(12, int(round(max(x.shape[1:]) / 260))))
-            w = keep * np.clip((peak - 0.15) / 0.45, 0, 1) ** 2            # only where a bright star is
+            xm = x.max(axis=0)
+            ym = y.max(axis=0)
+            # each bright star's own area: grown out from its core for as long as the brightened glow is still
+            # visible (so the change ends where the glow has already faded - no dark moat, no square), carrying
+            # the star's peak with it. Done on a 4x smaller grid, then smoothed.
+            f = 4
+            h, w_ = xm.shape
+            hh, ww = max(f, h // f * f), max(f, w_ // f * f)
+            pk = xm[:hh, :ww].reshape(hh // f, f, ww // f, f).max(axis=(1, 3))
+            allow = ym[:hh, :ww].reshape(hh // f, f, ww // f, f).max(axis=(1, 3)) > 0.02
+            P = np.where(pk > 0.15, pk, 0.0).astype(np.float32)
+            for it in range(int(max(xm.shape) / 25 / f) + 4):            # at most ~4 % of the picture
+                q = np.pad(P, 1)
+                nb = [q[1:-1, :-2], q[1:-1, 1:-1], q[1:-1, 2:], q[:-2, 1:-1], q[2:, 1:-1]]
+                if it % 2 == 0:
+                    nb += [q[:-2, :-2], q[:-2, 2:], q[2:, :-2], q[2:, 2:]]
+                grown = np.where(allow, np.maximum(P, np.maximum.reduce(nb)), P)
+                if np.array_equal(grown, P):
+                    break
+                P = grown
+            P = np.repeat(np.repeat(P, f, axis=0), f, axis=1)
+            P = np.pad(P, ((0, h - P.shape[0]), (0, w_ - P.shape[1])), mode="edge")[:h, :w_]
+            P = _blur(P.astype(np.float32), 1.5 * f)                       # no 4x4 blocks
+            peak = np.maximum(P, xm)
+            w = keep * _blur((np.clip((P - 0.15) / 0.45, 0, 1) ** 2).astype(np.float32), 2.0 * f)
             shaped = ((k * peak) / ((k - 1) * peak + 1))[None] * x / np.maximum(peak, 1e-9)[None]
             y = (1 - w)[None] * y + w[None] * shaped
         s.stars = np.clip(y, 0, 1).astype(np.float32)
