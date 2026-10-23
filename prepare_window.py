@@ -33,7 +33,7 @@ import tools
 XT_KEYS = ("bxt", "nxt", "sxt")
 READY_TEXT = "✓ Ready for Processing Finishing Touches"
 # Starting values the first time (users change them; the choice is remembered)
-XT_START = {"bxt": {"enabled": True, "values": {"ss": 0.25, "sn": 0.50}},
+XT_START = {"bxt": {"enabled": True, "values": {"ss": 0.50, "ash": 0.40, "sn": 0.50}},   # tighter stars, smaller halos
             "nxt": {"enabled": False, "values": {"dn": 0.60}},
             "sxt": {"enabled": False, "values": {"stars": True}}}
 # NoiseXTerminator strength for this early (linear) pass: a moderate, typical value. A strength

@@ -1120,6 +1120,9 @@ def run(app, out_dir: Path) -> int:
                   "BlurXTerminator PSF Diameter greyed out while Automatic PSF is on")
         else:
             check("not found" in pw.rc_status.text(), "missing RC-Astro CLI reported clearly")
+        import prepare_window as _pwx
+        check(_pwx.XT_START["bxt"]["values"].get("ss") == 0.50 and _pwx.XT_START["bxt"]["values"].get("ash") == 0.40,
+              "BlurXTerminator starts at Sharpen Stars 0.50 and Adjust Star Halos 0.40 for a new user")
         check(hasattr(pw, "btn_rc_lic") and pw.btn_rc_lic.isEnabled()
               and "Licences" in pw.btn_rc_lic.text(), "'RC-Astro Licences…' button on the RC-Astro CLI row")
         import tools as _tl

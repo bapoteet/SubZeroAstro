@@ -372,7 +372,7 @@ sec("8.4", "Remove gradients", ["Gradient removal", "GraXpert", "Light pollution
 p("Removes light-pollution glow and uneven backgrounds. **GraXpert (AI)** is recommended; **Smoothing** 0.1 and **Correction: Subtraction** are good defaults. Without GraXpert a built-in model is used.");
 sec("8.5", "The XTerminators", ["BlurXTerminator", "NoiseXTerminator", "StarXTerminator", "Unscreen Stars"]);
 table(["Tool", "What it does", "Good starting settings"], [
-  ["BlurXTerminator", "Sharpens stars and detail", "Sharpen Stars 0.25, Sharpen Nonstellar 0.50, Automatic PSF on"],
+  ["BlurXTerminator", "Sharpens stars and detail", "Sharpen Stars 0.50, Adjust Star Halos 0.40, Sharpen Nonstellar 0.50, Automatic PSF on"],
   ["NoiseXTerminator", "Reduces noise (a light pass on unstretched data)", "Denoise 0.6"],
   ["StarXTerminator", "Separates a **starless** and a **stars-only** image", "Generate Star Image on; **Unscreen Stars off**"],
 ], [2000, 3900, 3460]);
