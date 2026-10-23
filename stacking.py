@@ -380,14 +380,31 @@ def group_calibration(infos) -> list[CalItem]:
     return items
 
 
+def _is_dir(p) -> bool:
+    """Path.is_dir() that never raises: a network drive can answer some names with 'Invalid argument'
+    (EINVAL) - a broken alias, a name the share cannot handle - and one such entry must not stop the rest."""
+    try:
+        return Path(p).is_dir()
+    except OSError:
+        return False
+
+
+def _safe_listdir(p) -> list:
+    """Path.iterdir() as a list, empty when the folder cannot be read."""
+    try:
+        return list(Path(p).iterdir())
+    except OSError:
+        return []
+
+
 def scan_paths(paths, progress=None):
     """Read headers of all FITS/XISF files in the given files/folders (recursive).
     Returns (infos, problems)."""
     files = []
     for p in paths:
         p = Path(p)
-        if p.is_dir():
-            for dirpath, dirnames, filenames in os.walk(p):
+        if _is_dir(p):
+            for dirpath, dirnames, filenames in os.walk(p, onerror=lambda e: None):
                 dirnames[:] = [d for d in dirnames if d.upper() != core.REJECTED_DIR and not d.startswith(".")]
                 for fn in filenames:
                     if os.path.splitext(fn)[1].lower() in IMAGE_EXTS and not core.is_hidden_file(fn):
@@ -415,12 +432,16 @@ def library_dir(cal_root, rig, camera, kind, filt=None) -> Path:
 def scan_library(cal_root, progress=None) -> list[CalItem]:
     """Masters already saved in <cal_root>/<rig>/Masters/..."""
     root = Path(cal_root) if cal_root else None
-    if not root or not root.is_dir():
+    if not root or not _is_dir(root):
         return []
     items = []
-    for rig_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return []
+    for rig_dir in sorted(p for p in entries if _is_dir(p)):
         mdir = rig_dir / "Masters"
-        if not mdir.is_dir():
+        if not _is_dir(mdir):
             continue
         infos, _ = scan_paths([mdir], progress)
         # the same master saved as both .fits and .xisf counts once (FITS preferred)

@@ -532,7 +532,7 @@ class StackWindow(QMainWindow):
         """Open a folder in Explorer. str(Path(...)) turns '//nas/share' into '\\\\nas\\share',
         which Windows needs for network folders."""
         import tools
-        if path and Path(path).is_dir():
+        if path and st._is_dir(path):
             if not tools.reveal(Path(path)):
                 QMessageBox.information(None, "SubZeroAstro", f"Could not open {Path(path)}")
 
@@ -545,21 +545,25 @@ class StackWindow(QMainWindow):
             tools.reveal(files)
             return
         root = self.masters_root.text().strip()
-        if root and Path(root).is_dir():
+        if root and st._is_dir(root):
             self.open_folder(root)
         else:
             QMessageBox.information(self, "SubZeroAstro", f"The master lights folder was not found:\n{root}")
 
     def rig_choices(self):
         root = Path(self.cal_root.text().strip()) if self.cal_root.text().strip() else None
-        names = sorted(p.name for p in root.iterdir() if p.is_dir()) if root and root.is_dir() else []
+        names = sorted(p.name for p in st._safe_listdir(root) if st._is_dir(p)) if root and st._is_dir(root) else []
         return names
 
     # ------------------------------------------------------------ data
     def refresh_all(self):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
-            lib = st.scan_library(self.cal_root.text().strip()) if self.cal_root.text().strip() else []
+            try:
+                lib = st.scan_library(self.cal_root.text().strip()) if self.cal_root.text().strip() else []
+            except Exception as e:  # noqa: BLE001 - the library is a help; added frames must still work
+                lib = []
+                self.log(f"Could not read the calibration masters folder ({e}) - using the added files only")
             added = st.group_calibration(self.added_infos)
             self.items = lib + added
             self.groups = st.group_lights(self.lights, self.rigs)
@@ -785,11 +789,11 @@ class StackWindow(QMainWindow):
 
     def search_cal_root(self):
         root = self.cal_root.text().strip()
-        if not root or not Path(root).is_dir():
+        if not root or not st._is_dir(root):
             QMessageBox.information(self, "Stacking", "Set your calibration masters folder first.")
             return
         rigs = {g.rig for g in self.groups}
-        dirs = [Path(root) / r for r in rigs if (Path(root) / r).is_dir()]
+        dirs = [Path(root) / r for r in rigs if st._is_dir(Path(root) / r)]
         if not dirs:
             QMessageBox.information(self, "Stacking", "None of the rig folders for these lights exist yet in "
                                     f"{root}.\n\nRigs: {', '.join(sorted(rigs))}")

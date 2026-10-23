@@ -113,7 +113,7 @@ class CalBuilderDialog(QDialog):
         cur = suggestion or self.rig.currentText()
         self.rig.clear()
         root = Path(self.lib_edit.text().strip()) if self.lib_edit.text().strip() else None
-        names = sorted(p.name for p in root.iterdir() if p.is_dir()) if root and root.is_dir() else []
+        names = sorted(p.name for p in st._safe_listdir(root) if st._is_dir(p)) if root and st._is_dir(root) else []
         if cur and cur not in names:
             names.insert(0, cur)
         self.rig.addItems(names)

@@ -2339,6 +2339,24 @@ def run(app, out_dir: Path) -> int:
         check(_rise5 < 0.005 and _round5 < 0.02,
               f"a bright star's glow fades smoothly and round - no dark square or ring (largest rise {_rise5:.4f}, "
               f"unevenness around a circle {_round5:.3f})")
+        # a folder entry the drive answers with 'Invalid argument' (Mac + network drive report) is skipped
+        import stacking as _stk
+        from unittest import mock as _mock
+        _libroot = session.parent / "cal_einval"
+        (_libroot / "BadRig").mkdir(parents=True, exist_ok=True)
+        _orig_isdir = Path.is_dir
+
+        def _bad_isdir(self_):
+            if self_.name == "BadRig":
+                raise OSError(22, "Invalid argument", str(self_))
+            return _orig_isdir(self_)
+        with _mock.patch.object(Path, "is_dir", _bad_isdir):
+            try:
+                _lib = _stk.scan_library(_libroot)
+                _einval_ok = _lib == []
+            except OSError:
+                _einval_ok = False
+        check(_einval_ok, "a calibration folder entry the drive can't read (Errno 22) is skipped, not an error")
         # Mote Buster also flattens a BRIGHT over-corrected ring (dust that moved between flats and lights),
         # in the one colour that has it, and leaves the other colours alone
         _rb = np.hypot(_x2 - 300, _y2 - 300) / 70
