@@ -579,6 +579,7 @@ steps([
   "**Bring Out Hidden Structure › Subtle** or **Moderate** (sky protected).",
   "Star steps, **Darken the Sky › Slightly darker** (keep the faint outer arms), **Final Noise Reduction**, crop, sign.",
 ]);
+tip("**Add Hydrogen Glow comes before Combine Colour Channels** - it works on the separate R and Ha images. Combined without it? The step stays in the list marked ⤼ (passed by): use **Back to Start** (or pick *Start (masters loaded)* under *Show* and press *Go Back to Here*), then Add Hydrogen Glow, then Combine. Also loaded OIII and SII masters of the galaxy? It is still processed as LRGB + Ha; the SHO and HOO palettes stay available under Combine Colour Channels.", "Order matters");
 tip("Look for: a yellow-white core, blue arms and pink-red knots. A pink galaxy means the Ha is too strong - go back to *HII regions - natural*. Typical time split: L 40-50 %, R, G and B equal, Ha a few hours.");
 
 sec("10.14", "Recipe: mono camera, narrowband (SHO or HOO)", ["Mono SHO step by step", "Mono HOO step by step", "Narrowband step by step"]);

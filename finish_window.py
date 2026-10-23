@@ -1030,7 +1030,7 @@ class FinishWindow(QMainWindow):
             it = QListWidgetItem(f"{STATUS_MARK[status]}  {t.title}")
             it.setData(Qt.UserRole, t.key)
             ok, why = t.applicable(s)
-            it.setToolTip(t.tip + ("" if ok or status in ("done", "skipped") else f"\n\nNot available: {why}"))
+            it.setToolTip(t.tip + ("" if ok or status == "done" else f"\n\nNot available: {why}"))
             if status in ("n/a",):
                 it.setForeground(Qt.gray)
             if status == "next":

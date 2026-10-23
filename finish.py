@@ -571,9 +571,17 @@ def load_state(paths) -> State:
                        + ", ".join(f"{k} = {v}" for k, v in ren.items())
                        + ". To fix, set the filter names on the first page (Frame > Set Filter Name).")
         f = set(s.channels)
-    if {"Ha", "OIII"} <= f:
+    broadband_galaxy = {"R", "G", "B"} <= f and is_galaxy_target(s.target)
+    if {"Ha", "OIII"} <= f and not broadband_galaxy:
         s.kind = "mono_nb"
     elif {"R", "G", "B"} <= f:
+        # a galaxy with RGB (and L) is processed as LRGB even when narrowband masters came along too:
+        # Ha goes in as HII regions; the narrowband palettes are still offered under Combine Colour Channels
+        if {"Ha", "OIII"} <= f:
+            s.load_note = "; ".join(x for x in (getattr(s, "load_note", ""), (
+                "a galaxy with R, G, B" + (", L" if "L" in f else "") + " and narrowband: processed as "
+                + ("LRGB" if "L" in f else "RGB") + " - Ha adds the HII regions (Add Hydrogen Glow); the "
+                "narrowband palettes (SHO, HOO...) are still offered under Combine Colour Channels")) if x)
         s.kind = "mono_lrgb" if "L" in f else "mono_rgb"
     else:
         s.kind = "mono"
@@ -953,11 +961,12 @@ class CombineChannels(Tool):
             if "L" in f:
                 out.append(Variant("LRGB", {"palette": "LRGB"}, "Colour from RGB, detail from L", True))
             out.append(Variant("RGB", {"palette": "RGB"}, "True colour", "L" not in f))
+        nb_first = not ({"R", "G", "B"} <= f)          # with RGB too, the broadband mix is the suggestion
         if {"Ha", "OIII", "SII"} <= f:
-            out += [Variant(*PALETTE_INFO[k][:1], {"palette": k}, PALETTE_INFO[k][1], k == "SHO")
+            out += [Variant(*PALETTE_INFO[k][:1], {"palette": k}, PALETTE_INFO[k][1], k == "SHO" and nb_first)
                     for k in ("SHO", "FORAXX", "HSO", "HOO+S", "HOO")]
         elif {"Ha", "OIII"} <= f:
-            out += [Variant(PALETTE_INFO[k][0], {"palette": k}, PALETTE_INFO[k][1], k == "HOO")
+            out += [Variant(PALETTE_INFO[k][0], {"palette": k}, PALETTE_INFO[k][1], k == "HOO" and nb_first)
                     for k in ("HOO", "HOO+", "HHO", "FORAXX")]
         if {"Ha"} <= f and {"R", "G", "B"} <= f:
             out.append(Variant("RGB + Ha glow", {"palette": "RGB+Ha"}, "True colour with the hydrogen glow "
@@ -1014,6 +1023,9 @@ class CombineChannels(Tool):
             s.stars_out = True
             s.stars_linear = True
             s.stars_hidden = "stars_out" not in s.done
+        if ({"Ha", "R", "G", "B"} <= set(s.channels) and pal != "RGB+Ha" and "ha_glow" not in s.done
+                and "ha_glow" not in s.skipped):
+            s.skipped.append("ha_glow")          # stays in the list, so it is clear it was passed by
         s.channels, s.channel_stars = {}, {}
         s.palette = pal
         s.done.append(self.key)
@@ -2822,6 +2834,10 @@ class HaGlow(Tool):
     mask_tip = "Tints in red exactly what this step adds to the picture"
 
     def applicable(self, s):
+        if s.rgb is not None and "ha_glow" in s.skipped:
+            return False, ("The colour channels are already combined - the hydrogen glow is added before that. "
+                           "Use Back to Start (or pick 'Start (masters loaded)' in Show and Go Back to Here), "
+                           "then Add Hydrogen Glow, then Combine Colour Channels.")
         if s.rgb is not None or not {"Ha", "R", "G", "B"} <= set(s.channels):
             return False, "Needs separate R, G, B and Ha images, before combining"
         return True, ""

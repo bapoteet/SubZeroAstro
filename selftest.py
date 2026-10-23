@@ -2311,6 +2311,41 @@ def run(app, out_dir: Path) -> int:
               and F.WORKFLOWS["osc"].index("dust") < F.WORKFLOWS["osc"].index("stretch"),
               f"Mote Buster finds the donut ({[[round(v) for v in d] for d in _found]}) and divides it out "
               f"(shadow {_eb:+.3f} -> {_ea:+.3f}); offered while the picture is unstretched")
+        # a galaxy with L, R, G, B, Ha AND OIII, SII masters is processed as LRGB (+ Ha regions), not narrowband
+        import stacking as _stg2
+        _gd = session.parent / "ic342_mix"
+        _gd.mkdir(exist_ok=True)
+        _gr = np.random.default_rng(2)
+        _gyy, _gxx = np.mgrid[:160, :200]
+        _gbase = np.exp(-((_gxx - 100) ** 2 + (_gyy - 80) ** 2) / 600.0)
+        _gst = np.zeros((160, 200), np.float32)
+        for _k in range(50):
+            _gst[_gr.integers(5, 155), _gr.integers(5, 195)] = 1
+        _gst = F._blur(_gst, 1.2) * 30
+        _gfiles = []
+        for _flt in ("L", "R", "G", "B", "Ha", "OIII", "SII"):
+            _gi = (1000 + 3000 * _gbase + 20000 * _gst + _gr.normal(0, 20, (160, 200))).astype(np.float32)
+            _go = _stg2.save_master_file(_gd / f"IC342_{_flt}_Master", _gi,
+                                         [("IMAGETYP", "Master Light", ""), ("FILTER", _flt, ""), ("OBJECT", "IC342", ""),
+                                          ("EXPTOTAL", 3600.0, ""), ("INSTRUME", "ZWO ASI2600MM Pro", "")], formats=("fits",))
+            _gfiles.append(_go[0] if isinstance(_go, (list, tuple)) else _go)
+        _gs = F.load_state(_gfiles)
+        _gflow = [t.key for t, _st in F.workflow(_gs)]
+        _grec = [v.label for v in F.TOOLS["combine"].variants(_gs) if v.recommended]
+        check(_gs.kind == "mono_lrgb" and _gflow[:2] == ["ha_glow", "combine"] and _grec == ["LRGB"],
+              f"a galaxy with LRGB + Ha + OIII + SII gets the LRGB workflow with Add Hydrogen Glow first "
+              f"({_gs.kind}; {_gflow[:2]}; suggested {_grec})")
+        # combining an RGB+Ha set without the hydrogen glow keeps "Add Hydrogen Glow" in the list (skipped),
+        # with a clear way back - it must not just vanish (IC342 report)
+        _hr = np.random.default_rng(5)
+        _hch = {k: (0.1 + 0.01 * _hr.random((60, 80))).astype(np.float32) for k in ("R", "G", "B", "Ha")}
+        _hs = F.State(channels=dict(_hch), kind="mono_rgb", target="IC342")
+        _hs2 = F.TOOLS["combine"].apply(_hs, {"palette": "RGB"})
+        _hok, _hwhy = F.TOOLS["ha_glow"].applicable(_hs2)
+        _hstat = dict((t.key, st_) for t, st_ in F.workflow(_hs2)) if hasattr(F, "workflow") else {}
+        check("ha_glow" in _hs2.skipped and not _hok and "Back to Start" in _hwhy
+              and (not _hstat or _hstat.get("ha_glow") == "skipped"),
+              f"Add Hydrogen Glow stays visible (skipped) after combining, and says how to go back ({_hwhy[:60]}...)")
         # Bring Out Hidden Structure leaves the empty sky alone (boosting it shows leftover blotches - "moire")
         _ry = np.random.default_rng(3)
         _yy4, _xx4 = np.mgrid[:300, :400].astype(np.float32)
