@@ -1855,16 +1855,20 @@ class DarkenSky(Tool):
 
         def note(a):
             return f"sky {sky * 100:.0f}% -> about {max(sky * (1 - a), 0.01) * 100:.0f}%"
-        return [Variant("Slightly darker", {"amount": 0.3}, note(0.3), False),
-                Variant("Darker", {"amount": 0.5}, note(0.5), not crushed),
-                Variant("Much darker", {"amount": 0.7}, note(0.7), False),
-                Variant("Lighter", {"amount": -0.3},
+        calm = 0.6 if s.kind in NARROWBAND_KINDS else 0.3
+        return [Variant("Slightly darker", {"amount": 0.3, "calm": calm}, note(0.3), False),
+                Variant("Darker", {"amount": 0.5, "calm": calm}, note(0.5), not crushed),
+                Variant("Much darker", {"amount": 0.7, "calm": calm}, note(0.7), False),
+                Variant("Lighter", {"amount": -0.3, "calm": calm},
                         note(-0.3) + (" - the sky looks crushed to black" if crushed else ""), crushed)]
 
     def sliders(self, s, params):
         return [Slider("amount", "Sky darkness", -0.5, 0.9, params["amount"],
                        "Right = darker sky, left = lighter. What shines above the sky keeps its brightness "
-                       "above it.")]
+                       "above it."),
+                Slider("calm", "Calm sky colours", 0.0, 1.0, params.get("calm", 0.0),
+                       "Takes the colour noise (purple, blue or green blotches) out of the darkest areas only; "
+                       "the nebula's colours stay")]
 
     def apply(self, s, params):
         s = s.copy()
@@ -1876,6 +1880,15 @@ class DarkenSky(Tool):
             _sky, noise, _d, _b = sky_level(x[::2, ::2])          # per-pixel noise (not averaged)
             v = x - a * glow
             out[c] = _toe(v, 2.5 * noise) if a > 0 else v
+        calm = float(params.get("calm", 0.0))
+        if calm > 0 and out.shape[0] == 3:
+            # weak channels (OIII / SII in narrowband, colour in a short RGB set) leave blotchy colour in the faint
+            # sky: pull only the darkest areas toward grey, judged on a smoothed brightness so noise doesn't decide
+            y = _lum(out)
+            ys = _blur(y.astype(np.float32), 4.0)
+            lo, hi = (float(v_) for v_ in np.percentile(ys[::4, ::4], (5, 45)))
+            w = calm * np.clip((hi - ys) / max(hi - lo, 1e-6), 0, 1) ** 1.5
+            out = out + w[None] * (y[None] - out)
         s.rgb = np.clip(out, 0, 1).astype(np.float32)
         if self.key not in s.done:
             s.done.append(self.key)

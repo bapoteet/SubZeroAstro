@@ -2300,6 +2300,22 @@ def run(app, out_dir: Path) -> int:
               and F.WORKFLOWS["osc"].index("sky") < F.WORKFLOWS["osc"].index("final_crop"),
               f"Darken the Sky: sky {_sb:.3f} -> {_sa:.3f}, faint nebula above the sky {_nbb:.3f} -> {_nba:.3f}; "
               "offered before Final Crop")
+        # Darken the Sky also calms colour blotches in the darkest sky (narrowband: purple / blue), nebula untouched
+        _cr = np.random.default_rng(4)
+        _cyy, _cxx = np.mgrid[:300, :400].astype(np.float32)
+        _cneb = 0.5 * np.exp(-((_cxx - 280) ** 2 + (_cyy - 150) ** 2) / (2 * 50.0 ** 2))
+        _cb = lambda: F._blur(_cr.normal(0, 1, (300, 400)).astype(np.float32), 8) * 0.03  # noqa: E731
+        _crgb = np.stack([0.08 + _cneb + _cb(), 0.08 + 0.6 * _cneb + _cb(), 0.08 + 0.2 * _cneb + _cb()])
+        _cs = F.State(rgb=np.clip(_crgb, 0, 1).astype(np.float32), linear=False, kind="mono_nb")
+        _cv = [v for v in F.TOOLS["sky"].variants(_cs) if v.recommended][0]
+        _c0 = F.TOOLS["sky"].apply(_cs, {**_cv.params, "calm": 0.0}).rgb
+        _c1 = F.TOOLS["sky"].apply(_cs, _cv.params).rgb
+        _chr = lambda o, sl: float((o.max(0) - o.min(0))[sl].mean())  # noqa: E731
+        _cbg, _cnb = (slice(20, 120), slice(10, 110)), (slice(130, 170), slice(260, 300))
+        check(_cv.params.get("calm", 0) > 0 and _chr(_c1, _cbg) < 0.75 * _chr(_c0, _cbg)
+              and abs(_chr(_c1, _cnb) - _chr(_c0, _cnb)) < 0.01,
+              f"Darken the Sky calms colour blotches in the dark sky ({_chr(_c0, _cbg):.4f} -> {_chr(_c1, _cbg):.4f}) "
+              f"and keeps the nebula's colour ({_chr(_c0, _cnb):.3f} -> {_chr(_c1, _cnb):.3f})")
         # Mote Buster (Fix Dust Donuts): found in the sky, divided out with a synthetic flat
         _r2 = np.random.default_rng(9)
         _H2, _W2 = 700, 1000
