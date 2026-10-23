@@ -495,6 +495,114 @@ p("When the comet barely moved during the session (under 3 pixels - common with 
 sec("10.7", "Target types", ["Target types", "Galaxy", "Nebula", "Star cluster", "Planetary nebula"]);
 p("From the target's name SubZeroAstro works out what kind of object it is - **galaxy, nebula, planetary nebula, star cluster or comet** - and shows it in the title of page 4. The type only fine-tunes the recommendations; **no step is ever taken away**. Galaxies get *Tame Bright Core* (right after brightening - skip it if the core already shows its detail) and *Local Contrast* recommended, and HII regions in *Add Hydrogen Glow*; other targets get Tame Bright Core recommended only when a burnt-out core is found; star clusters make star removal and shrinking optional (the stars are the subject); comets get a comet stack on page 2. When the name gives nothing away, the usual workflow for your data applies. Tips for each kind of target are in chapter 15.");
 
+sec("10.8", "Step-by-step recipes: how to use them", ["Step-by-step recipes", "Recipes", "Workflow by data type"]);
+p("The next sections walk through each kind of data from start to finish, with the choice to pick at every step. They are a **starting point**, not rules: every step shows its versions side by side, so trust your eyes when another one looks better. Pick the section for your data (what you captured with), then check **10.15** for what changes with your kind of target (galaxy, nebula, planetary nebula, cluster).");
+sub("Pages 1-3: the same for every recipe");
+steps([
+  "**Page 1 - Quality and Cull:** load the lights, press *Auto-Flag › Semi-aggressive* (or *Less aggressive* for a short session), look through the flagged frames and reject them. Set the filter name if the files don't carry it.",
+  "**Page 2 - Calibrate and Stack:** check every row has ✓ for darks (or bias) and flats - add them with *Add Calibration Folder…* or set your calibration masters folder. Keep **Line up all filters of a target** on, so every filter of one target lands on the same pixels. Press *Check & Stack*.",
+  "**Page 3 - Astro Image Processing:** all masters of one target must show as **one row**. Crop inside the area every frame covers (*Auto-crop* does it; a note in the log warns when a hand-drawn crop goes past it), keep plate solving and gradient removal on, **BlurXTerminator** *Sharpen Stars* 0.50 / *Adjust Star Halos* 0.40, **NoiseXTerminator** about 0.6, and **StarXTerminator** on (it makes *Take Stars Out* instant). Press *Run Selected Steps*, then *Continue to Finishing Touches*.",
+]);
+p("On page 4 the steps below are listed in order in *Your workflow*; ◇ marks optional ones. Each recipe names the version to pick - the ★ the app suggests is usually the same.");
+
+sec("10.9", "Recipe: colour camera, broadband (RGB, no filter or UV/IR cut)", ["OSC recipe", "Broadband recipe", "RGB colour camera"]);
+p("Best for galaxies, star clusters and reflection nebulae - all the starlight colours are kept.");
+steps([
+  "**Balance Colours › Stars white** (neutral). *Stars white, warmer / cooler* only if you prefer that look.",
+  "**Remove Green Cast › 25-50 %** - a colour camera leaves a little green; real green almost never exists in space.",
+  "**Mote Buster** ◇ if dust donuts show (check the circles, right-click or Control-click any that are not donuts).",
+  "**Take Stars Out**, then **Brighten the Image › Medium** (method *Automatic*; *Colour-preserving* keeps star and core colours better).",
+  "**Tame Bright Core** - galaxies: *Medium*; other targets only if the centre is burnt out.",
+  "**Curves › More contrast** or **Brighter highlights**. Use *Lift faint detail* only for deep data.",
+  "**Colour Intensity › Slight** or **Rich** (the sky is protected).",
+  "**Adjust Colours** ◇ - a gentle *Boost blues* for galaxy arms or reflection nebulae; *Smooth colour transitions* 0.2-0.3 if the colour looks blotchy.",
+  "**Bring Out Hidden Structure › Subtle** or **Moderate** (keep *Protect the sky* about 0.85).",
+  "**Brighten Stars Separately › Medium** (*Keep bright stars small* stays on), **Shrink Stars › Moderate**, **Star Colours › Natural**, **Put Stars Back › 80-100 %**.",
+  "**Darken the Sky Background › Slightly darker** or **Darker**, then **Final Noise Reduction › Medium**.",
+  "**Final Crop**, **Spot Fix** for any specks, **Sign Your Picture**, *Save the Picture…*",
+]);
+
+sec("10.10", "Recipe: colour camera with one dual-band filter (HOO)", ["Dual-band step by step", "HOO recipe", "L-eXtreme recipe", "L-Ultimate recipe"]);
+p("For emission nebulae with L-eXtreme, L-Ultimate, L-eNhance, Askar D1/ColourMagic and similar: red pixels record Ha, green and blue record OIII.");
+steps([
+  "**Choose a Colour Palette › HOO** (natural red and teal). Alternatives: *HOO (vivid)*, *Gold & blue* (Hubble-like), *Foraxx (dynamic)*.",
+  "**Mote Buster** ◇ if needed, then **Take Stars Out**.",
+  "**Brighten the Image › Medium** (stronger is fine with the stars out).",
+  "**Remove Green Cast** - *HOO* rarely needs much; *Gold & blue* offers **Gold 100 %**, which turns the green gold instead of deleting it.",
+  "**Tame Bright Core** ◇ for a bright centre (Bubble, Orion, Lagoon).",
+  "**Curves › More contrast** or **Lift faint detail**.",
+  "**Colour Intensity › Rich**.",
+  "**Adjust Colours › Blues and reds** separates the teal OIII from the red Ha; *Calm the greens* for leftover green; *Smooth colour transitions* 0.3 if the colour is grainy.",
+  "**Bring Out Hidden Structure › Moderate**.",
+  "Stars: **Brighten Stars Separately › Medium**, **Shrink Stars › Moderate**, **Star Colours › Natural** (a dual-band filter makes all stars one colour - this gives them back their blue-to-orange range), **Put Stars Back › 80-100 %**.",
+  "**Darken the Sky**, **Final Noise Reduction**, crop, sign, save.",
+]);
+tip("A galaxy through a dual-band filter: pick **As captured** (or *HOO*), keep *Colour Intensity* at *Slight*, and expect strong red HII knots but little blue in the arms - the filter blocks most of the starlight that carries a galaxy's colour. Long integration helps; a few hours of broadband data give the full colour.");
+
+sec("10.11", "Recipe: colour camera with two dual-band filters (SHO)", ["D1 D2 step by step", "Askar D1 D2 recipe", "L-Ultimate L-Synergy recipe"]);
+p("Askar D1 + D2, or L-Ultimate + L-Synergy, of the same target: SubZeroAstro builds Ha, OIII and SII and the page 4 log shows the line leakage it took out and how the two OIII estimates were combined.");
+steps([
+  "Stack each filter on page 2 (one row each); load both masters together on page 3 - **one row**.",
+  "**Combine Colour Channels › Hubble (SHO)** (or *Foraxx*, *HOO + SII*).",
+  "**Mote Buster** ◇, **Take Stars Out**, **Brighten the Image › Medium**.",
+  "**Remove Green Cast › Gold 100 %** - the green is your Ha; *Gold* turns it gold instead of deleting it, which gives the classic gold and blue.",
+  "**Tame Bright Core** ◇, **Curves › More contrast**.",
+  "**Colour Intensity › Slight** - the SII and OIII from a colour camera are weak, and stronger saturation turns their noise into speckle.",
+  "**Adjust Colours**: Blues about 1.2-1.3, *Smooth colour transitions* **0.4-0.6** (this is what keeps the background calm).",
+  "**Bring Out Hidden Structure › Subtle**, then the star steps (**Star Colours › Natural**), **Darken the Sky**, **Final Noise Reduction › Medium or Strong**.",
+]);
+
+sec("10.12", "Recipe: mono camera, RGB or LRGB", ["Mono LRGB step by step", "LRGB recipe step by step", "Mono RGB recipe"]);
+p("Galaxies, star clusters and reflection nebulae with separate R, G, B (and L) filters. L carries the detail, RGB the colour - so RGB can be shorter or binned.");
+steps([
+  "**Combine Colour Channels › LRGB** (or *RGB* without L).",
+  "**Balance Colours › Stars white**, **Remove Green Cast › 25-50 %**.",
+  "**Mote Buster** ◇, **Take Stars Out**, **Brighten the Image › Medium** (*Colour-preserving* keeps a galaxy's core colour).",
+  "**Tame Bright Core** - galaxies *Medium*; an L filter often needs it.",
+  "**Curves › Brighter highlights** or **More contrast**.",
+  "**Colour Intensity › Slight** or **Rich**.",
+  "**Adjust Colours** ◇ - *Boost blues* 1.2-1.4 for spiral arms, *Smooth colour transitions* about 0.3 (RGB is usually noisier than L).",
+  "**Bring Out Hidden Structure › Subtle** or **Moderate** (sky protected).",
+  "Star steps (**Star Colours › Natural** or *As they are*), **Darken the Sky › Slightly darker**, **Final Noise Reduction**, crop, sign.",
+]);
+
+sec("10.13", "Recipe: mono camera, LRGB + Ha (galaxies)", ["LRGB Ha step by step", "Galaxy with Ha", "HII regions recipe"]);
+p("The classic galaxy set: broadband colour with the red hydrogen (HII) knots along the arms added from Ha.");
+steps([
+  "**Add Hydrogen Glow › HII regions - natural** - the starlight is taken out of the Ha first, so only the compact pink knots are added to red, not a pink wash over the disc. *Strong* if the knots are the show-piece; tick *Show the hydrogen regions* to see what is added.",
+  "**Combine Colour Channels › LRGB**.",
+  "**Balance Colours › Stars white** (not warmer - neutral keeps the blue arms), **Remove Green Cast › 25-50 %**.",
+  "**Take Stars Out**, **Brighten the Image › Medium** or *Gentle*, method *Colour-preserving*.",
+  "**Tame Bright Core › Medium**.",
+  "**Curves › Brighter highlights** (avoid *Darker background* - it brings out faint background blotches).",
+  "**Colour Intensity › Slight** or **Rich**; **Adjust Colours › Boost blues** 1.2-1.4 with *Smooth colour transitions* 0.3.",
+  "**Bring Out Hidden Structure › Subtle** or **Moderate** (sky protected).",
+  "Star steps, **Darken the Sky › Slightly darker** (keep the faint outer arms), **Final Noise Reduction**, crop, sign.",
+]);
+tip("Look for: a yellow-white core, blue arms and pink-red knots. A pink galaxy means the Ha is too strong - go back to *HII regions - natural*. Typical time split: L 40-50 %, R, G and B equal, Ha a few hours.");
+
+sec("10.14", "Recipe: mono camera, narrowband (SHO or HOO)", ["Mono SHO step by step", "Mono HOO step by step", "Narrowband step by step"]);
+steps([
+  "**Combine Colour Channels › Hubble (SHO)** - or *HOO* with only Ha and OIII, *Foraxx (dynamic)*, *HOO + SII*, *HSO*.",
+  "**Mote Buster** ◇ - with filters, each has its own dust: bright rings or coloured halos are fixed per colour.",
+  "**Take Stars Out**, **Brighten the Image › Medium**.",
+  "**Remove Green Cast › Gold 100 %** for SHO (the classic gold and blue); plain removal for HOO.",
+  "**Tame Bright Core** ◇ for a bright centre, **Curves › More contrast**.",
+  "**Colour Intensity › Rich**; **Adjust Colours › Blues and reds** to separate the gold and blue; *Smooth colour transitions* 0.2-0.3.",
+  "**Bring Out Hidden Structure › Moderate**.",
+  "Star steps - **Star Colours › Natural** is recommended (narrowband makes stars magenta or one colour), **Put Stars Back › 80-100 %**.",
+  "**Darken the Sky**, **Final Noise Reduction**, crop, sign.",
+]);
+
+sec("10.15", "Adjusting any recipe for your target", ["Recipe by target type", "Galaxy recipe", "Nebula recipe", "Planetary recipe", "Cluster recipe"]);
+table(["Target", "What changes"], [
+  ["Galaxy", "*Tame Bright Core* (Medium) after brightening; *Colour-preserving* brightening; *Curves › Brighter highlights*; *Darken the Sky › Slightly darker* only (keep the halo and outer arms); a little *Boost blues*. See 15.2."],
+  ["Emission nebula", "Stars out before brightening, then brighten strongly; *Bring Out Hidden Structure › Moderate*; *Adjust Colours › Blues and reds*; *Tame Bright Core* only for a bright centre. See 15.3."],
+  ["Planetary nebula", "Small and bright: *HOO* (or SHO), *Brighten › Gentle* with *Colour-preserving*; *Tame Bright Core* comes after *Curves* and tames the bright ring to show the inner structure; skip *Remove Green Cast* if the OIII looks green-teal; *Smooth colour transitions* is on; crop tightly. See 15.4."],
+  ["Dark nebula / faint dust", "*Curves › Lift faint detail*, a light *Bring Out Hidden Structure (Subtle)*, no strong sky darkening - the dust *is* the faint part. See 15.5."],
+  ["Star cluster / reflection nebula", "Stars are the subject: *Take Stars Out* and *Shrink Stars* are optional, *Star Colours › Natural, vivid*, *Put Stars Back 100 %*; reflection nebulae: *Boost blues*. See 15.6."],
+], [2200, 7160]);
+
 ch(11, "Troubleshooting and questions");
 sec("11.1", "Common questions", ["Troubleshooting", "FAQ"]);
 table(["Problem", "What to do"], [
