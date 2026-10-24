@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SCHEMA_VERSION = 4
+SCHEMA_TESTED = 6          # newest rc-astro format checked with this app (v2.6.10: BXT, SXT and NXT all run)
 EX_NOPERM = 77
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 

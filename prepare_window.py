@@ -923,7 +923,8 @@ class PrepareWindow(QMainWindow):
                 names = {p["key"]: p.get("displayName", p["key"]) for p in self.rc_products.get("products", [])}
                 txt = " · ".join(f"{names[k]} {'✓' if v else '✗ (not licensed)'}" for k, v in lic.items())
                 self.rc_status.setText(f"<span style='color:#5fd27a'>✓ v{r.cli_version}</span> {txt}")
-                if r.schema and r.schema != tools.SCHEMA_VERSION:
+                if r.schema and not (str(r.schema).isdigit()
+                                     and tools.SCHEMA_VERSION <= int(r.schema) <= tools.SCHEMA_TESTED):
                     self.log(f"Note: rc-astro reports format version {r.schema}; this app was written for "
                              f"{tools.SCHEMA_VERSION}. Things should still work — please report any problem.")
                 for key in XT_KEYS:
