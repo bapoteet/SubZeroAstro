@@ -1993,7 +1993,7 @@ class DarkenSky(Tool):
 
         def note(a):
             return f"sky {sky * 100:.0f}% -> about {max(sky * (1 - a), 0.01) * 100:.0f}%"
-        calm = 0.6 if s.kind in NARROWBAND_KINDS else 0.3
+        calm = 0.6 if s.kind in NARROWBAND_KINDS else 0.5
         return [Variant("Slightly darker", {"amount": 0.3, "calm": calm}, note(0.3), False),
                 Variant("Darker", {"amount": 0.5, "calm": calm}, note(0.5), not crushed),
                 Variant("Much darker", {"amount": 0.7, "calm": calm}, note(0.7), False),
@@ -2024,9 +2024,20 @@ class DarkenSky(Tool):
             # sky: pull only the darkest areas toward grey, judged on a smoothed brightness so noise doesn't decide
             y = _lum(out)
             ys = _blur(y.astype(np.float32), 4.0)
-            lo, hi = (float(v_) for v_ in np.percentile(ys[::4, ::4], (5, 45)))
-            w = calm * np.clip((hi - ys) / max(hi - lo, 1e-6), 0, 1) ** 1.5
-            out = out + w[None] * (y[None] - out)
+            # the sky is everything near the sky's own (smoothed) level - not only the darkest part of it; red or
+            # green blotches sit right at that level, so a percentile cut left most of them
+            sm_ = ys[::4, ::4]
+            sky = float(np.median(sm_))
+            sn = float(np.median(np.abs(sm_ - sky))) * 1.4826 + 1e-6
+            hi = sky + 4.0 * sn
+            w = np.clip((hi - ys) / (hi - sky + 2.0 * sn), 0, 1).astype(np.float32)
+            w = np.clip(_blur(w, 6.0) * 1.2, 0, 1)       # soft edge round galaxies and nebulae, no halos
+            # in the sky: the colour is smoothed far wider than the blotches (true average tint kept) and pulled
+            # toward grey by 'calm'; the brightness and its fine detail are not touched
+            chroma = out - y[None]
+            smooth = np.stack([_blur(c_.astype(np.float32), 24.0) for c_ in chroma])
+            want = (1.0 - calm) * smooth
+            out = y[None] + chroma + (w * min(1.0, 0.5 + calm))[None] * (want - chroma)
         s.rgb = np.clip(out, 0, 1).astype(np.float32)
         if self.key not in s.done:
             s.done.append(self.key)

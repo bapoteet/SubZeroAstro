@@ -2441,6 +2441,29 @@ def run(app, out_dir: Path) -> int:
               and abs(_chr(_c1, _cnb) - _chr(_c0, _cnb)) < 0.01,
               f"Darken the Sky calms colour blotches in the dark sky ({_chr(_c0, _cbg):.4f} -> {_chr(_c1, _cbg):.4f}) "
               f"and keeps the nebula's colour ({_chr(_c0, _cnb):.3f} -> {_chr(_c1, _cnb):.3f})")
+        # ... and red blotches spread over ALL of a galaxy picture's sky (not only its darkest part) go too, the
+        # galaxy's own colour kept (most galaxy pictures showed a blotchy red sky Calm sky colours didn't reach)
+        _gr = np.random.default_rng(2)
+        _gyy, _gxx = np.mgrid[:500, :700].astype(np.float32)
+        _gbl = F._blur(_gr.normal(0, 1, (500, 700)).astype(np.float32), 10)
+        _gbl /= _gbl.std()
+        _ggal = 0.5 * np.exp(-(((_gxx - 350) * 0.9 + (_gyy - 250) * 0.4) ** 2 / (2 * 200 ** 2)
+                               + ((_gxx - 350) * -0.4 + (_gyy - 250) * 0.9) ** 2 / (2 * 25 ** 2)))
+        _gbase = 0.08 + _ggal
+        _grgb = np.clip(np.stack([_gbase + 0.012 * _gbl + _gr.normal(0, 0.01, _gbase.shape),
+                                  _gbase + _gr.normal(0, 0.01, _gbase.shape),
+                                  _gbase * np.where(_ggal > 0.05, 1.4, 1.0) + _gr.normal(0, 0.01, _gbase.shape)]),
+                        0, 1).astype(np.float32)
+        _gs = F.State(rgb=_grgb, linear=False, kind="osc")
+        _gv = [v for v in F.TOOLS["sky"].variants(_gs) if v.recommended][0]
+        _go = F.TOOLS["sky"].apply(_gs, {**_gv.params, "amount": 0.0}).rgb
+        _gsky, _ggm = _ggal < 0.01, _ggal > 0.2
+        _gb0 = float(F._blur(_grgb[0] - _grgb[1], 4)[_gsky].std())
+        _gb1 = float(F._blur(_go[0] - _go[1], 4)[_gsky].std())
+        _gc0, _gc1 = float((_grgb[2] - _grgb[1])[_ggm].mean()), float((_go[2] - _go[1])[_ggm].mean())
+        check(_gb1 < 0.5 * _gb0 and abs(_gc1 - _gc0) < 0.01,
+              f"Calm sky colours clears red blotches across the whole sky of a galaxy picture ({_gb0:.4f} -> "
+              f"{_gb1:.4f}) and keeps the galaxy's colour ({_gc0:.3f} -> {_gc1:.3f})")
         # Adjust Colours › Calm blues and purples works in the sky too (protection is for boosts only)
         _pyy, _pxx = np.mgrid[:200, :300].astype(np.float32)
         _pneb = 0.5 * np.exp(-((_pxx - 200) ** 2 + (_pyy - 100) ** 2) / (2 * 40.0 ** 2))
