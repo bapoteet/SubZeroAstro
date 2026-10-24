@@ -265,11 +265,16 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None, crop_edges=True):
                 pre = _edge_offset(ref_full, full, shape)
             except Exception:  # noqa: BLE001
                 pre = None
-            if pre is not None and pre[0] <= 0.6 and pre[1] <= 0.6:
+            if pre is None or (pre[0] <= 0.6 and pre[1] <= 0.6):
+                # page 3 put it on the same grid; a check that can't be made (too few stars) is no reason to move it
                 shared += 1
-                checks.append((getattr(m, "path", Path(m.filter)).stem, pre[0]))
+                if pre is not None:
+                    checks.append((getattr(m, "path", Path(m.filter)).stem, pre[0]))
                 planes.setdefault(m.filter, []).append((img, star_plane))
                 continue
+            kept = (img, star_plane, full, pre)        # to fall back on if lining it up again makes it worse
+        else:
+            kept = None
         if m is not ref:
             try:
                 model, info = st.register_distortion(ref_full, full, shape,
@@ -303,6 +308,12 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None, crop_edges=True):
             except Exception:  # noqa: BLE001
                 off = None
             name = getattr(m, "path", Path(m.filter)).stem
+            if kept is not None and (off is None or off[0] > kept[3][0]):
+                # it was already on the reference's grid (page 3) and the new fit only moved it further away (a
+                # faint filter with few stars, e.g. SII): keep it as page 3 left it - no shift, no narrower crop
+                img, star_plane, full, pre = kept
+                fixed = [x for x in fixed if not x.startswith(f"{m.filter} (")]
+                off = pre
             if off is not None:
                 checks.append((name, off[0]))
                 if off[0] > EDGE_LIMIT:

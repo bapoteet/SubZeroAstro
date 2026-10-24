@@ -2292,6 +2292,36 @@ def run(app, out_dir: Path) -> int:
               f"starless masters are lined up by their stars-only images (corner stars {_corner2:.2f} px apart); "
               "masters page 3 already lined up are used as they are")
 
+        # a master page 3 already put on the grid is not moved further away by a wrong re-fit (Sh2-129: the SII
+        # was shifted 65 px and the picture cropped narrower)
+        _keep_rd, _keep_eo = _stg.register_distortion, F._edge_offset
+        _sg3 = [_types.SimpleNamespace(filter=f_, data=_rend(lambda x, y: (x, y), k_)[None], path=Path(f_ + "_g"),
+                                       cards=[("ALIGNREF", "grid.fits", ""), ("EXPTOTAL", e_, "")])
+                for f_, k_, e_ in (("Ha", 1.0, 9000.0), ("OIII", 0.6, 3000.0), ("SII", 0.4, 2000.0))]
+
+        def _bad_fit(ref_full, full, shape, **kw):
+            _m, _i = _keep_rd(ref_full, full, shape, **kw)
+            _m = dict(_m)
+            _m["coef"] = np.array(_m["coef"], float).copy()
+            _m["coef"][0, 0] += 40.0                              # a wrong fit: 40 px sideways
+            return _m, dict(_i, shift=40.0, edge_affine=40.0)
+
+        def _eo(ref_img, img, shape):
+            r_ = _keep_eo(ref_img, img, shape)
+            return None if r_ is None else (max(r_[0], 0.9), r_[1])   # the quick check is fooled by the nebula
+        try:
+            _stg.register_distortion, F._edge_offset = _bad_fit, _eo
+            _ch3, _cs3, _n3 = F.assemble_mono(_sg3)
+        except Exception as _e3:  # noqa: BLE001
+            _ch3, _n3 = None, [str(_e3)]
+        finally:
+            _stg.register_distortion, F._edge_offset = _keep_rd, _keep_eo
+        _sh3 = None if _ch3 is None else F._edge_offset(_ch3["Ha"], _ch3["SII"], _ch3["Ha"].shape)
+        _ok3 = (_sh3 is not None and _sh3[0] < 1.0 and _ch3["SII"].shape == _sg3[0].data[0].shape
+                and not any("cropped to the area" in x for x in _n3))
+        check(_ok3, f"masters page 3 already lined up stay where page 3 put them when a new fit would move them "
+                    f"further off - no shift ({'-' if _sh3 is None else round(_sh3[0], 2)} px), no narrower crop")
+
         # the deepest master is the reference - not simply the first Ha (a short, poor Ha master
         # used to drag every other master onto its grid)
         _md = [_types.SimpleNamespace(filter="Ha", data=_rend(lambda x, y: (x + 7, y - 4), 0.5)[None],
