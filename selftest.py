@@ -2316,6 +2316,18 @@ def run(app, out_dir: Path) -> int:
               and abs(_chr(_c1, _cnb) - _chr(_c0, _cnb)) < 0.01,
               f"Darken the Sky calms colour blotches in the dark sky ({_chr(_c0, _cbg):.4f} -> {_chr(_c1, _cbg):.4f}) "
               f"and keeps the nebula's colour ({_chr(_c0, _cnb):.3f} -> {_chr(_c1, _cnb):.3f})")
+        # Adjust Colours › Calm blues and purples works in the sky too (protection is for boosts only)
+        _pyy, _pxx = np.mgrid[:200, :300].astype(np.float32)
+        _pneb = 0.5 * np.exp(-((_pxx - 200) ** 2 + (_pyy - 100) ** 2) / (2 * 40.0 ** 2))
+        _prgb = np.clip(np.stack([0.10 + _pneb, 0.06 + 0.6 * _pneb, 0.14 + 0.2 * _pneb]), 0, 1).astype(np.float32)
+        _ps = F.State(rgb=_prgb, linear=False, kind="mono_nb")
+        _pv = [v for v in F.TOOLS["colours"].variants(_ps) if v.label == "Calm blues and purples"]
+        _po = F.TOOLS["colours"].apply(_ps, _pv[0].params).rgb if _pv else _prgb
+        _pch = lambda a, sl: float((a.max(0) - a.min(0))[sl].mean())  # noqa: E731
+        _pbg, _pnb = (slice(10, 60), slice(10, 60)), (slice(90, 110), slice(190, 210))
+        check(bool(_pv) and _pch(_po, _pbg) < 0.6 * _pch(_prgb, _pbg) and abs(_pch(_po, _pnb) - _pch(_prgb, _pnb)) < 0.01,
+              f"Adjust Colours › Calm blues and purples calms a purple sky ({_pch(_prgb, _pbg):.3f} -> "
+              f"{_pch(_po, _pbg):.3f}) and keeps the gold ({_pch(_prgb, _pnb):.3f} -> {_pch(_po, _pnb):.3f})")
         # Mote Buster (Fix Dust Donuts): found in the sky, divided out with a synthetic flat
         _r2 = np.random.default_rng(9)
         _H2, _W2 = 700, 1000

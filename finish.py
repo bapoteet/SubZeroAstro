@@ -2620,7 +2620,9 @@ class Saturation(Tool):
         f, pr, sky = float(params["amount"]), float(params["protect"]), float(params["sky"])
         y = _lum(s.rgb)
         w = np.clip((y - sky * 1.15) / 0.25, 0, 1)
-        eff = 1 + (f - 1) * ((1 - pr) + pr * w)
+        # the sky is protected from BOOSTS (they would colour its noise); calming a colour works everywhere,
+        # so purple or blue blotches in the sky can be taken down too
+        eff = np.where(f > 1, 1 + (f - 1) * ((1 - pr) + pr * w), f)
         s.rgb = np.clip(y[None] + (s.rgb - y[None]) * eff[None], 0, 1).astype(np.float32)
         s.done.append(self.key)
         return s
@@ -2687,7 +2689,8 @@ class AdjustColours(Tool):
                  ("Boost reds", {"reds": 1.6, "magentas": 1.2}),
                  ("Blues and reds", {"blues": 1.6, "cyans": 1.3, "reds": 1.4}),
                  ("Boost magentas", {"magentas": 1.7, "reds": 1.15}),
-                 ("Calm the greens", {"greens": 0.4, "yellows": 0.8}))
+                 ("Calm the greens", {"greens": 0.4, "yellows": 0.8}),
+                 ("Calm blues and purples", {"magentas": 0.35, "blues": 0.6, "smooth": 0.5}))
         return [Variant(n, {**base, **ch}, "", i == 2) for i, (n, ch) in enumerate(looks)]
 
     def sliders(self, s, params):
@@ -2714,7 +2717,9 @@ class AdjustColours(Tool):
         y = _lum(rgb)
         pr, sky = float(params.get("protect", 0.8)), float(params.get("sky", 0.0))
         w = np.clip((y - sky * 1.15) / 0.25, 0, 1)
-        eff = 1 + (f - 1) * ((1 - pr) + pr * w)
+        # the sky is protected from BOOSTS (they would colour its noise); calming a colour works everywhere,
+        # so purple or blue blotches in the sky can be taken down too
+        eff = np.where(f > 1, 1 + (f - 1) * ((1 - pr) + pr * w), f)
         out = y[None] + (rgb - y[None]) * eff[None]
         br = float(params.get("bright", 0.0))
         if br > 0:                                  # lift the boosted colours a little too
