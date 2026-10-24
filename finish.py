@@ -1305,6 +1305,41 @@ class TakeStarsOut(Tool):
         return s
 
 
+def _round_star_mask(R: np.ndarray, noise: float, limit: int = 4000) -> np.ndarray:
+    """Where the round, compact stars are in R (the detail left after the smooth glow is taken away): 1 on and
+    just around each star, 0 elsewhere. Streaks and spikes - long, not round - are left out."""
+    h, w = R.shape
+    if h < 20 or w < 20:
+        return np.zeros((h, w), np.float32)
+    p = np.pad(R, 2, mode="edge")
+    mx = np.maximum.reduce([p[2 + dy:2 + dy + h, 2 + dx:2 + dx + w] for dy in range(-2, 3) for dx in range(-2, 3)])
+    cand = np.argwhere((R >= mx) & (R > 8 * noise))
+    if len(cand) > limit:
+        cand = cand[np.argsort(-R[cand[:, 0], cand[:, 1]])[:limit]]
+    m = np.zeros((h, w), np.float32)
+    q = 8
+    yy, xx = np.mgrid[-q:q + 1, -q:q + 1]
+    for y, x in cand:
+        if y < q or x < q or y >= h - q or x >= w - q:
+            continue
+        win = np.clip(R[y - q:y + q + 1, x - q:x + q + 1], 0, None)
+        win = np.where(win > 0.25 * R[y, x], win, 0)
+        sw = float(win.sum())
+        if sw <= 0:
+            continue
+        cy, cx = float((win * yy).sum()) / sw, float((win * xx).sum()) / sw
+        a = float((win * (yy - cy) ** 2).sum()) / sw
+        b = float((win * (xx - cx) ** 2).sum()) / sw
+        c = float((win * (yy - cy) * (xx - cx)).sum()) / sw
+        t = np.sqrt(((a - b) / 2) ** 2 + c * c)
+        l1, l2 = (a + b) / 2 + t, max((a + b) / 2 - t, 1e-6)
+        if l1 / l2 < 2.5 and abs(cy) < 1.0 and abs(cx) < 1.0 :
+            rr = min(3 * np.sqrt(l1) + 1.5, float(q))
+            m[y - q:y + q + 1, x - q:x + q + 1] = np.maximum(m[y - q:y + q + 1, x - q:x + q + 1],
+                                                     np.clip((rr - np.hypot(yy, xx)) / 1.5, 0, 1))
+    return np.maximum(m, _blur(m, 1.0))
+
+
 def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     """Star removal (StarXTerminator) can take a small, bright nebula - a planetary nebula like M57 - for a
     star and put (part of) it in the stars-only image, where no nebula step reaches it and Put Stars Back
@@ -1369,6 +1404,15 @@ def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     sky = np.array([float(np.median(c)) for c in stars], np.float32)[:, None, None]
     # (the smooth glow itself, not capped by each pixel: capping took the noise's peaks and left speckle)
     smooth = np.stack([_blur(_opening(c, 8).astype(np.float32), 2.0) for c in stars])
+    # what is left over the glow that is not a round star - the spikes and streaks star removal leaves around a
+    # bright core - goes too: left in the stars image they showed as spokes once the stars were brightened
+    rest = np.maximum(stars - smooth, 0)
+    rl, fr = _small_plane(rest.mean(axis=0), 1500)
+    keep = _round_star_mask(rl, noise)
+    keep = np.clip(_resize(keep, rl.shape[0] * fr, rl.shape[1] * fr), 0, 1)
+    ks = np.ones((h, w), np.float32)
+    ks[:min(h, keep.shape[0]), :min(w, keep.shape[1])] = keep[:h, :w]
+    smooth = smooth + rest * (1 - ks)[None]
     moved = np.maximum((fb[None] * stars + (1 - fb[None]) * smooth) - sky, 0) * full[None]
     moved = np.minimum(moved, np.maximum(stars, 0))       # never leave the stars image below nothing
     share = float(moved.sum() / max(float(stars.sum()), 1e-9))

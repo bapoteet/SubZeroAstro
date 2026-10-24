@@ -1917,6 +1917,19 @@ def run(app, out_dir: Path) -> int:
               f"rim ({_qwing:.4f} left), no ring of outer glow left ({max(_qprof):.5f}) and no disc below the sky "
               f"({min(_qprof):.5f})")
 
+        # the spikes star removal leaves around a bright core leave the stars image too (they showed as spokes
+        # after Brighten Stars Separately); a star beside the core stays
+        _sp = _qcore.copy()
+        _bar = ((np.abs(_qy - 254) < 1.6) | (np.abs(_qx - 332) < 1.6)) & (_qr > 30) & (_qr < 60)
+        _sp = _sp + 0.01 * _bar + 0.05 * np.exp(-((_qx - 412) ** 2 + (_qy - 214) ** 2) / (2 * 1.5 ** 2))
+        _spst = np.stack([_sp, _sp, _sp]).astype(np.float32) + 0.001
+        _spo, _sps, _ = F.rescue_object(np.full_like(_spst, 0.02), _spst)
+        _spk = float((_sps[1][_bar] - 0.001).mean()) / float((_spst[1][_bar] - 0.001).mean())
+        _spstar = float(_sps[1][214, 412] - 0.001) / float(_spst[1][214, 412] - 0.001)
+        check(_spk < 0.2 and _spstar > 0.8,
+              f"spikes around a planetary core go back to the nebula ({_spk:.0%} left in the stars image), "
+              f"a star beside it stays ({_spstar:.0%})")
+
         # a planetary nebula is brightened colour-preserving: its colours survive (a per-colour stretch turned M57 grey)
         _yy, _xx = np.mgrid[:600, :900]
         _r = np.hypot(_xx - 450, (_yy - 300) / 1.25)
