@@ -2027,6 +2027,7 @@ class StackOptions:
     work_dir: str = ""                      # local folder for temporary files
     comet: bool = True                      # comets: also stack on the comet (and combine)
     cosmetic: bool = True                   # replace hot pixels / cosmic rays in each calibrated frame
+    pattern: bool = True                    # field rotation: take the camera's fixed pattern out (no swirls)
 
 
 @dataclass
@@ -2149,6 +2150,64 @@ def master_light_name(g: LightGroup, multi_camera: bool) -> str:
     if n:
         parts.append(n[0] if len(n) == 1 else f"{n[0]}_to_{n[-1]}")
     return "_".join(parts)
+
+
+def _invert_T(T: np.ndarray) -> np.ndarray:
+    """The 2x3 transform that undoes T."""
+    Ai = np.linalg.inv(T[:, :2])
+    return np.hstack([Ai, (-Ai @ T[:, 2])[:, None]])
+
+
+def _rotation_spread(transforms) -> float:
+    """How far (degrees) the frames are turned against each other - field rotation of an alt-az mount."""
+    ang = [float(np.degrees(np.arctan2(T[1, 0], T[0, 0]))) for T in transforms]
+    return (max(ang) - min(ang)) if ang else 0.0
+
+
+PATTERN_PASSES = 2          # a second measurement from the cleaned stack catches what the first left
+
+
+def sensor_pattern(frames_cal, model_planes, transforms, ks, bgs_list, ref_bg, bayer, shape):
+    """The camera's own fixed pattern (dark-current pattern, warm pixels, colour blotches that stay put on
+    the sensor) measured from the lights themselves: each frame minus the stacked sky, put back where it lay on
+    the sensor, averaged over frames. With field rotation that pattern turns against the sky from frame to
+    frame and stacks into circular swirls; taken out of every frame, they go. frames_cal yields the calibrated
+    frames (CFA or mono) in the order of transforms."""
+    h, w = shape
+    acc = np.zeros((h, w), np.float64)
+    cnt = np.zeros((h, w), np.float32)
+    grid = _pattern(bayer) if bayer else None
+    for cal_img, T, k, bgs in zip(frames_cal, transforms, ks, bgs_list):
+        back = warp_planes([np.asarray(p, np.float32) for p in model_planes], _invert_T(T), (h, w))
+        back = [(b - np.float32(ref_bg[c])) / np.float32(k) + np.float32(bgs[c]) for c, b in enumerate(back)]
+        if grid is not None:
+            model = np.empty((h, w), np.float32)
+            idx = {"R": 0, "G": 1, "B": 2}
+            for i in (0, 1):
+                for j in (0, 1):
+                    model[i::2, j::2] = back[idx[grid[i][j]]][i::2, j::2]
+        else:
+            model = back[0]
+        r = cal_img.astype(np.float32) - model
+        fin = np.isfinite(r)
+        if fin.sum() < 1000:
+            continue
+        med = float(np.median(r[fin][::7]))
+        sig = float(np.median(np.abs(r[fin][::7] - med))) * 1.4826 + 1e-9
+        ok = fin & (np.abs(r - med) < 4 * sig)          # stars a little off, satellites, cosmic rays: left out
+        acc[ok] += (r[ok] - med)
+        cnt[ok] += 1
+    pat = np.where(cnt >= 5, acc / np.maximum(cnt, 1), 0.0).astype(np.float32)
+    # only the fine, pixel-to-pixel part: broad shapes in it are mostly the stacked sky not quite matching
+    # (each colour of a colour camera on its own, so colours don't mix)
+    if grid is not None:
+        for i in (0, 1):
+            for j in (0, 1):
+                sub = pat[i::2, j::2]
+                pat[i::2, j::2] = sub - _smooth(sub, 2.0)
+    else:
+        pat = pat - _smooth(pat, 4.0)
+    return pat, int((cnt >= 5).mean() * 100)
 
 
 def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=None, cancel=None,
@@ -2417,13 +2476,16 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     nc = len(channels)
     out = np.empty((nc, out_h, out_w), np.float32)
     rejected = 0
-    if use_cache:
+
+    def combine_cache(label="combining", f0=0.65, span=0.3):
+        nonlocal rejected
+        rejected = 0
         mm = [np.load(p, mmap_mode="r") for p in cache_files]
         rows = int(max(8, min(out_h, 3e8 / max(len(mm) * out_w * 4 * 4, 1))))
         for c in range(nc):
             for r0 in range(0, out_h, rows):
-                prog(f"{g.label()}: combining {('channel ' + channels[c] + ', ') if nc > 1 else ''}"
-                     f"rows {r0}/{out_h}", 0.65 + 0.3 * (c + r0 / out_h) / nc)
+                prog(f"{g.label()}: {label} {('channel ' + channels[c] + ', ') if nc > 1 else ''}"
+                     f"rows {r0}/{out_h}", f0 + span * (c + r0 / out_h) / nc)
                 nr = min(rows, out_h - r0)
                 stack = np.empty((len(mm), nr, out_w), np.float32)
                 for i, m in enumerate(mm):
@@ -2431,6 +2493,52 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
                 out[c, r0:r0 + nr], rej = _robust_mean(stack, opts.kappa, weights, frame_noise)
                 rejected += rej
         del mm
+
+    if use_cache:
+        rot = _rotation_spread([e[1] for e in entries])
+        do_pattern = (getattr(opts, "pattern", True) and not rgb_in and not half and rot > 0.5
+                      and plan.dark is None and len(entries) >= 10)
+        combine_cache(f0=0.65, span=0.15 if do_pattern else 0.3)
+        if do_pattern:
+            # field rotation (alt-az mount) without darks: the camera's fixed pattern turns against the sky from
+            # frame to frame and stacks into circular swirls. Measure it from the lights, take it out, stack again.
+            try:
+                sel = list(range(len(entries)))[::max(1, len(entries) // 40)][:40]
+                pat_all = None
+                for npass in range(PATTERN_PASSES):
+                    model = [np.nan_to_num(out[c], nan=float(np.nanmedian(out[c][::16, ::16]))) for c in range(nc)]
+
+                    def cal_iter():
+                        for j, i in enumerate(sel):
+                            prog(f"{g.label()}: measuring the camera pattern {j + 1}/{len(sel)}",
+                                 0.8 + 0.05 * j / len(sel))
+                            c_img = calibrated(entries[i][0])
+                            yield c_img if pat_all is None else c_img - pat_all
+                    pat, cover = sensor_pattern(cal_iter(), model, [entries[i][1] for i in sel],
+                                                [entries[i][2] for i in sel], [entries[i][3] for i in sel],
+                                                ref_bg, bayer, (out_h, out_w))
+                    pat_all = pat if pat_all is None else pat_all + pat
+                    pat_planes = planes(pat)
+                    for i, p in enumerate(cache_files):
+                        prog(f"{g.label()}: taking the camera pattern out {i + 1}/{len(cache_files)}",
+                             0.85 + 0.05 * i / len(cache_files))
+                        T, k = entries[i][1], entries[i][2]
+                        if frame_models[i] is not None:
+                            ap = warp_poly(pat_planes, frame_models[i], (out_h, out_w))
+                        else:
+                            ap = pat_planes if is_identity(T) else warp_planes(pat_planes, T, (out_h, out_w))
+                        arr = np.load(p).astype(np.float32)
+                        arr -= np.nan_to_num(np.stack(ap)) * np.float32(k)
+                        np.save(p, np.clip(arr, -65000, 65000).astype(np.float16))
+                    combine_cache("combining again", 0.9, 0.08)
+                prms = float(np.std(pat_all[::3, ::3]))
+                log.append(f"Field rotation of {rot:.1f}° between frames (alt-az mount): the camera's fixed pattern "
+                           f"(measured from the lights, strength {prms:.1f} ADU) was taken out of every frame, so it "
+                           "does not stack into circular swirls")
+            except Cancelled:
+                raise
+            except Exception as e:  # noqa: BLE001 - the ordinary stack is kept
+                log.append(f"Camera-pattern removal skipped: {e}")
     else:
         mean, m2, cnt = welford
         sig = np.sqrt(m2 / np.maximum(cnt - 1, 1))

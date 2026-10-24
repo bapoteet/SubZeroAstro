@@ -339,6 +339,43 @@ def run(app, out_dir: Path) -> int:
     check(all(v is True for v in _xok.values()) and _xpure is not False,
           f"XISF with zlib, LZ4, LZ4-HC and Zstandard compression opens ({_xok}; built-in LZ4 decoder agrees: {_xpure})")
 
+    # --- alt-az field rotation without darks: the camera's fixed pattern is taken out (no swirls) ---
+    _ar = np.random.default_rng(11)
+    _AH, _AW = 400, 520
+    _ayy, _axx = np.mgrid[:_AH, :_AW].astype(np.float32)
+    _ast = [(_ar.uniform(-300, 300), _ar.uniform(-300, 300), _ar.uniform(400, 6000)) for _ in range(500)]
+    _apat = _ar.normal(0, 25, (_AH, _AW)).astype(np.float32)          # the camera's own fixed pattern
+    _ad = session / "altaz_frames"
+    _ad.mkdir(exist_ok=True)
+    for _i in range(16):
+        _a = np.radians(0.6 * _i)                                       # ~9 degrees of field rotation
+        _c, _s = np.cos(_a), np.sin(_a)
+        _im = 600 + _apat + _ar.normal(0, 8, (_AH, _AW))
+        for _x, _y, _f in _ast:
+            X, Y = _c * _x - _s * _y + _AW / 2, _s * _x + _c * _y + _AH / 2
+            if 6 < X < _AW - 6 and 6 < Y < _AH - 6:
+                _sl = (slice(int(Y) - 5, int(Y) + 6), slice(int(X) - 5, int(X) + 6))
+                _im[_sl] += _f * np.exp(-((_axx[_sl] - X) ** 2 + (_ayy[_sl] - Y) ** 2) / (2 * 1.6 ** 2))
+        core.write_fits(_ad / f"A_{_i:02d}.fits", np.clip(_im, 0, 65535).astype(np.uint16),
+                        {"IMAGETYP": "Light Frame", "OBJECT": "AltAz", "FILTER": "L", "EXPTIME": 10.0,
+                         "DATE-OBS": f"2026-10-18T02:{_i:02d}:00"}, bitpix=16)
+    _ainfo = [_stk.read_info(_p) for _p in sorted(_ad.glob("*.fits"))]
+
+    def _astack(on):
+        _g = _stk.LightGroup("AltAz", "L", "Cam", "rig", [_stk.LightFrame(_x) for _x in _ainfo])
+        _g.plan = _stk.CalPlan()
+        _r = _stk.stack_group(_g, _stk.StackOptions(work_dir=str(session / "altaz_work"), formats=("fits",), pattern=on))
+        _m = _r.data
+        _bgm = (np.hypot(_axx - _AW / 2, _ayy - _AH / 2) > 80) & (np.hypot(_axx - _AW / 2, _ayy - _AH / 2) < 180)
+        _hp = _m - _stk._smooth(_m, 3.0)
+        _bg = _bgm & (np.abs(_hp) < 5 * np.median(np.abs(_hp[_bgm])))
+        return float(np.std(_hp[_bg])), _r.log
+    _off, _ = _astack(False)
+    _on, _alog = _astack(True)
+    check(_on < 0.75 * _off and any("Field rotation" in l for l in _alog),
+          f"alt-az frames without darks: the camera's fixed pattern is measured and taken out, so it does not stack "
+          f"into swirls (fine-scale background {_off:.1f} -> {_on:.1f} ADU)")
+
     # --- meridian flip: the optics' distortion turns with the camera; the stack corrects it --------
     _fr = np.random.default_rng(3)
     _FH = 600
