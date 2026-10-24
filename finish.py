@@ -991,9 +991,15 @@ class CombineChannels(Tool):
         f = set(s.channels)
         out = []
         if {"R", "G", "B"} <= f:
+            weak_l = bool("L" in f and self._weak_l(s))
             if "L" in f:
-                out.append(Variant("LRGB", {"palette": "LRGB"}, "Colour from RGB, detail from L", True))
-            out.append(Variant("RGB", {"palette": "RGB"}, "True colour", "L" not in f))
+                out.append(Variant("LRGB", {"palette": "LRGB"},
+                                   "Colour from RGB, detail from L" + (" - but your L is much noisier than the colour "
+                                                                       "filters (too few frames?), so RGB is suggested"
+                                                                       if weak_l else ""), not weak_l))
+            out.append(Variant("RGB", {"palette": "RGB"}, "True colour" + (" - your L is left out (much noisier "
+                                                                          "than R, G and B)" if weak_l else ""),
+                               "L" not in f or weak_l))
         nb_first = not ({"R", "G", "B"} <= f)          # with RGB too, the broadband mix is the suggestion
         if {"Ha", "OIII", "SII"} <= f:
             out += [Variant(*PALETTE_INFO[k][:1], {"palette": k}, PALETTE_INFO[k][1], k == "SHO" and nb_first)
@@ -1030,6 +1036,19 @@ class CombineChannels(Tool):
         if "o3boost" in p:
             p["o3boost"] = values.get("o3boost", p["o3boost"])
         return p
+
+    @staticmethod
+    def _weak_l(s) -> bool:
+        """True when the L master is much noisier than the colour filters (e.g. one L frame against hours of RGB):
+        its detail would make the picture worse, not better. Signal-to-noise of each filter, from the data."""
+        def snr(x):
+            med, mad, hi = channel_stats(x)
+            return (hi - med) / max(mad, 1e-9)
+        try:
+            rgb = np.mean([snr(s.channels[k]) for k in ("R", "G", "B")])
+            return snr(s.channels["L"]) < 0.6 * rgb
+        except Exception:  # noqa: BLE001 - a guess only; LRGB stays the suggestion
+            return False
 
     @staticmethod
     def _norm(x, st_):

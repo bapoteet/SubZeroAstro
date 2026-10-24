@@ -1969,6 +1969,20 @@ def run(app, out_dir: Path) -> int:
               f"spikes around a planetary core go back to the nebula ({_spk:.0%} left in the stars image), "
               f"a star beside it stays whole ({_spstar:.0%}, no ring of it in the nebula image: {_spring:.4f})")
 
+        # an L master much noisier than R, G and B (one L frame against hours of colour - M101) is not suggested:
+        # RGB is; a good L still makes LRGB the suggestion
+        _lr = np.random.default_rng(1)
+        _lyy, _lxx = np.mgrid[:300, :400].astype(np.float32)
+        _lg = 0.3 * np.exp(-((_lxx - 200) ** 2 + (_lyy - 150) ** 2) / (2 * 40 ** 2))
+        _lch = lambda n: (0.05 + _lg + _lr.normal(0, n, _lg.shape)).astype(np.float32)  # noqa: E731
+        _lrec = {}
+        for _ln in (0.004, 0.03):
+            _ls = F.State(channels={"R": _lch(0.006), "G": _lch(0.006), "B": _lch(0.006), "L": _lch(_ln)},
+                          kind="mono_lrgb")
+            _lrec[_ln] = [v.label for v in F.TOOLS["combine"].variants(_ls) if v.recommended]
+        check(_lrec[0.004] == ["LRGB"] and _lrec[0.03] == ["RGB"],
+              f"LRGB suggested with a good L, RGB when the L is much noisier than the colour filters ({_lrec})")
+
         # HOO + faint OIII: an OIII-only glow too faint to see (the Squid in the Flying Bat) is lifted, the
         # Ha-following OIII and the sky noise are left about as they were
         _sr = np.random.default_rng(5)
