@@ -1327,8 +1327,19 @@ def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     m &= box
     if not m.any():
         return rgb, stars, 0.0
-    wgt = _blur((-_min_filter(-m.astype(np.float32), r) > 0.5).astype(np.float32), max(1.0, r / 2))
-    wgt = np.clip(_resize(np.clip(wgt * 1.5, 0, 1), sh * f, sw * f), 0, 1)
+    # the part to move follows the object's own light, not a box: how bright the (smoothed) stars image is
+    # there, faded smoothly to nothing at the sky - inside a round area around the object (a square-shaped
+    # weight left a visible square around NGC 7662's core)
+    yy, xx = np.nonzero(m)
+    cy, cx = float(yy.mean()), float(xx.mean())
+    rad = max(float(np.sqrt(m.sum() / np.pi)) * 1.8, 2.0 * r)
+    gy, gx = np.mgrid[:sh, :sw]
+    dist = np.hypot(gy - cy, gx - cx) / rad
+    near = np.clip((1.25 - dist) / 0.5, 0, 1) ** 2
+    lo = med + 3 * noise
+    hi = med + 0.1 * (float(opened.max()) - med)
+    glow = np.clip((_blur(sm.astype(np.float32), 1.5) - lo) / max(hi - lo, 1e-9), 0, 1)
+    wgt = np.clip(_resize((near * np.maximum(glow, near * (dist < 0.6))).astype(np.float32), sh * f, sw * f), 0, 1)
     full = np.zeros((h, w), np.float32)
     full[:min(h, wgt.shape[0]), :min(w, wgt.shape[1])] = wgt[:h, :w]
     moved = stars * full[None]
