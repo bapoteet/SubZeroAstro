@@ -157,8 +157,7 @@ class StackWorker(QThread):
                     continue
             p = g.plan
             # build / load the calibration masters this group needs
-            for item, helper_b, helper_d in ((p.bias, None, None), (p.dark, None, None),
-                                             (p.flat, p.flat_bias, p.flat_dark)):
+            for item, helper_b, helper_d in [(p.bias, None, None), (p.dark, None, None)] + p.flat_sets():
                 if item is None:
                     continue
                 if not item.master and id(item) not in built:
@@ -605,9 +604,8 @@ class StackWindow(QMainWindow):
             return
         used = set()
         for g in self.groups:
-            for c in (g.plan.bias, g.plan.dark, g.plan.flat, g.plan.flat_bias, g.plan.flat_dark):
-                if c is not None:
-                    used.add(id(c))
+            for c in g.plan.all_items():
+                used.add(id(c))
         for c in self.items:
             mark = "●" if id(c) in used else "○"
             it = QListWidgetItem(f"{mark}  {c.label()}")
@@ -872,7 +870,7 @@ class StackWindow(QMainWindow):
             return
         if opts.save_cal_masters and not opts.cal_root and any(
                 c is not None and not c.master for g in groups
-                for c in (g.plan.bias, g.plan.dark, g.plan.flat)):
+                for c in g.plan.all_items()):
             if QMessageBox.question(self, "Stacking", "New calibration masters will be built, but no calibration "
                                     "masters folder is set, so they won't be saved for next time.\n\n"
                                     "Continue anyway?") != QMessageBox.StandardButton.Yes:
@@ -1006,7 +1004,7 @@ class StackWindow(QMainWindow):
         self.last_saved_cal = w.saved_cal
         built_paths = set()
         for g in self.groups:              # release calibration data
-            for c in (g.plan.bias, g.plan.dark, g.plan.flat, g.plan.flat_bias, g.plan.flat_dark):
+            for c in g.plan.all_items():
                 if c is not None:
                     c.data = None
                     if not c.master and c.saved:

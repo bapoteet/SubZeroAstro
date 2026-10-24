@@ -27,7 +27,7 @@ import re
 import shutil
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dc_replace
 from pathlib import Path
 
 import numpy as np
@@ -542,9 +542,27 @@ class CalPlan:
     notes: list = field(default_factory=list)
     warnings: list = field(default_factory=list)     # (kind, text) kind in bias/dark/flat/other
     precal: str | None = None           # the lights are already calibrated: nothing is applied
+    night_flats: dict = field(default_factory=dict)  # night -> (flat, flat_bias, flat_dark): each night its own flat
 
     def missing(self):
         return [k for k, _ in self.warnings]
+
+    def flat_sets(self):
+        """(flat, flat_bias, flat_dark) for every flat this plan uses: the main one and the per-night ones."""
+        out = [(self.flat, self.flat_bias, self.flat_dark)] if self.flat is not None else []
+        for trio in self.night_flats.values():
+            if all(trio[0] is not t[0] for t in out):
+                out.append(trio)
+        return out
+
+    def all_items(self):
+        """Every calibration item this plan uses (each once)."""
+        seen, out = set(), []
+        for c in [self.bias, self.dark] + [x for t in self.flat_sets() for x in t]:
+            if c is not None and id(c) not in seen:
+                seen.add(id(c))
+                out.append(c)
+        return out
 
 
 def _same_cam(a, b):
@@ -668,17 +686,37 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
         if p.flat.rotator is not None and L.rotator is not None and abs(p.flat.rotator - L.rotator) > 2:
             p.notes.append(f"Flats were taken at camera angle {p.flat.rotator:g}°, lights at {L.rotator:g}° — "
                            "dust shadows may not line up.")
-        if not p.flat.master:
-            fl = p.flat.ref
+        def helpers(flat):
+            """(bias, dark-flat) that calibrate the flat's own subframes."""
+            if flat.master:
+                return None, None
+            fl = flat.ref
             fdarks = [c for c in items if c.kind in ("darkflat", "dark") and _same_cam(c.camera, fl.camera)
                       and c.exptime is not None and fl.exptime is not None
                       and abs(c.exptime - fl.exptime) <= 0.05 * max(fl.exptime, 0.01)
                       and _eq(c.gain, fl.gain) and geometry_ok(c, fl)]
             fbias = [c for c in items if c.kind == "bias" and _same_cam(c.camera, fl.camera)
                      and _eq(c.gain, fl.gain) and _eq(c.offset, fl.offset) and geometry_ok(c, fl)]
-            p.flat_dark = pick(fdarks, lambda c: (unknown(c), -c.count))
-            if p.flat_dark is None:
-                p.flat_bias = pick(fbias, lambda c: (unknown(c), -c.count))
+            fd = pick(fdarks, lambda c: (unknown(c), -c.count))
+            return (None if fd is not None else pick(fbias, lambda c: (unknown(c), -c.count))), fd
+
+        # flats taken every session: each night's lights get that night's flat (dust moves between nights)
+        if len(nights) > 1:
+            per = {}
+            for n in nights:
+                same = [c for c in flats if c.night == n]
+                if same:
+                    f_ = pick(same, lambda c: (0 if c.origin == "added" else 1, -c.count))
+                    per[n] = (f_,) + helpers(f_)
+            if len(per) >= 2:
+                p.night_flats = per
+                rest = [n for n in nights if n not in per]
+                p.notes.append(f"Per-night flats: {len(per)} of {len(nights)} nights each use their own flat "
+                               f"({', '.join(per)})" + (f"; {', '.join(rest)} use{'s' if len(rest) == 1 else ''} "
+                                                        f"the flat from {p.flat.night}" if rest else ""))
+        if not p.flat.master:
+            fl = p.flat.ref
+            p.flat_bias, p.flat_dark = helpers(p.flat)
             if p.flat_dark is None and p.flat_bias is None:
                 p.warnings.append(("flatbias", f"The flats (gain {fl.gain if fl.gain is not None else '?'}) have "
                                                "no matching bias or dark-flats, so the camera offset stays in "
@@ -714,6 +752,7 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
                            "(add darks/flats from the scope if you have them)")
         if L.planes > 1:
             p.bias = p.dark = p.flat = p.flat_bias = p.flat_dark = None
+            p.night_flats = {}
             p.dark_mode = "none"
         p.warnings = []
     return p
@@ -2233,11 +2272,18 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     rgb_in = ref_info.planes == 3 and not bayer      # already-debayered colour stacks
     channels = ["R", "G", "B"] if (bayer or rgb_in) else ["L"]
     cal = Calibrator(ref_info, plan)
+    night_cals = {}
+    if plan.night_flats:
+        for n_, (f_, _b, _d) in plan.night_flats.items():
+            if f_ is not None and f_.data is not None:
+                night_cals[n_] = Calibrator(ref_info, _dc_replace(plan, flat=f_))
     log.append(f"Group: {g.label()}  ({len(frames)} frames, {g.total_exposure / 3600:.2f} h)")
     log.append(f"Reference frame: {ref_info.path.name}")
     log.append("Calibration: " + "; ".join(
         f"{name} = {it.label()}" for name, it in (("bias", plan.bias), ("dark", plan.dark), ("flat", plan.flat))
         if it is not None) + (f"  [dark {plan.dark_mode}]" if plan.dark else ""))
+    if night_cals:
+        log.append(f"Flats per night: {', '.join(f'{n_} -> {plan.night_flats[n_][0].label()}' for n_ in night_cals)}")
     for k, w in plan.warnings:
         log.append(f"WARNING: {w}")
     for n in plan.notes:
@@ -2260,7 +2306,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             return raw.astype(np.float32, copy=False)      # stacked colour: no calibration, no debayer
         if raw.ndim == 3:
             raw = raw[0]
-        out = cal.apply(raw)
+        out = night_cals.get(info.night, cal).apply(raw)
         if getattr(opts, "cosmetic", True):
             out, nhot = cosmetic(out, bool(bayer))
             hot_counts.append(nhot)
@@ -2811,6 +2857,8 @@ def _group_key(g, opts) -> str:
     cal = []
     for c in (plan.bias, plan.dark, plan.flat):
         cal.append(sorted(str(i.path) for i in c.infos) if c is not None else None)
+    for n_ in sorted(plan.night_flats):
+        cal.append((n_, sorted(str(i.path) for i in plan.night_flats[n_][0].infos)))
     extra = repr((g.label(), cal, opts.kappa, opts.weighting, opts.osc_half, tuple(opts.formats),
                   os.path.normcase(str(opts.masters_root)), opts.align_common, getattr(opts, "cosmetic", True)))
     return cp.file_key([f.info.path for f in g.frames], extra)
@@ -2958,7 +3006,8 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
                (f"{plan.bias.count} bias subframes" if plan.bias else "none"), ""),
               ("CALDARK", (plan.dark.ref.path.name if plan.dark.master else f"{plan.dark.count} dark subframes")
                if plan.dark else "none", plan.dark_mode if plan.dark else ""),
-              ("CALFLAT", (plan.flat.ref.path.name if plan.flat.master else f"{plan.flat.count} flat subframes")
+              ("CALFLAT", (f"per-night flats ({len(plan.night_flats)} nights)" if plan.night_flats else
+                           plan.flat.ref.path.name if plan.flat.master else f"{plan.flat.count} flat subframes")
                if plan.flat else "none", ""),
               ("STACKREJ", f"sigma clip k={opts.kappa:g}", ""),
               ("STACKWGT", "noise" if opts.weighting else "equal", ""),

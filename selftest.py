@@ -339,6 +339,54 @@ def run(app, out_dir: Path) -> int:
     check(all(v is True for v in _xok.values()) and _xpure is not False,
           f"XISF with zlib, LZ4, LZ4-HC and Zstandard compression opens ({_xok}; built-in LZ4 decoder agrees: {_xpure})")
 
+    # --- flats taken every session: each night's lights are calibrated with that night's flat -------------
+    _nr = np.random.default_rng(8)
+    _NH, _NW = 300, 400
+    _nyy, _nxx = np.mgrid[:_NH, :_NW].astype(np.float32)
+    _nvig = 1 - 0.25 * (((_nxx - 200) / 200) ** 2 + ((_nyy - 150) / 150) ** 2)
+    def _dust(cx, cy):
+        return 1 - 0.3 * np.exp(-(((_nxx - cx) ** 2 + (_nyy - cy) ** 2) / (2 * 12.0 ** 2)))
+    _nflat = {"2026-10-17": _nvig * _dust(120, 100), "2026-10-18": _nvig * _dust(280, 200)}   # the dust moved
+    _nst = [(_nr.uniform(10, 390), _nr.uniform(10, 290), _nr.uniform(2000, 20000)) for _ in range(150)]
+    _nd = session / "nightflats"
+    _nd.mkdir(exist_ok=True)
+    for _night, _day in (("2026-10-17", "2026-10-18"), ("2026-10-18", "2026-10-19")):
+        for _i in range(6):
+            _im = np.full((_NH, _NW), 1500.0, np.float32)
+            for _x, _y, _f in _nst:
+                _x += _i * 0.7
+                _im += _f * np.exp(-((_nxx - _x) ** 2 + (_nyy - _y) ** 2) / (2 * 1.6 ** 2))
+            _im = 300 + _im * _nflat[_night] + _nr.normal(0, 5, _im.shape)
+            core.write_fits(_nd / f"L_{_night}_{_i}.fits", np.clip(_im, 0, 65535).astype(np.uint16),
+                            {"IMAGETYP": "Light Frame", "OBJECT": "NF", "FILTER": "L", "EXPTIME": 60.0, "GAIN": 100,
+                             "INSTRUME": "Cam", "DATE-OBS": f"{_day}T02:{_i:02d}:00"}, bitpix=16)
+        for _i in range(5):                                      # flats after the session, before sunrise
+            _fl = 300 + 30000 * _nflat[_night] + _nr.normal(0, 30, (_NH, _NW))
+            core.write_fits(_nd / f"F_{_night}_{_i}.fits", np.clip(_fl, 0, 65535).astype(np.uint16),
+                            {"IMAGETYP": "Flat Frame", "FILTER": "L", "EXPTIME": 1.0, "GAIN": 100, "INSTRUME": "Cam",
+                             "DATE-OBS": f"{_day}T05:{_i:02d}:00"}, bitpix=16)
+        for _i in range(5):
+            core.write_fits(_nd / f"B_{_night}_{_i}.fits", np.clip(300 + _nr.normal(0, 5, (_NH, _NW)), 0, 65535).astype(np.uint16),
+                            {"IMAGETYP": "Bias Frame", "EXPTIME": 0.0, "GAIN": 100, "INSTRUME": "Cam",
+                             "DATE-OBS": f"{_day}T06:{_i:02d}:00"}, bitpix=16)
+    _ninfos = [_stk.read_info(_p) for _p in sorted(_nd.glob("*.fits"))]
+    _nlights = [_stk.LightFrame(i) for i in _ninfos if i.type == "light"]
+    _nitems = _stk.group_calibration([i for i in _ninfos if i.type != "light"])
+    _ng = _stk.group_lights(_nlights, _stk.Rigs())[0]
+    _ng.plan = _stk.plan_group(_ng, _nitems)
+    for _it, _hb, _hd in [(_ng.plan.bias, None, None), (_ng.plan.dark, None, None)] + _ng.plan.flat_sets():
+        if _it is not None:
+            _stk.build_master(_it, _hb, _hd, 3.0)
+    _nres = _stk.stack_group(_ng, _stk.StackOptions(work_dir=str(session / "nf_work"), formats=("fits",)))
+    _nm = _nres.data
+    _nbg = _nm - _stk._smooth(_nm, 25.0)
+    _spots = [float(np.median(_nm[(np.hypot(_nxx - cx, _nyy - cy) < 8)]) / np.median(_nm)) for cx, cy in ((120, 100), (280, 200))]
+    check(len(_ng.plan.night_flats) == 2 and any("Flats per night" in l for l in _nres.log)
+          and all(abs(v - 1) < 0.03 for v in _spots),
+          f"flats taken every session: each night's lights use that night's flat (nights "
+          f"{sorted(_ng.plan.night_flats)}), so dust that moved between nights leaves no shadow "
+          f"(dust spots at {[round(v, 3) for v in _spots]} of the background)")
+
     # --- alt-az field rotation without darks: the camera's fixed pattern is taken out (no swirls) ---
     _ar = np.random.default_rng(11)
     _AH, _AW = 400, 520
