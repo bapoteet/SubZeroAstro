@@ -1333,11 +1333,21 @@ def _round_star_mask(R: np.ndarray, noise: float, limit: int = 4000) -> np.ndarr
         c = float((win * (yy - cy) * (xx - cx)).sum()) / sw
         t = np.sqrt(((a - b) / 2) ** 2 + c * c)
         l1, l2 = (a + b) / 2 + t, max((a + b) / 2 - t, 1e-6)
-        if l1 / l2 < 2.5 and abs(cy) < 1.0 and abs(cx) < 1.0 :
-            rr = min(3 * np.sqrt(l1) + 1.5, float(q))
-            m[y - q:y + q + 1, x - q:x + q + 1] = np.maximum(m[y - q:y + q + 1, x - q:x + q + 1],
-                                                     np.clip((rr - np.hypot(yy, xx)) / 1.5, 0, 1))
-    return np.maximum(m, _blur(m, 1.0))
+        # a star is round AND compact (its light gathered in a few pixels); spike fragments and noise on the glow
+        # are broad and flat
+        if l1 / l2 < 2.5 and abs(cy) < 1.0 and abs(cx) < 1.0 and l1 < 6.0:
+            # the whole star out to where its skirt meets the sky (moving the skirt alone left a ring with a dark
+            # middle in the nebula image)
+            Q = 3 * q
+            y0, y1, x0, x1 = max(0, y - Q), min(h, y + Q + 1), max(0, x - Q), min(w, x + Q + 1)
+            dd = np.hypot(*np.mgrid[y0 - y:y1 - y, x0 - x:x1 - x])
+            di = dd.astype(int)
+            pr = np.bincount(di.ravel(), R[y0:y1, x0:x1].ravel()) / np.maximum(np.bincount(di.ravel()), 1)
+            base = float(np.median(pr[max(0, min(len(pr), Q + 1) - 6):Q + 1]))   # the sky / glow around it
+            low = np.nonzero(pr[:Q + 1] < base + 2 * noise)[0]
+            rr = min(max((float(low[0]) if low.size else float(q)) * 1.3 + 2.0, 4.5 * np.sqrt(l1) + 3.0), float(Q))
+            m[y0:y1, x0:x1] = np.maximum(m[y0:y1, x0:x1], np.clip((rr - dd) / 2.0, 0, 1))
+    return np.maximum(m, _blur(m, 1.5))
 
 
 def rescue_object(rgb: np.ndarray, stars: np.ndarray):

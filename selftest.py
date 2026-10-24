@@ -1926,9 +1926,11 @@ def run(app, out_dir: Path) -> int:
         _spo, _sps, _ = F.rescue_object(np.full_like(_spst, 0.02), _spst)
         _spk = float((_sps[1][_bar] - 0.001).mean()) / float((_spst[1][_bar] - 0.001).mean())
         _spstar = float(_sps[1][214, 412] - 0.001) / float(_spst[1][214, 412] - 0.001)
-        check(_spk < 0.2 and _spstar > 0.8,
+        _spd = np.hypot(_qx - 412, _qy - 214)
+        _spring = float((_spo[1] - 0.02)[(_spd > 2) & (_spd < 9)].max() - (_spo[1] - 0.02)[(_spd > 12) & (_spd < 16)].mean())
+        check(_spk < 0.2 and _spstar > 0.8 and _spring < 0.0002,
               f"spikes around a planetary core go back to the nebula ({_spk:.0%} left in the stars image), "
-              f"a star beside it stays ({_spstar:.0%})")
+              f"a star beside it stays whole ({_spstar:.0%}, no ring of it in the nebula image: {_spring:.4f})")
 
         # a planetary nebula is brightened colour-preserving: its colours survive (a per-colour stretch turned M57 grey)
         _yy, _xx = np.mgrid[:600, :900]
