@@ -1906,10 +1906,16 @@ def run(app, out_dir: Path) -> int:
         _qo, _qs, _qsh = F.rescue_object(np.full_like(_qst, 0.02), _qst)
         _qring = [float(np.ptp(_qs.mean(0)[(_qr > _k - 1) & (_qr < _k + 1)])) for _k in range(8, 60, 4)]
         _qwing = float(_qs.mean(0)[(_qr > 40) & (_qr < 60)].mean())
-        check(_qsh > 0.5 and max(_qring) < 0.01 and _qwing < 0.0015,
+        # the faintest outer glow goes too (no ring where the moved part ended), and only light above the sky
+        # moves (no disc darker than the sky)
+        _qst2 = _qst + (0.0006 * np.exp(-_qr / 50.0)).astype(np.float32)
+        _qo2, _qs2, _ = F.rescue_object(np.full_like(_qst2, 0.02), _qst2)
+        _qprof = [float(_qs2.mean(0)[(_qr > _k - 4) & (_qr < _k + 4)].mean()) - 0.001 for _k in range(20, 230, 10)]
+        check(_qsh > 0.5 and max(_qring) < 0.01 and _qwing < 0.0015 and max(_qprof) < 0.00012 and min(_qprof) > -0.00005,
               f"planetary core moved back from the stars image evenly in every direction - no square "
               f"(moved {_qsh:.0%}, largest unevenness around a circle {max(_qring):.4f}); its faint wings go too, so no dark "
-              f"rim ({_qwing:.4f} left)")
+              f"rim ({_qwing:.4f} left), no ring of outer glow left ({max(_qprof):.5f}) and no disc below the sky "
+              f"({min(_qprof):.5f})")
 
         # a planetary nebula is brightened colour-preserving: its colours survive (a per-colour stretch turned M57 grey)
         _yy, _xx = np.mgrid[:600, :900]

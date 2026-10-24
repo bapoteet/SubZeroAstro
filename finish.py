@@ -1337,19 +1337,22 @@ def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     # how far the object's glow reaches in the stars image: out to where its average brightness around the
     # centre falls to the sky - star removal also puts the faint wings of a bright core there, and leaving them
     # behind dug a dark rim around NGC 7662's core once the stars were processed
-    sms = _blur(sm.astype(np.float32), 1.5)
     ri = dpx.astype(int)
     # measured on the opened image: stars around the object must not stretch the reach
     prof = np.bincount(ri.ravel(), opened.ravel()) / np.maximum(np.bincount(ri.ravel()), 1)
-    lo = med + max(3 * noise, 1e-4 * (float(opened.max()) - med))
+    # out to where the glow is truly down to the sky: a share of a very bright core's peak still shows as a ring
+    # once the stars are stretched
+    lo = med + max(1.0 * noise, 1e-6 * (float(opened.max()) - med))
     below = np.nonzero(prof[int(np.sqrt(m.sum() / np.pi)):] < lo)[0]
     reach = (int(np.sqrt(m.sum() / np.pi)) + int(below[0])) if below.size else int(np.sqrt(m.sum() / np.pi)) * 3
     rad = max(float(reach) * 1.15, 2.0 * r)
     dist = dpx / rad
-    near = np.clip((1.15 - dist) / 0.3, 0, 1) ** 2
-    hi = med + 30 * noise                                  # well above the sky counts as fully the object's
-    glow = np.clip((sms - lo) / max(hi - lo, 1e-9), 0, 1)
-    wgt = np.clip(_resize((near * np.maximum(glow, (dist < 0.5).astype(np.float32))).astype(np.float32),
+    # a long, gentle fade at the edge (a short one left a visible ring where the moved part ended)
+    near = np.clip((1.3 - dist) / 0.6, 0, 1) ** 2
+    near = near * near * (3 - 2 * near)
+    # only smooth glow above the sky moves (below), so the round fade alone decides how much: a weight that
+    # also followed the glow's brightness left the faint outer wings behind as a ring
+    wgt = np.clip(_resize(near.astype(np.float32),
                           sh * f, sw * f), 0, 1)
     # the bright body itself moves whole, detail and all; only its faint wings are taken without the stars on them
     bright = np.nonzero(prof < med + 0.01 * (float(prof[0]) - med))[0]
@@ -1362,8 +1365,12 @@ def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     full[:min(h, wgt.shape[0]), :min(w, wgt.shape[1])] = wgt[:h, :w]
     # only the smooth glow moves: stars sitting on the object's wings stay in the stars image (an opening
     # wider than a star takes them out of what is moved)
-    smooth = np.stack([np.minimum(c, _blur(_opening(c, 8).astype(np.float32), 2.0)) for c in stars])
-    moved = (fb[None] * stars + (1 - fb[None]) * smooth) * full[None]
+    # only the glow above the sky moves: moving the sky level too left a disc darker than the sky around it
+    sky = np.array([float(np.median(c)) for c in stars], np.float32)[:, None, None]
+    # (the smooth glow itself, not capped by each pixel: capping took the noise's peaks and left speckle)
+    smooth = np.stack([_blur(_opening(c, 8).astype(np.float32), 2.0) for c in stars])
+    moved = np.maximum((fb[None] * stars + (1 - fb[None]) * smooth) - sky, 0) * full[None]
+    moved = np.minimum(moved, np.maximum(stars, 0))       # never leave the stars image below nothing
     share = float(moved.sum() / max(float(stars.sum()), 1e-9))
     return (rgb + (moved if moved.shape[0] == rgb.shape[0] else moved.mean(0, keepdims=True))).astype(np.float32), \
         (stars - moved).astype(np.float32), share
