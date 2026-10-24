@@ -422,7 +422,7 @@ sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "
 p("Which steps appear depends on your data. In typical order:");
 table(["Step", "What it does", "PixInsight equivalent"], [
   ["Add Hydrogen Glow", "Adds Ha to the red of an RGB set, without its stars. For a galaxy (M31, M33, M101, NGC 891…) it adds only the compact HII regions - the red knots along the arms", "Continuum subtraction + PixelMath / NBRGBCombination"],
-  ["Combine Colour Channels", "Builds colour from separate filters: RGB, LRGB, Hubble (SHO), HSO, HOO, Foraxx…", "ChannelCombination / LRGBCombination"],
+  ["Combine Colour Channels", "Builds colour from separate filters: RGB, LRGB, Hubble (SHO), HSO, HOO, Foraxx… and **HOO + faint OIII**, which lifts faint OIII-only glow (the Squid in the Flying Bat) while OIII that follows the Ha is left alone (slider: Faint OIII boost)", "ChannelCombination / LRGBCombination; OIII minus scaled Ha in PixelMath"],
   ["Choose a Colour Palette", "Dual-band colour cameras: separates Ha and OIII (or SII and OIII) and offers HOO, Gold & blue, Foraxx…", "PixelMath palettes"],
   ["Balance Colours", "Neutral sky and natural star colour", "BackgroundNeutralization / colour calibration"],
   ["Remove Green Cast", "Removes the green tint (or turns Hubble colours gold and blue)", "SCNR"],

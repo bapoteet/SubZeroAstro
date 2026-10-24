@@ -1969,6 +1969,30 @@ def run(app, out_dir: Path) -> int:
               f"spikes around a planetary core go back to the nebula ({_spk:.0%} left in the stars image), "
               f"a star beside it stays whole ({_spstar:.0%}, no ring of it in the nebula image: {_spring:.4f})")
 
+        # HOO + faint OIII: an OIII-only glow too faint to see (the Squid in the Flying Bat) is lifted, the
+        # Ha-following OIII and the sky noise are left about as they were
+        _sr = np.random.default_rng(5)
+        _sy, _sx = np.mgrid[:400, :500].astype(np.float32)
+        _bat = 0.02 * np.exp(-((_sx - 120) / 25) ** 2) + 0.015 * np.exp(-((_sy - 320) / 20) ** 2)
+        _sqd = 0.0012 * np.exp(-(((_sx - 320) / 50) ** 2 + ((_sy - 150) / 20) ** 2))
+        _sha = (0.01 + _bat + _sr.normal(0, 0.002, _sx.shape)).astype(np.float32)
+        _so3 = (0.01 + 0.3 * _bat + _sqd + _sr.normal(0, 0.002, _sx.shape)).astype(np.float32)
+        _ss = F.State(channels={"Ha": _sha, "OIII": _so3}, kind="mono_nb", linear=True)
+        _ct = F.TOOLS["combine"]
+        _cv = {v.label: v for v in _ct.variants(_ss)}
+        _sqm = np.hypot((_sx - 320) / 50, (_sy - 150) / 20) < 0.7
+        _bgm = (_sx > 250) & (_sy > 250) & (_sy < 300)
+
+        def _sq_snr(lbl):
+            _b = _ct.apply(_ss, _cv[lbl].params).rgb[2]
+            _sm = F._blur(_b, 2.0)
+            return float((_sm[_sqm].mean() - _sm[_bgm].mean()) / _sm[_bgm].std()), float(_b[_bgm].std())
+        _s0, _n0 = _sq_snr("HOO")
+        _s1, _n1 = _sq_snr("HOO + faint OIII")
+        check("HOO + faint OIII" in _cv and _s1 > 2.0 * _s0 and _n1 < 1.05 * _n0,
+              f"HOO + faint OIII lifts a faint OIII-only glow like the Squid (stands out {_s0:.1f} -> {_s1:.1f} "
+              f"times the sky's ripple; sky noise {_n1 / _n0:.2f}x)")
+
         # a planetary nebula is brightened colour-preserving: its colours survive (a per-colour stretch turned M57 grey)
         _yy, _xx = np.mgrid[:600, :900]
         _r = np.hypot(_xx - 450, (_yy - 300) / 1.25)

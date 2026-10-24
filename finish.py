@@ -853,6 +853,28 @@ PALETTE_INFO = {
 }
 
 
+OIII_BOOST = 2.0       # how much the faint, OIII-only light is lifted at full strength
+
+
+def boost_faint_oiii(ha: np.ndarray, o3: np.ndarray, strength: float) -> np.ndarray:
+    """OIII with its faint OIII-only parts lifted (the Squid in the Flying Bat, the outer shells of planetaries).
+    The part of the OIII that simply follows the Ha (the same gas glowing in both) is taken away first - measured
+    as the typical OIII-to-Ha ratio where the Ha is bright - and what is left, smoothed so single noisy pixels
+    don't count and lifted above the sky's own noise, is added back on top of the OIII."""
+    if strength <= 0:
+        return o3
+    hm, _hn = _stats(ha)
+    om, _on = _stats(o3)
+    hr, orr = ha - hm, o3 - om
+    sel = hr > np.percentile(hr[::4, ::4], 95)
+    a = float(np.median(np.clip(orr[sel], 0, None) / np.maximum(hr[sel], 1e-9))) if sel.sum() > 50 else 0.0
+    d = _blur((orr - a * np.clip(hr, 0, None)).astype(np.float32), 4.0)
+    dm, dn = _stats(d)
+    w = np.clip((d - dm - dn) / (2 * dn + 1e-12), 0, 1)       # faded in above the sky's own ripple
+    ex = w * np.clip(d - dm, 0, None)
+    return (o3 + float(strength) * OIII_BOOST * ex).astype(np.float32)
+
+
 def build_palette(pal: str, n: dict) -> np.ndarray:
     """Colour image (3, h, w) from normalised narrowband channels {'Ha', 'OIII', 'SII'?}."""
     h, o = n["Ha"], n["OIII"]
@@ -968,6 +990,10 @@ class CombineChannels(Tool):
         elif {"Ha", "OIII"} <= f:
             out += [Variant(PALETTE_INFO[k][0], {"palette": k}, PALETTE_INFO[k][1], k == "HOO" and nb_first)
                     for k in ("HOO", "HOO+", "HHO", "FORAXX")]
+        if {"Ha", "OIII"} <= f:
+            out.append(Variant("HOO + faint OIII", {"palette": "HOO", "o3boost": 1.0},
+                               "HOO with the faint OIII-only glow lifted (e.g. the Squid in the Flying Bat): "
+                               "OIII that just follows the Ha is left as it is"))
         if {"Ha"} <= f and {"R", "G", "B"} <= f:
             out.append(Variant("RGB + Ha glow", {"palette": "RGB+Ha"}, "True colour with the hydrogen glow "
                                "added to red"))
@@ -979,13 +1005,19 @@ class CombineChannels(Tool):
 
     def sliders(self, s, params):
         m = params.get("mix", (1.0, 1.0, 1.0))
-        return [Slider("r", "Red strength", 0.4, 1.6, m[0], "How strong the filter shown as red is"),
-                Slider("g", "Green strength", 0.4, 1.6, m[1], "How strong the filter shown as green is"),
-                Slider("b", "Blue strength", 0.4, 1.6, m[2], "How strong the filter shown as blue is")]
+        out = [Slider("r", "Red strength", 0.4, 1.6, m[0], "How strong the filter shown as red is"),
+               Slider("g", "Green strength", 0.4, 1.6, m[1], "How strong the filter shown as green is"),
+               Slider("b", "Blue strength", 0.4, 1.6, m[2], "How strong the filter shown as blue is")]
+        if "o3boost" in params:
+            out.append(Slider("o3boost", "Faint OIII boost", 0.0, 2.0, params["o3boost"],
+                              "How much the faint OIII-only glow is lifted"))
+        return out
 
     def tuned(self, s, params, values):
         p = dict(params)
         p["mix"] = [values.get("r", 1.0), values.get("g", 1.0), values.get("b", 1.0)]
+        if "o3boost" in p:
+            p["o3boost"] = values.get("o3boost", p["o3boost"])
         return p
 
     @staticmethod
@@ -1004,6 +1036,8 @@ class CombineChannels(Tool):
 
         def build(ch, raw=False):
             n = ch if raw else {k: self._norm(v, stats[k]) for k, v in ch.items()}
+            if not raw and params.get("o3boost") and "Ha" in n and "OIII" in n:
+                n["OIII"] = boost_faint_oiii(n["Ha"], n["OIII"], float(params["o3boost"]))
             if pal in ("RGB", "LRGB", "RGB+Ha"):
                 r, g, b = n["R"], n["G"], n["B"]
                 if pal == "RGB+Ha" and "Ha" in n:
