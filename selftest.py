@@ -2741,6 +2741,18 @@ def run(app, out_dir: Path) -> int:
         _nv = sorted(f.name for f in _prp.newest_versions(_vs))
         check(_askedm and "act_open_masters" in vars(w) and _nv == ["T_Ha_Master_2026-06-29_to_2026-07-03_8.fits", "T_OIII_Master.fits"],
               f"page 1 can go straight to existing master lights; a folder gives the newest restack only ({_nv})")
+        # menu items pass Qt's 'checked' flag: Open a Saved Project from the menu must not crash on it
+        import subzeroastro as _sza
+        _keep_ged = _sza.QFileDialog.getExistingDirectory
+        _sza.QFileDialog.getExistingDirectory = staticmethod(lambda *a, **k: "")
+        try:
+            w.open_saved_project(False)                  # what the menu's triggered(checked) signal calls
+            _menu_ok = True
+        except Exception as _me:  # noqa: BLE001
+            _menu_ok = str(_me)
+        finally:
+            _sza.QFileDialog.getExistingDirectory = _keep_ged
+        check(_menu_ok is True, f"File › Open a Saved Project from the menu opens the folder picker ({_menu_ok})")
         # Zip My Logs: every open page's log plus a note about this computer, in one zip
         import zip_logs as _zl
         import zipfile as _zf

@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.111 beta"
+APP_VERSION = "0.9.112 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -1463,6 +1463,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ opening
     def load_data(self, initial=None):
         """Show the Load Data window; start processing what was collected."""
+        if isinstance(initial, bool):                     # from a menu: Qt passes 'checked'
+            initial = None
         dlg = LoadDataDialog(self, self.settings, self.chk_sub.isChecked(), initial)
         if dlg.exec():
             self.chk_sub.setChecked(dlg.chk_sub.isChecked())
@@ -1492,6 +1494,8 @@ class MainWindow(QMainWindow):
     def open_saved_project(self, folder=None):
         """Open a project saved on Finishing Touches and go straight there."""
         import finish as F
+        if not isinstance(folder, (str, Path)):           # from a menu: Qt passes 'checked'
+            folder = None
         if folder is None:
             folder = QFileDialog.getExistingDirectory(
                 self, "Open a saved project - pick its folder (or the folder you saved it into)",
