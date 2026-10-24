@@ -1332,17 +1332,38 @@ def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     # weight left a visible square around NGC 7662's core)
     yy, xx = np.nonzero(m)
     cy, cx = float(yy.mean()), float(xx.mean())
-    rad = max(float(np.sqrt(m.sum() / np.pi)) * 1.8, 2.0 * r)
     gy, gx = np.mgrid[:sh, :sw]
-    dist = np.hypot(gy - cy, gx - cx) / rad
-    near = np.clip((1.25 - dist) / 0.5, 0, 1) ** 2
-    lo = med + 3 * noise
-    hi = med + 0.1 * (float(opened.max()) - med)
-    glow = np.clip((_blur(sm.astype(np.float32), 1.5) - lo) / max(hi - lo, 1e-9), 0, 1)
-    wgt = np.clip(_resize((near * np.maximum(glow, near * (dist < 0.6))).astype(np.float32), sh * f, sw * f), 0, 1)
+    dpx = np.hypot(gy - cy, gx - cx)
+    # how far the object's glow reaches in the stars image: out to where its average brightness around the
+    # centre falls to the sky - star removal also puts the faint wings of a bright core there, and leaving them
+    # behind dug a dark rim around NGC 7662's core once the stars were processed
+    sms = _blur(sm.astype(np.float32), 1.5)
+    ri = dpx.astype(int)
+    # measured on the opened image: stars around the object must not stretch the reach
+    prof = np.bincount(ri.ravel(), opened.ravel()) / np.maximum(np.bincount(ri.ravel()), 1)
+    lo = med + max(3 * noise, 1e-4 * (float(opened.max()) - med))
+    below = np.nonzero(prof[int(np.sqrt(m.sum() / np.pi)):] < lo)[0]
+    reach = (int(np.sqrt(m.sum() / np.pi)) + int(below[0])) if below.size else int(np.sqrt(m.sum() / np.pi)) * 3
+    rad = max(float(reach) * 1.15, 2.0 * r)
+    dist = dpx / rad
+    near = np.clip((1.15 - dist) / 0.3, 0, 1) ** 2
+    hi = med + 30 * noise                                  # well above the sky counts as fully the object's
+    glow = np.clip((sms - lo) / max(hi - lo, 1e-9), 0, 1)
+    wgt = np.clip(_resize((near * np.maximum(glow, (dist < 0.5).astype(np.float32))).astype(np.float32),
+                          sh * f, sw * f), 0, 1)
+    # the bright body itself moves whole, detail and all; only its faint wings are taken without the stars on them
+    bright = np.nonzero(prof < med + 0.01 * (float(prof[0]) - med))[0]
+    rc = float(bright[0]) if bright.size else rad
+    body = np.clip((rc * 1.3 - dpx) / max(rc * 0.3, 1.0), 0, 1).astype(np.float32)
+    body = np.clip(_resize(body, sh * f, sw * f), 0, 1)
+    fb = np.zeros((h, w), np.float32)
+    fb[:min(h, body.shape[0]), :min(w, body.shape[1])] = body[:h, :w]
     full = np.zeros((h, w), np.float32)
     full[:min(h, wgt.shape[0]), :min(w, wgt.shape[1])] = wgt[:h, :w]
-    moved = stars * full[None]
+    # only the smooth glow moves: stars sitting on the object's wings stay in the stars image (an opening
+    # wider than a star takes them out of what is moved)
+    smooth = np.stack([np.minimum(c, _blur(_opening(c, 8).astype(np.float32), 2.0)) for c in stars])
+    moved = (fb[None] * stars + (1 - fb[None]) * smooth) * full[None]
     share = float(moved.sum() / max(float(stars.sum()), 1e-9))
     return (rgb + (moved if moved.shape[0] == rgb.shape[0] else moved.mean(0, keepdims=True))).astype(np.float32), \
         (stars - moved).astype(np.float32), share
@@ -3338,6 +3359,11 @@ class TameCore(Tool):
             v = e_y + (top - e_y) * np.log1p(k * u) / np.log1p(k)
             v = np.where(n > e_n, v, y)
             v = np.where(v > 0.92, 0.92 + 0.06 * np.tanh((v - 0.92) / 0.06), v)   # never pure white
+            # only the bright part is lowered: the faint glow around a very bright core (NGC 7662) has a tiny
+            # share of the linear range and would otherwise be flattened to the edge level - a dark moat
+            q = max(e_y + 0.1, 0.55)
+            wb = np.clip((y - q) / max(0.9 - q, 1e-3), 0, 1) ** 1.5
+            v = y * (1 - wb) + np.minimum(v, y) * wb
             return np.clip(v, 0, 1).astype(np.float32)
         # a nucleus burnt out even in the masters is a flat disc with a hard rim: round it off into a soft
         # peak (no detail is lost - there is none in a clipped area)

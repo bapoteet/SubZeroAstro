@@ -1901,13 +1901,15 @@ def run(app, out_dir: Path) -> int:
         # ... and the part moved back is round and follows the object's light - no square (NGC 7662 report)
         _qy, _qx = np.mgrid[:508, :664].astype(np.float32)
         _qr = np.hypot(_qx - 332, _qy - 254)
-        _qcore = 0.8 * np.exp(-_qr ** 2 / (2 * 14.0 ** 2))
+        _qcore = 0.8 * np.exp(-_qr ** 2 / (2 * 14.0 ** 2)) + 0.004 * np.exp(-_qr / 25.0)   # bright body + faint wings
         _qst = np.stack([0.3 * _qcore, _qcore, _qcore]).astype(np.float32) + 0.001
         _qo, _qs, _qsh = F.rescue_object(np.full_like(_qst, 0.02), _qst)
         _qring = [float(np.ptp(_qs.mean(0)[(_qr > _k - 1) & (_qr < _k + 1)])) for _k in range(8, 60, 4)]
-        check(_qsh > 0.5 and max(_qring) < 0.01,
+        _qwing = float(_qs.mean(0)[(_qr > 40) & (_qr < 60)].mean())
+        check(_qsh > 0.5 and max(_qring) < 0.01 and _qwing < 0.0015,
               f"planetary core moved back from the stars image evenly in every direction - no square "
-              f"(moved {_qsh:.0%}, largest unevenness around a circle {max(_qring):.4f})")
+              f"(moved {_qsh:.0%}, largest unevenness around a circle {max(_qring):.4f}); its faint wings go too, so no dark "
+              f"rim ({_qwing:.4f} left)")
 
         # a planetary nebula is brightened colour-preserving: its colours survive (a per-colour stretch turned M57 grey)
         _yy, _xx = np.mgrid[:600, :900]
