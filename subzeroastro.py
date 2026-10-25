@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.120 beta"
+APP_VERSION = "0.9.121 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -3069,6 +3069,7 @@ class MainWindow(QMainWindow):
             "masters for PixInsight — plate solving, gradient removal and the RC-Astro XTerminators included.<br>"
             "Rejected frames are moved to a <i>REJECTED</i> subfolder — nothing is ever deleted "
             "and your images are never modified.<br><br>"
+            "New versions install themselves: <i>Help › Check for Updates…</i> (or the blue bar on page 1).<br><br>"
             f"Created by {APP_AUTHOR}, built with Claude (Anthropic).<br>"
             f"<a href='{APP_URL}'>{APP_URL}</a><br>"
             "Free software under the MIT License. Provided as is, with no warranty.<br><br>"
