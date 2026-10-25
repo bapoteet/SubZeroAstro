@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.112 beta"
+APP_VERSION = "0.9.113 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -1237,6 +1237,10 @@ class MainWindow(QMainWindow):
                                     "Ctrl+Shift+O", QStyle.SP_DialogOpenButton,
                                     "Open a project you saved on Finishing Touches (page 4) and carry on where "
                                     "you left off")
+        self.act_open_pi = act("Open a PixInsight Project…", self.open_pixinsight_project, None,
+                               QStyle.SP_DirOpenIcon,
+                               "Bring the pictures of a PixInsight project (.pxiproject) into SubZeroAstro, to "
+                               "process them further here")
         self.act_open_masters = act("Process Existing Master Lights…", self.open_existing_masters, "Ctrl+Shift+M",
                                     QStyle.SP_DirOpenIcon,
                                     "Already stacked? Pick your master lights and go straight to Astro Image "
@@ -1313,7 +1317,7 @@ class MainWindow(QMainWindow):
 
         mb = self.menuBar()
         m = mb.addMenu("&File")
-        for a in (self.act_load, self.act_open_project, self.act_open_masters, self.act_open, self.act_reopen, self.act_start_over, self.act_fresh,
+        for a in (self.act_load, self.act_open_project, self.act_open_pi, self.act_open_masters, self.act_open, self.act_reopen, self.act_start_over, self.act_fresh,
                   self.act_reload, self.act_remeasure):
             m.addAction(a)
         m.addSeparator()
@@ -1490,6 +1494,45 @@ class MainWindow(QMainWindow):
         import prepare_window
         return ui_header.open_page(self, "prep_win", tuple(str(f) for f in files),
                                    lambda: prepare_window.PrepareWindow(self, self.settings, files))
+
+    def open_pixinsight_project(self, folder=None):
+        """A PixInsight project: its pictures are written as XISF files and opened on Astro Image Processing."""
+        import pixinsight_project as PP
+        if not isinstance(folder, (str, Path)):           # from a menu: Qt passes 'checked'
+            folder = None
+        if folder is None:
+            folder = QFileDialog.getExistingDirectory(
+                self, "Open a PixInsight project - pick its .pxiproject folder (or the folder it is in)",
+                self.settings.value("pi/project_dir", str(Path.home())))
+            if not folder:
+                return None
+        if PP.find_xosm(folder) is None:
+            QMessageBox.information(self, "Open a PixInsight Project",
+                                    "No PixInsight project there.\n\nPick the project's .pxiproject folder (it "
+                                    "holds a file called project.xosm), or the folder it is saved in.")
+            return None
+        self.settings.setValue("pi/project_dir", str(Path(folder).parent))
+        xosm = PP.find_xosm(folder)
+        out = xosm.parent.parent / f"{xosm.parent.stem}_SubZeroAstro"
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            files, notes = PP.export_images(xosm.parent, out,
+                                            progress=lambda t: (self.statusBar().showMessage(t),
+                                                                QApplication.processEvents()))
+        except Exception as e:  # noqa: BLE001 - shown to the user
+            files, notes = [], [str(e)]
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.statusBar().clearMessage()
+        if not files:
+            QMessageBox.information(self, "Open a PixInsight Project",
+                                    "No pictures could be taken from this project.\n\n" + "\n".join(notes))
+            return None
+        if notes:
+            QMessageBox.information(self, "Open a PixInsight Project",
+                                    f"{len(files)} picture(s) taken from the project (saved in {out}).\n\n"
+                                    + "\n".join(notes))
+        return self.open_existing_masters([str(f) for f in files])
 
     def open_saved_project(self, folder=None):
         """Open a project saved on Finishing Touches and go straight there."""

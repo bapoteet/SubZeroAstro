@@ -407,7 +407,7 @@ steps([
   "Press the green **Apply** to keep it - or **Cancel** to leave the picture exactly as it was. When the step is done the panel says so in green (**✓ … applied**), Apply disappears and an amber **✓ Applied – Next Step ➜** button takes you straight to the next recommended step - so after a break you can always tell whether a step was applied. Steps that can be repeated also offer **Apply Again**. The picture goes back to the whole view after every step.",
   "Not quite enough? Many steps can be run again on their own result: after one of them the card shows **↻ Do It Again** (and a ✓ step in the list can be clicked to run it again). That works for Balance Colours, Remove Green Cast, Tame Bright Core, Curves, Saturation, Bring Out Hidden Structure, Shrink Stars, Star Colours, Mote Buster, Darken the Sky Background, Final Noise Reduction, Flip, Final Crop and Spot Fix. One-way steps - combining, brightening, taking the stars out or putting them back, signing - are not repeated; use **Go Back to Here** to redo those.",
 ]);
-img("17_finish_brighten_choices.png", "Picking a version: Brighten the Image offers five strengths (example data)");
+img("17_finish_brighten_choices.png", "Picking a version: Brighten the Image (Stretch) offers five strengths (example data)");
 p("**Several masters per filter, or masters from different setups.** When you load more than one master of the same filter (other nights, other cameras or telescopes), all of them are used: they are brought to the same brightness and averaged, the less noisy ones counting more. This works the same for colour cameras (each colour separately). With a colour camera and a **dual-band filter** (L-Ultimate, L-eXtreme …), masters taken **without** the filter are left out of the picture - broadband starlight would bloat the stars and wash out the Ha / OIII colours - and the log says so. Every master is first matched star by star to one reference master. Masters from another camera or telescope are bent slightly differently by their optics - most at the edges, which would give coloured double stars in the corners - so SubZeroAstro measures that distortion from hundreds of stars and corrects it. When the masters carry a plate solution (data from remote observatories usually does, and page 3 adds one with ASTAP), it guides the match: the masters are lined up from where they point on the sky and the stars fine-tune it, so even masters with few stars in common line up. The deepest master (the most hours) is the reference everything is lined up to. Masters that page 3 already put on one grid are used as they are, and starless masters (StarXTerminator on page 3) are measured together with their stars-only images, so the stars are always there to line up by. After lining up, every master is checked: its four corners are compared with the reference's, and one still more than 1.5 px off is left out (when its filter has other masters) - the note says *alignment check: … within X px in every corner*. A master whose stars cannot be matched to the others is left out (when its filter has other masters), so it can't cause double stars, and the picture is cropped to the area all masters cover. The note under the title says how many masters were combined, corrected or left out.");
 p("**Looking closely.** Scroll on the picture to zoom in (past the preview's own pixels the full-resolution picture is drawn), drag to move around, double-click to fit it again. **⛶ Full Window** (next to *Show:*) hides the step list, the panels and the log so the picture fills the window - press it again or **Esc** to go back. Both work at every step, also while looking back through earlier steps.");
 p("**Bringing out one colour.** *Adjust Colours* strengthens or calms one colour range at a time: pick a version (Boost blues, Boost reds, Blues and reds, Boost magentas, Calm the greens), then fine-tune with one slider per colour (1 = unchanged), *Brighten boosted colours* and *Protect the sky*. It is best done after *Colour Intensity* and before *Final Noise Reduction* - boosting a colour also boosts its colour noise, which the noise step then cleans - but it can be opened at any time later too (and run again).");
@@ -418,7 +418,7 @@ bullets([
   "**Back to Start** returns to the original masters.",
   "Every step is saved. Opening the same masters again offers to **carry on where you left off**.",
 ]);
-sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Mote Buster", "Fix Dust Donuts", "Take Stars Out", "Brighten the Image", "Tame Bright Core", "Curves", "Saturation", "Adjust Colours", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Flip or Rotate the Picture", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
+sec("9.3", "The steps", ["Combine Colour Channels", "Choose a Colour Palette", "Balance Colours", "Remove Green Cast", "Mote Buster", "Fix Dust Donuts", "Take Stars Out", "Brighten the Image (Stretch)", "Tame Bright Core", "Curves", "Saturation", "Adjust Colours", "Bring Out Hidden Structure", "Brighten Stars Separately", "Shrink Stars", "Star Colours", "Put Stars Back", "Darken the Sky Background", "Final Noise Reduction", "Flip or Rotate the Picture", "Final Crop", "Spot Fix", "Sign Your Picture", "Add Hydrogen Glow"]);
 p("Which steps appear depends on your data. In typical order:");
 table(["Step", "What it does", "PixInsight equivalent"], [
   ["Add Hydrogen Glow", "Adds Ha to the red of an RGB set, without its stars. For a galaxy (M31, M33, M101, NGC 891…) it adds only the compact HII regions - the red knots along the arms", "Continuum subtraction + PixelMath / NBRGBCombination"],
@@ -428,9 +428,9 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Remove Green Cast", "Removes the green tint (or turns Hubble colours gold and blue)", "SCNR"],
   ["Mote Buster ◇", "Fix Dust Donuts: finds the round shadows of dust and divides them out with a synthetic flat - the detail underneath comes back", "A new flat, or DBE with division"],
   ["Take Stars Out", "Hides the stars so the nebula can be brightened strongly (instant if page 3 already separated them)", "StarXTerminator"],
-  ["Brighten the Image", "The stretch - five strengths, three methods", "STF / HistogramTransformation / GHS"],
+  ["Brighten the Image (Stretch)", "The stretch - five strengths, three methods", "STF / HistogramTransformation / GHS"],
   ["Adjust Colours ◇", "Bring out (or calm) one colour at a time - reds, yellows, greens, cyans, blues, magentas; grey and white stay as they are", "ColorSaturation"],
-  ["Tame Bright Core ◇", "Recovers detail in a burnt-out galaxy core or bright nebula: lowers the core's glow towards its surroundings and brings its structure back from the linear data; a nucleus burnt out even in the masters is rounded off so no hard white dot is left, and the stronger versions take in more of the area around the core (works best right after Brighten the Image)", "HDRMultiscaleTransform with a mask"],
+  ["Tame Bright Core ◇", "Recovers detail in a burnt-out galaxy core or bright nebula: lowers the core's glow towards its surroundings and brings its structure back from the linear data; a nucleus burnt out even in the masters is rounded off so no hard white dot is left, and the stronger versions take in more of the area around the core (works best right after Brighten the Image (Stretch))", "HDRMultiscaleTransform with a mask"],
   ["Adjust Brightness & Contrast", "Curves presets, sliders and a curve you can drag", "CurvesTransformation"],
   ["Colour Intensity", "Richer or calmer colour; dark sky protected", "Saturation curve"],
   ["Bring Out Hidden Structure ◇", "Local contrast for dust lanes and cores; the empty sky is protected (fine-tune *Protect the sky*)", "LocalHistogramEqualization"],
@@ -470,7 +470,8 @@ sec("9.7", "Saving and sharing", ["Save the Picture", "Save Project As", "Open P
 bullets([
   "**Save the Picture…** - TIFF (16-bit), JPG, PNG, XISF or FITS. All the files of one picture go into **their own folder inside the one you pick**, named after the target and telescope - for example *Final Astro Pics/M101_RedCat51/* holds M101_finished.tif, .jpg, .fits and the description. The folder you pick is remembered: each target keeps its own, and a new target starts in the folder you used last. Tick **Also save a short description of the target** to save *<target>_about.txt* next to the pictures: the opening paragraphs of its Wikipedia article plus **facts from SIMBAD** (the professional astronomy database at CDS, Strasbourg) - the kind of object, its position (RA / Dec) and brightness. Faint objects without a Wikipedia article still get the SIMBAD facts. It is shown first so you can edit it (or type your own when there is no internet), and both sources are credited. **Add a small “Processed with SubZeroAstro” credit** (ticked at first) puts that line in small, light-grey, see-through letters in the bottom-left corner of the TIFF, JPG and PNG pictures - or the bottom-right corner if your signature is bottom-left. XISF and FITS files are never marked, and untick the box to leave the pictures clean (the choice is remembered; pictures shared to AstroBin follow it too).",
   "**Save Project As… / Open Project…** - keep every step in a folder of your choice and carry on later. A saved project can also be opened **right from the start**: the **Open a Saved Project…** button in the Load Light Frame Data window (or File › Open a Saved Project, Ctrl+Shift+O, on page 1) goes straight to Finishing Touches on its last step. Pick the project's folder or the folder you saved it into.",
-  "**Already stacked, no saved project?** Use **Process Existing Masters…** in the same window (or File › Process Existing Master Lights…, Ctrl+Shift+M): pick your master lights - e.g. the D1 and D2 masters of one target - and you go straight to Astro Image Processing (page 2) without restacking. Masters are saved next to your lights' folder, named like *IC1396_Askar D1_Master_2026-06-29_to_2026-07-03.fits*; each restack adds _2, _3, … - from a folder only the newest is used.",
+  "**Already stacked, no saved project?** Use **Process Existing Masters…** in the same window (or File › Process Existing Master Lights…, Ctrl+Shift+M): pick your master lights - e.g. the D1 and D2 masters of one target - and you go straight to Astro Image Processing (page 2) without restacking. Masters are saved next to your lights' folder, named like *IC1396_Askar D1_Master_2026-06-29_to_2026-07-03.fits*; each restack adds _2, _3, … - from a folder only the newest is used. WBPP masters from PixInsight open the same way.",
+  "**A PixInsight project?** File › **Open a PixInsight Project…**: pick the project's *.pxiproject* folder (or the folder it is in). Each picture in it - as PixInsight left it, including changes kept inside the project - is saved as an XISF file in *<project>_SubZeroAstro* next to the project and opened on Astro Image Processing; masks are left out. If the project was moved, put the pictures' original files next to it so they can be found.",
   "**Share to AstroBin…** - saves an upload-ready JPG (and optional TIFF) plus an **acquisition CSV** with every night's subs, exposure, gain, temperature and FWHM, then opens AstroBin's upload page. Upload the picture, and on the *Acquisition* step choose **Import CSV**.",
   "**Stop Here – Continue in PixInsight** - see 5.4.",
 ]);
@@ -512,7 +513,7 @@ steps([
   "**Balance Colours › Stars white** (neutral). *Stars white, warmer / cooler* only if you prefer that look.",
   "**Remove Green Cast › 25-50 %** - a colour camera leaves a little green; real green almost never exists in space.",
   "**Mote Buster** ◇ if dust donuts show (check the circles, right-click or Control-click any that are not donuts).",
-  "**Take Stars Out**, then **Brighten the Image › Medium** (method *Automatic*; *Colour-preserving* keeps star and core colours better).",
+  "**Take Stars Out**, then **Brighten the Image (Stretch) › Medium** (method *Automatic*; *Colour-preserving* keeps star and core colours better).",
   "**Tame Bright Core** - galaxies: *Medium*; other targets only if the centre is burnt out.",
   "**Curves › More contrast** or **Brighter highlights**. Use *Lift faint detail* only for deep data.",
   "**Colour Intensity › Slight** or **Rich** (the sky is protected).",
@@ -528,7 +529,7 @@ p("For emission nebulae with L-eXtreme, L-Ultimate, L-eNhance, Askar D1/ColourMa
 steps([
   "**Choose a Colour Palette › HOO** (natural red and teal). Alternatives: *HOO (vivid)*, *Gold & blue* (Hubble-like), *Foraxx (dynamic)*.",
   "**Mote Buster** ◇ if needed, then **Take Stars Out**.",
-  "**Brighten the Image › Medium** (stronger is fine with the stars out).",
+  "**Brighten the Image (Stretch) › Medium** (stronger is fine with the stars out).",
   "**Remove Green Cast** - *HOO* rarely needs much; *Gold & blue* offers **Gold 100 %**, which turns the green gold instead of deleting it.",
   "**Tame Bright Core** ◇ for a bright centre (Bubble, Orion, Lagoon).",
   "**Curves › More contrast** or **Lift faint detail**.",
@@ -545,7 +546,7 @@ p("Askar D1 + D2, or L-Ultimate + L-Synergy, of the same target: SubZeroAstro bu
 steps([
   "Stack each filter on page 2 (one row each); load both masters together on page 3 - **one row**.",
   "**Combine Colour Channels › Hubble (SHO)** (or *Foraxx*, *HOO + SII*).",
-  "**Mote Buster** ◇, **Take Stars Out**, **Brighten the Image › Medium**.",
+  "**Mote Buster** ◇, **Take Stars Out**, **Brighten the Image (Stretch) › Medium**.",
   "**Remove Green Cast › Gold 100 %** - the green is your Ha; *Gold* turns it gold instead of deleting it, which gives the classic gold and blue.",
   "**Tame Bright Core** ◇, **Curves › More contrast**.",
   "**Colour Intensity › Slight** - the SII and OIII from a colour camera are weak, and stronger saturation turns their noise into speckle.",
@@ -558,7 +559,7 @@ p("Galaxies, star clusters and reflection nebulae with separate R, G, B (and L) 
 steps([
   "**Combine Colour Channels › LRGB** (or *RGB* without L).",
   "**Balance Colours › Stars white**, **Remove Green Cast › 25-50 %**.",
-  "**Mote Buster** ◇, **Take Stars Out**, **Brighten the Image › Medium** (*Colour-preserving* keeps a galaxy's core colour).",
+  "**Mote Buster** ◇, **Take Stars Out**, **Brighten the Image (Stretch) › Medium** (*Colour-preserving* keeps a galaxy's core colour).",
   "**Tame Bright Core** - galaxies *Medium*; an L filter often needs it.",
   "**Curves › Brighter highlights** or **More contrast**.",
   "**Colour Intensity › Slight** or **Rich**.",
@@ -573,7 +574,7 @@ steps([
   "**Add Hydrogen Glow › HII regions - natural** - the starlight is taken out of the Ha first, so only the compact pink knots are added to red, not a pink wash over the disc. *Strong* if the knots are the show-piece; tick *Show the hydrogen regions* to see what is added.",
   "**Combine Colour Channels › LRGB**.",
   "**Balance Colours › Stars white** (not warmer - neutral keeps the blue arms), **Remove Green Cast › 25-50 %**.",
-  "**Take Stars Out**, **Brighten the Image › Medium** or *Gentle*, method *Colour-preserving*.",
+  "**Take Stars Out**, **Brighten the Image (Stretch) › Medium** or *Gentle*, method *Colour-preserving*.",
   "**Tame Bright Core › Medium**.",
   "**Curves › Brighter highlights** (avoid *Darker background* - it brings out faint background blotches).",
   "**Colour Intensity › Slight** or **Rich**; **Adjust Colours › Boost blues** 1.2-1.4 with *Smooth colour transitions* 0.3.",
@@ -587,7 +588,7 @@ sec("10.14", "Recipe: mono camera, narrowband (SHO or HOO)", ["Mono SHO step by 
 steps([
   "**Combine Colour Channels › Hubble (SHO)** - or *HOO* with only Ha and OIII, *Foraxx (dynamic)*, *HOO + SII*, *HSO*.",
   "**Mote Buster** ◇ - with filters, each has its own dust: bright rings or coloured halos are fixed per colour.",
-  "**Take Stars Out**, **Brighten the Image › Medium**.",
+  "**Take Stars Out**, **Brighten the Image (Stretch) › Medium**.",
   "**Remove Green Cast › Gold 100 %** for SHO (the classic gold and blue); plain removal for HOO.",
   "**Tame Bright Core** ◇ for a bright centre, **Curves › More contrast**.",
   "**Colour Intensity › Rich**; **Adjust Colours › Blues and reds** to separate the gold and blue; *Smooth colour transitions* 0.2-0.3.",
@@ -685,7 +686,7 @@ p("Every target type has its own small tricks. These are the ones that work best
 sec("15.1", "Tips for every target", ["Processing tips", "Headroom", "Colour headroom"]);
 bullets([
   "**Follow the recommended order.** The card at the top of page 4 knows what your data needs; skipping ahead (Curves before Tame Bright Core, say) makes later steps work harder.",
-  "**Colour needs room below white.** Anything brightened close to white cannot show colour - Saturation and Adjust Colours only tint its edges. Lower the brightness first (*Protect bright areas* in Brighten the Image, or Tame Bright Core); the colour then comes back on its own.",
+  "**Colour needs room below white.** Anything brightened close to white cannot show colour - Saturation and Adjust Colours only tint its edges. Lower the brightness first (*Protect bright areas* in Brighten the Image (Stretch), or Tame Bright Core); the colour then comes back on its own.",
   "**Small steps, then Do It Again.** A gentle version run twice usually looks more natural than the strongest version once - and each round can be undone on its own.",
   "**Judge at full size.** *Full Window*, the mouse wheel to zoom, and *Hold for Before* show what a step really does. The little versions are for choosing a direction, not for judging detail.",
   "**Good data beats any processing.** Flats every night (a flat panel at the end of the session is ideal), a dark and bias library at one fixed camera temperature (0 °C works well for modern CMOS), and as many hours as you can: noise halves for every four times the exposure.",
@@ -693,7 +694,7 @@ bullets([
 
 sec("15.2", "Galaxies", ["Galaxy processing", "Galaxies"]);
 bullets([
-  "**Tame Bright Core** is recommended for every galaxy, right after Brighten the Image. Start with *Medium*; use *Strong* or *Maximum* for a very bright nucleus. Drag *Core size* to the left when the bright area is larger than the tint of *Show what will change*.",
+  "**Tame Bright Core** is recommended for every galaxy, right after Brighten the Image (Stretch). Start with *Medium*; use *Strong* or *Maximum* for a very bright nucleus. Drag *Core size* to the left when the bright area is larger than the tint of *Show what will change*.",
   "**Bring Out Hidden Structure** (*Moderate* or *Strong*) after Curves shows the dust lanes and spiral arms.",
   "**HII regions:** with a mono RGB set plus Ha, *Add Hydrogen Glow* puts the red knots along the arms; with a colour camera, a few hours through a dual-band filter can be added the same way.",
   "**Filters:** broadband (or a mild light-pollution filter) gives the brightest arms and most natural colours. A dual-band filter (L-eNhance, L-Ultimate) lets through only a little of a galaxy's starlight, but with long integration it works well and makes the red HII regions stand out - M31 with a 55 mm refractor, an ASI2600MC and an L-Ultimate over about 20 hours shows the disc, the dust lanes and the HII regions clearly.",
@@ -708,14 +709,14 @@ bullets([
   "**Palettes for a colour camera with a dual-band filter:** *HOO* (Ha red, OIII teal - natural), *HOO (vivid)*, *Gold & blue*, or *Foraxx (dynamic)*. With a mono camera, *Hubble (SHO)* or *HOO + SII*.",
   "**Take the stars out before brightening** - the nebula can then be brightened strongly without bloating the stars, and they go back at the end.",
   "**Separate Ha and OIII:** *Adjust Colours › Blues and reds* makes the blue OIII and red Ha stand apart; *Calm the greens* for leftover green.",
-  "**Bright centres** (Bubble, Orion, Lagoon): *Tame Bright Core* right after Brighten the Image.",
+  "**Bright centres** (Bubble, Orion, Lagoon): *Tame Bright Core* right after Brighten the Image (Stretch).",
   "**Targets that fill the frame** (Veil, North America): a SkyFlat made from that target's own lights can leave faint dark copies of the nebula - use real flats, or untick *SkyFlats (Mote Buster)* and let gradient removal and Mote Buster deal with vignetting and dust.",
   "**Stars:** *Star Colours › Natural* (narrowband paints stars one colour) and *Put Stars Back 80-100%* keep the nebula the star of the picture.",
 ]);
 
 sec("15.4", "Planetary nebulae", ["Planetary nebula processing", "Planetary nebulae", "M57", "Ring Nebula", "M27"]);
 bullets([
-  "**They are tiny and very bright.** Brighten the Image sets the brightness for the faint background, which pushes the bright ring or shell to nearly white - that is why it looks \"hot\". Use *Gentle*, and keep the *Method* on **Colour-preserving** (the default for planetary nebulae): the *Hyperbolic (GHS)* method brightens each colour separately and turns a bright planetary grey - no colour step can bring that back.",
+  "**They are tiny and very bright.** Brighten the Image (Stretch) sets the brightness for the faint background, which pushes the bright ring or shell to nearly white - that is why it looks \"hot\". Use *Gentle*, and keep the *Method* on **Colour-preserving** (the default for planetary nebulae): the *Hyperbolic (GHS)* method brightens each colour separately and turns a bright planetary grey - no colour step can bring that back.",
   "**Tame the ring, not the centre.** A planetary's bright light is in its ring or shell; the middle is faint and see-through. For a planetary nebula *Tame Bright Core* (recommended, right **after Curves** - the workflow puts it there, because Curves' contrast would make the ring white again) works as *Tame the Ring*: inside the mask the nebula is brightened again, gently, from the linear data - the brightest part of the ring goes to the *Ring brightness* you pick (Gentle 85% … Maximum 55%), everything else follows the nebula's real brightness, so ring and inside separate again and both leave white behind. The outer halo is left as it is. Tick *Show what will change* to see the area - a light green wash with a yellow line at its edge, which should lie outside the ring; drag *Area* to the left if it doesn't. The result shows through the wash; untick the box for a clean look. *Medium* or *Strong* is a good start. Don't brighten or add contrast after it.",
   "**Star removal and small nebulae:** StarXTerminator can take a small, bright planetary for a star and put part of it in the stars image - where no nebula step reaches it, and *Put Stars Back* makes it white again. For a planetary nebula SubZeroAstro moves anything in the stars image that is much wider than a star, near the middle of the picture, back to the nebula when the stars are taken out.",
   "**Palette HOO:** Ha gives the red outer ring, OIII the teal-blue inside - the classic Ring Nebula look. *As captured* tends to look pale.",
@@ -724,7 +725,7 @@ bullets([
   "**Crop tightly:** at 900 mm M57 is only about 100 pixels across - *Final Crop* makes it fill the picture.",
   "**At the telescope:** shorter subs (60-120 s) keep the brightest part from burning out in the masters; collect plenty of them.",
 ]);
-tip("A recipe that works for M57 (colour camera + L-Ultimate, 3.6 h): *HOO* palette · *Take Stars Out* · *Brighten the Image: Gentle* (Colour-preserving) · skip *Remove Green Cast* · *Curves: Lift faint detail* · *Tame Bright Core: Medium* · *Saturation: Vivid* · *Adjust Colours: Blues and reds* with Blues about 1.3, Reds 0.85 and *Smooth colour transitions* 0.6-1.0 · the star steps · *Put Stars Back* · a tight *Final Crop*. The result: a blue centre, a gold-to-red ring and the faint outer halo.", "Worked example");
+tip("A recipe that works for M57 (colour camera + L-Ultimate, 3.6 h): *HOO* palette · *Take Stars Out* · *Brighten the Image (Stretch): Gentle* (Colour-preserving) · skip *Remove Green Cast* · *Curves: Lift faint detail* · *Tame Bright Core: Medium* · *Saturation: Vivid* · *Adjust Colours: Blues and reds* with Blues about 1.3, Reds 0.85 and *Smooth colour transitions* 0.6-1.0 · the star steps · *Put Stars Back* · a tight *Final Crop*. The result: a blue centre, a gold-to-red ring and the faint outer halo.", "Worked example");
 
 sec("15.5", "Dark nebulae and faint dust", ["Dark nebula processing", "Dark nebulae", "IFN", "Barnard"]);
 bullets([
@@ -753,7 +754,7 @@ sec("15.9", "Questions and fixes", ["FAQ", "Bloated stars", "Fuzzy stars", "Wash
 table(["Problem", "What to try"], [
   ["Bright stars turn into big soft discs", "*Brighten Stars Separately* keeps bright stars their real size (fine-tune *Keep bright stars small*, about 0.85): one brightening curve for everything would lift a bright star's faint outer glow as much as a faint star's core. Turn it down toward 0 only if you want the big-glow look."],
   ["My stars look bloated and have fuzzy edges", "Page 3: BlurXTerminator *Sharpen Stars* about 0.5 and *Adjust Star Halos* 0.3-0.5. Page 4: *Brighten Stars Separately › Subtle*, *Put Stars Back 80-100%* (not 120%), *Shrink Stars* with *Halo reduction* - and *Do It Again* if needed. If the stars are large on page 1 too (FWHM), it is focus or seeing."],
-  ["The core of my galaxy or nebula is a white blob", "*Tame Bright Core* right after *Brighten the Image* - *Strong* or *Maximum*, *Core size* to the left. Raise *Protect bright areas* in Brighten the Image."],
+  ["The core of my galaxy or nebula is a white blob", "*Tame Bright Core* right after *Brighten the Image (Stretch)* - *Strong* or *Maximum*, *Core size* to the left. Raise *Protect bright areas* in Brighten the Image (Stretch)."],
   ["My colours look washed out, or the object stays white", "Colour needs room below white: lower the brightness first (above), then *Saturation Vivid* and *Adjust Colours*. Saturation on a white area does nothing."],
   ["The background is green or magenta", "*Remove Green Cast*; *Balance Colours › Neutral sky only*; *Adjust Colours › Calm the greens*."],
   ["The background is blotchy or noisy", "More hours of data helps most. Then *Final Noise Reduction* (*Medium*), a gentler *Brighten*, and *Darken the Sky Background*."],

@@ -1454,6 +1454,12 @@ class FinishWindow(QMainWindow):
             self.grid.addWidget(b, i // cols, i % cols)
             if v.recommended:
                 b.setChecked(True)
+        last = getattr(self, "_last_pick", {}).get(self.tool.key)
+        if last is not None:
+            for b_, v_ in zip(self.group.buttons(), vs):
+                if v_.label == last:
+                    b_.setChecked(True)
+                    break
         keep = getattr(self, "_keep_choice", None)
         if keep is not None and 0 <= keep < len(self.group.buttons()):
             self.group.buttons()[keep].setChecked(True)
@@ -1942,6 +1948,9 @@ class FinishWindow(QMainWindow):
             t0 = time.time()
             new = t.apply(s, params)
             return new, time.time() - t0
+        if v is not None:
+            # the version the user picked stays marked when the cards come back (not the suggested one)
+            self._last_pick = {**getattr(self, "_last_pick", {}), t.key: v.label}
         again = ((lambda: self.open_tool(t.key, again=True)) if getattr(t, "repeatable", False)
                  else (lambda: self.show_applied(t)))
         def _note(st_):

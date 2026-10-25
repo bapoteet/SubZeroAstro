@@ -1514,7 +1514,7 @@ def ghs(x: np.ndarray, D: float, b: float, SP: float) -> np.ndarray:
 
 class Brighten(Tool):
     key = "stretch"
-    title = "Brighten the Image"
+    title = "Brighten the Image (Stretch)"
     tip = ("Turns the dark, 'linear' data into a visible picture (the stretch). Pick the brightness you "
            "like - stronger shows fainter detail but more noise.")
     methods = {"auto": "Automatic (balanced)", "colour": "Colour-preserving", "ghs": "Hyperbolic (GHS)"}

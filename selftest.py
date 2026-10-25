@@ -424,6 +424,84 @@ def run(app, out_dir: Path) -> int:
           f"alt-az frames without darks: the camera's fixed pattern is measured and taken out, so it does not stack "
           f"into swirls (fine-scale background {_off:.1f} -> {_on:.1f} ADU)")
 
+    # --- a PixInsight project opens in SubZeroAstro: images PixInsight stored inside the project are decoded,
+    # unchanged ones are found by their file (also after the project moved to another computer); masks left out
+    import base64 as _b64
+    import pixinsight_project as _pp
+    _pid = session / "pi" / "Test.pxiproject"
+    (_pid / "project.data").mkdir(parents=True, exist_ok=True)
+    (_pid / "project.data" / "TST-000001").write_bytes(_b64.b64decode(
+        "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"))
+    _pim = (np.random.default_rng(3).random((3, 60, 80)) * 0.5).astype(np.float32)
+    import xisf as _xs_pi
+    _xs_pi.write_xisf(session / "pi" / "master_M42.xisf", _pim, [("OBJECT", "M42", ""), ("FILTER", "L-Pro", "")])
+    (_pid / "project.xosm").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?><xosm version="1.2" xmlns="http://www.pixinsight.com/xosm">'
+        '<ImageWindow format="XISF" filePath="/Users/someone/elsewhere/master_M42.xisf">'
+        '<MainView id="master_M42"><initialProcessing><instance class="GradientCorrection"/></initialProcessing>'
+        '</MainView></ImageWindow>'
+        '<ImageWindow format="XISF" filePath="/Users/someone/elsewhere/master_M42.xisf">'
+        '<MainView id="MasterLight_crop_mask"><image src="@project_data_dir/TST-000001"/></MainView></ImageWindow>'
+        '</xosm>', encoding="utf-8")
+    try:
+        _pmask = _pp.decode_rawimage((_pid / "project.data" / "TST-000001").read_bytes())
+        _pfiles, _pnotes = _pp.export_images(_pid, session / "pi" / "out")
+        import prepare as _prp_pi
+        _pm = _prp_pi.load_master(_pfiles[0]) if _pfiles else None
+        _pi_ok = (_pmask.shape == (1, 4176, 6248) and bool(_pmask[0, 1, 1] > 0.5) and bool(_pmask[0, 100, 100] == 0)
+                  and len(_pfiles) == 1 and _pm is not None and _pm.target == "M42"
+                  and np.allclose(_pm.data / max(float(_pm.data.max()), 1e-9), _pim / _pim.max(), atol=1e-3)
+                  and any("mask" in n_ for n_ in _pnotes))
+        _pi_detail = f"{len(_pfiles)} picture, notes: {_pnotes}"
+    except Exception as _pe:  # noqa: BLE001
+        _pi_ok, _pi_detail = False, repr(_pe)
+    check(_pi_ok, f"a PixInsight project opens: stored images decoded, moved files found, masks left out ({_pi_detail})")
+
     # --- meridian flip: the optics' distortion turns with the camera; the stack corrects it --------
     _fr = np.random.default_rng(3)
     _FH = 600
@@ -1646,6 +1724,11 @@ def run(app, out_dir: Path) -> int:
                 sl, sp = fw.sliders["protect"]
                 sl.setValue(sl.maximum() // 2)
             if t.key == "curves":
+                _np_ = [i_ for i_, v_ in enumerate(fw.variants) if not v_.recommended]
+                if _np_:
+                    fw.group.buttons()[_np_[-1]].click()          # the user picks another version than the ★
+                    QApplication.processEvents()
+                _ui["picked"] = fw.variants[_np_[-1]].label if _np_ else None
                 check(fw.curve.isVisible() or fw.curve.isVisibleTo(fw), "Curves shows a curve you can drag")
                 fw.curve.points[2] = [0.5, 0.58]
                 fw._curve_dragged([list(q) for q in fw.curve.points])
@@ -1660,6 +1743,8 @@ def run(app, out_dir: Path) -> int:
                 _ui["one_way"] = (fw.applied_label.isVisibleTo(fw) and not fw.btn_apply.isVisibleTo(fw)
                                   and fw.btn_done_tool.isVisibleTo(fw) and "Next Step" in fw.btn_done_tool.text())
             if t.key == "curves":
+                _ui["picked_kept"] = (_ui.get("picked") is not None and fw.group.checkedId() >= 0
+                                      and fw.variants[fw.group.checkedId()].label == _ui["picked"])
                 _ui["repeat"] = (fw.tool is not None and fw.tool.key == "curves" and fw.btn_apply.text() == "Apply Again"
                                  and fw.btn_done_tool.isVisibleTo(fw) and fw.applied_label.isVisibleTo(fw))
             if t.spatial:
@@ -1671,6 +1756,9 @@ def run(app, out_dir: Path) -> int:
               f"after Apply the panel says it is applied: one-way steps show only '✓ Applied – Next Step', repeatable "
               f"ones 'Apply Again' too ({_ui})")
         check(all(_ui.get("full_view", [True])), "after a step the whole picture is shown again (not the close-up preview)")
+        if "picked_kept" in _ui:
+            check(_ui["picked_kept"], f"after Apply the version the user picked stays marked, not the suggested one "
+                                      f"(picked {_ui.get('picked')})")
         if "star_box" in _ui:
             check(_ui["star_box"] and _ui["star_only"], "the star steps show the stars on their own, with a tick box "
                                                         "for the nebula behind them")
