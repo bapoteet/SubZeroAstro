@@ -2068,6 +2068,8 @@ class StackOptions:
     cosmetic: bool = True                   # replace hot pixels / cosmic rays in each calibrated frame
     pattern: bool = True                    # field rotation: take the camera's fixed pattern out (no swirls)
     local_norm: bool = True                 # local normalization: every frame's background matched to the reference
+    drizzle: bool = False                   # 2x drizzle: finer detail from dithered frames (master at double size)
+    pixfrac: float = 0.8                    # drizzle drop size (share of an input pixel)
 
 
 @dataclass
@@ -2281,6 +2283,56 @@ def background_map(plane: np.ndarray, block: int) -> np.ndarray:
         p = np.pad(grid, 1, mode="edge")
         grid = sum(p[1 + dy:1 + dy + nby, 1 + dx:1 + dx + nbx] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9.0
     return _upsample(grid.astype(np.float32), nby * block, nbx * block)[:h, :w]
+
+
+def drizzle_add(acc, wacc, planes_, T, add_of, keep_of, scale=2, pixfrac=0.8, weight=1.0, rows=96):
+    """Add one frame to a drizzle: every output pixel (scale x finer than the reference grid) takes the input
+    pixels whose shrunken 'drops' (pixfrac of a pixel, centred on it) overlap it, weighted by the overlap - a gather
+    over output rows, so no huge scatter arrays. T maps this frame -> reference. planes_: the frame's planes, already
+    scaled and with their own sky taken off; add_of(c, r0, r1): what is added back (the reference's sky) for output
+    rows r0..r1; keep_of(r0, r1): 1 where the regular stack did not reject this frame (satellites, planes).
+    acc (nc, oh, ow), wacc (oh, ow); rows must be a multiple of scale."""
+    H, W = planes_[0].shape
+    nc = len(planes_)
+    oh, ow = wacc.shape
+    Ti = _invert_T(T).astype(np.float32)
+    half = np.float32(0.5 / scale)                         # an output pixel's half size, in input pixels
+    hp = np.float32(0.5 * pixfrac)
+    flat = [np.ascontiguousarray(p, dtype=np.float32).ravel() for p in planes_]
+    xs = ((np.arange(ow, dtype=np.float32) + 0.5) / scale - 0.5)[None, :]
+
+    def band(r0):
+        r1 = min(oh, r0 + rows)
+        ry = ((np.arange(r0, r1, dtype=np.float32) + 0.5) / scale - 0.5)[:, None]
+        qx = Ti[0, 0] * xs + Ti[0, 1] * ry + Ti[0, 2]
+        qy = Ti[1, 0] * xs + Ti[1, 1] * ry + Ti[1, 2]
+        keep = keep_of(r0, r1)
+        fx0, fy0 = np.floor(qx).astype(np.int32), np.floor(qy).astype(np.int32)
+        s_ = np.zeros((nc, r1 - r0, ow), np.float32)
+        w_ = np.zeros((r1 - r0, ow), np.float32)
+        for dy in (0, 1):
+            iy = fy0 + dy
+            oy = np.clip(np.minimum(iy + hp, qy + half) - np.maximum(iy - hp, qy - half), 0, None)
+            oy *= (iy >= 0) & (iy < H)
+            iyw = np.clip(iy, 0, H - 1) * W
+            for dx in (0, 1):
+                ix = fx0 + dx
+                ox = np.clip(np.minimum(ix + hp, qx + half) - np.maximum(ix - hp, qx - half), 0, None)
+                ox *= (ix >= 0) & (ix < W)
+                w = ox * oy * keep
+                idx = iyw + np.clip(ix, 0, W - 1)
+                for c in range(nc):
+                    s_[c] += flat[c][idx] * w
+                w_ += w
+        for c in range(nc):
+            a_ = add_of(c, r0, r1)
+            acc[c, r0:r1] += (s_[c] + a_ * w_) * np.float32(weight)
+        wacc[r0:r1] += w_ * np.float32(weight)
+    # bands of rows in parallel (numpy lets go of the interpreter lock): each band writes only its own rows
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=max(1, min(8, (os.cpu_count() or 2)))) as ex:
+        list(ex.map(band, range(0, oh, rows)))
 
 
 def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=None, cancel=None,
@@ -2565,6 +2617,61 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     weights = np.array([e[4] for e in entries], np.float32)
     weights /= weights.mean()
 
+    def drizzle_stack(regular):
+        """2x drizzle of all frames (dithered frames give finer detail), with the regular stack's rejection."""
+        sc = 2
+        pf = float(getattr(opts, "pixfrac", 0.8))
+        oh, ow = out_h * sc, out_w * sc
+        acc = np.zeros((nc, oh, ow), np.float32)
+        wacc = np.zeros((oh, ow), np.float32)
+        dz = list(range(len(entries)))
+        for j, i in enumerate(dz):
+            info, T, k_phot, bgs, weight = entries[i]
+            prog(f"{g.label()}: drizzle {j + 1}/{len(dz)}", 0.9 + 0.08 * j / max(len(dz), 1))
+            pls = planes(calibrated(info))
+            cached = np.load(cache_files[i], mmap_mode="r")
+            bmaps = [background_map(p_.astype(np.float32), max(64, int(max(p_.shape) / 16))) for p_ in pls] \
+                if (getattr(opts, "local_norm", True) and ref_maps) else None
+            sig = max(frame_noise[i], 1e-6) * opts.kappa
+
+            # rejection at reference resolution once per frame (each reference pixel = sc x sc output pixels)
+            okr = np.ones((out_h, out_w), np.float32)
+            for c in range(nc):
+                cv = np.asarray(cached[c], np.float32)
+                tol = np.maximum(sig, 0.25 * np.abs(regular[c] - np.float32(ref_bg[c])))   # stars vary with seeing
+                okr *= (np.isnan(cv) | (np.abs(cv - regular[c]) <= tol)).astype(np.float32)
+                del cv
+
+            def up_rows(a2, r0, r1):
+                blk = a2[r0 // sc:(r1 + sc - 1) // sc]
+                return np.repeat(np.repeat(blk, sc, axis=0), sc, axis=1)[:r1 - r0, :ow]
+
+            def keep_of(r0, r1):
+                return up_rows(okr, r0, r1)
+            # each plane scaled and with its own sky taken off once; the reference's sky is added back per row
+            if bmaps is not None:
+                pn = [(p_.astype(np.float32) - bmaps[c]) * np.float32(k_phot) for c, p_ in enumerate(pls)]
+            else:
+                pn = [(p_.astype(np.float32) - np.float32(bgs[c])) * np.float32(k_phot) for c, p_ in enumerate(pls)]
+            del bmaps
+
+            def add_of(c, r0, r1):
+                return up_rows(ref_maps[c], r0, r1) if ref_maps else np.float32(ref_bg[c])
+            drizzle_add(acc, wacc, pn, T, add_of, keep_of, sc, pf, float(weights[i]))
+            del pls, cached
+        cover = wacc > 0
+        wacc = np.maximum(wacc, 1e-12)
+        for c in range(nc):                                  # in place: a double-size colour master is large
+            acc[c] /= wacc
+            acc[c] = np.where(cover, acc[c], _upsample(regular[c], oh, ow))
+        drz = acc
+        log.append(f"Drizzle 2x (drop size {pf:g}): master is {ow} x {oh} px; "
+                   f"{100 * (1 - cover.mean()):.1f}% of it had no drop and was filled from the regular stack"
+                   + (" - dither between frames for drizzle to add detail" if cover.mean() < 0.97 else ""))
+        if res.autocrop:
+            res.autocrop = tuple(int(v) * sc for v in res.autocrop)
+        return drz.astype(np.float32)
+
     # --- combine ---------------------------------------------------------------
     nc = len(channels)
     out = np.empty((nc, out_h, out_w), np.float32)
@@ -2654,6 +2761,15 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             rejected += int(valid.sum() - keep.sum())
         out[:] = np.where(sw > 0, swx / np.maximum(sw, 1e-12), np.nan_to_num(mean))
     out = np.nan_to_num(out)
+    if getattr(opts, "drizzle", False) and use_cache and not half:
+        try:
+            out = drizzle_stack(out)
+        except Cancelled:
+            raise
+        except MemoryError:
+            log.append("Drizzle skipped: not enough memory for a double-size master - the regular master is kept")
+        except Exception as e:  # noqa: BLE001 - the regular master is kept
+            log.append(f"Drizzle skipped: {e}")
     res.data = out[0] if nc == 1 else out
     if use_cache:
         try:
@@ -2908,7 +3024,7 @@ def _group_key(g, opts) -> str:
         cal.append((n_, sorted(str(i.path) for i in plan.night_flats[n_][0].infos)))
     extra = repr((g.label(), cal, opts.kappa, opts.weighting, opts.osc_half, tuple(opts.formats),
                   os.path.normcase(str(opts.masters_root)), opts.align_common, getattr(opts, "cosmetic", True),
-                  getattr(opts, "local_norm", True)))
+                  getattr(opts, "local_norm", True), getattr(opts, "drizzle", False)))
     return cp.file_key([f.info.path for f in g.frames], extra)
 
 

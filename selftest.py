@@ -423,6 +423,52 @@ def run(app, out_dir: Path) -> int:
           f"Even out the sky between frames: frames whose gradients change through the night are matched to the reference frame "
           f"everywhere (background mismatch {_t0:.1f} -> {_t1:.1f} ADU)")
 
+    # --- 2x drizzle: undersampled (blocky) stars from dithered frames come out finer than in the regular stack
+    _dr = np.random.default_rng(31)
+    _DH, _DW = 200, 260
+    _dst = [(_dr.uniform(12, 248), _dr.uniform(12, 188), _dr.uniform(3000, 20000)) for _ in range(90)]
+    _dd = session / "drizzle"
+    _dd.mkdir(exist_ok=True)
+    _sub = 8                                               # render each pixel from 8x8 sub-samples: real pixels
+    _fy, _fx = (np.mgrid[:_DH * _sub, :_DW * _sub].astype(np.float32) + 0.5) / _sub - 0.5
+    for _i in range(16):
+        _ox, _oy = _dr.uniform(-3, 3), _dr.uniform(-3, 3)     # dither
+        _hi = np.zeros(_fy.shape, np.float32)
+        for _x, _y, _f in _dst:
+            _x += _ox; _y += _oy
+            _sl = (slice(max(0, int((_y - 4) * _sub)), int((_y + 5) * _sub)), slice(max(0, int((_x - 4) * _sub)), int((_x + 5) * _sub)))
+            _hi[_sl] += _f * np.exp(-((_fx[_sl] - _x) ** 2 + (_fy[_sl] - _y) ** 2) / (2 * 0.45 ** 2))
+        _im = 800 + _hi.reshape(_DH, _sub, _DW, _sub).mean(axis=(1, 3)) + _dr.normal(0, 6, (_DH, _DW))
+        core.write_fits(_dd / f"D_{_i:02d}.fits", np.clip(_im, 0, 65535).astype(np.uint16),
+                        {"IMAGETYP": "Light Frame", "OBJECT": "DZ", "FILTER": "L", "EXPTIME": 60.0,
+                         "DATE-OBS": f"2026-10-18T02:{_i:02d}:00"}, bitpix=16)
+    _dinfo = [_stk.read_info(_p) for _p in sorted(_dd.glob("*.fits"))]
+
+    def _dstack(on):
+        _g = _stk.LightGroup("DZ", "L", "Cam", "rig", [_stk.LightFrame(_x) for _x in _dinfo])
+        _g.plan = _stk.CalPlan()
+        _r = _stk.stack_group(_g, _stk.StackOptions(work_dir=str(session / "dz_work"), formats=("fits",), drizzle=on))
+        return _r
+
+    def _fwhm(m, scale):
+        pts, pk = _stk.find_stars(m.astype(np.float32), 1, 60)
+        out = []
+        for x, y in pts[:40]:
+            x, y = int(round(x)), int(round(y))
+            b = m[y - 6 * scale:y + 6 * scale + 1, x - 6 * scale:x + 6 * scale + 1].astype(np.float64)
+            if b.shape != (12 * scale + 1, 12 * scale + 1):
+                continue
+            b = b - np.median(m)
+            out.append(2 * np.sqrt(np.log(2) * b.sum() / (np.pi * b.max())) / scale)   # in reference pixels
+        return float(np.median(out))
+    _r0 = _dstack(False)
+    _r1 = _dstack(True)
+    _f0, _f1 = _fwhm(_r0.data, 1), _fwhm(_r1.data, 2)
+    check(_r1.data.shape == (2 * _r0.data.shape[0], 2 * _r0.data.shape[1]) and _f1 < 0.85 * _f0
+          and any("Drizzle 2x" in l for l in _r1.log),
+          f"2x drizzle: dithered, undersampled frames give a double-size master with finer stars "
+          f"(star size {_f0:.2f} -> {_f1:.2f} px of the original pixels)")
+
     # --- alt-az field rotation without darks: the camera's fixed pattern is taken out (no swirls) ---
     _ar = np.random.default_rng(11)
     _AH, _AW = 400, 520

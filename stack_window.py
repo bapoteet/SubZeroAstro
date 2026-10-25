@@ -495,6 +495,15 @@ class StackWindow(QMainWindow):
         self.even_sky.setChecked(self.settings.value("stack/even_sky", True, type=bool))
         self.even_sky.toggled.connect(lambda on: self.settings.setValue("stack/even_sky", on))
         obox.addWidget(self.even_sky)
+        self.drizzle = QCheckBox("Double the resolution (drizzle 2x)")
+        self.drizzle.setToolTip("For frames taken with dithering (the scope nudged a few pixels between frames) and "
+                                "small, blocky stars: the frames' slightly different positions are combined on a "
+                                "grid twice as fine, giving a master twice the size with finer stars and detail. "
+                                "Slower, and the masters are 4x larger. Without dithering it adds nothing. "
+                                "(PixInsight: DrizzleIntegration)")
+        self.drizzle.setChecked(self.settings.value("stack/drizzle", False, type=bool))
+        self.drizzle.toggled.connect(lambda on: self.settings.setValue("stack/drizzle", on))
+        obox.addWidget(self.drizzle)
         obox.addSpacing(16)
         obox.addWidget(QLabel("Save as:"))
         obox.addWidget(self.fmt_fits)
@@ -546,7 +555,8 @@ class StackWindow(QMainWindow):
                                cal_root=self.cal_root.text().strip(),
                                save_cal_masters=self.save_cal.isChecked(),
                                align_common=self.align_common.isChecked(),
-                               cosmetic=self.cosmetic.isChecked(), local_norm=self.even_sky.isChecked())
+                               cosmetic=self.cosmetic.isChecked(), local_norm=self.even_sky.isChecked(),
+                               drizzle=self.drizzle.isChecked())
 
     @staticmethod
     def open_folder(path):
