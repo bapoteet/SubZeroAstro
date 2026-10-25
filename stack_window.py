@@ -494,7 +494,8 @@ class StackWindow(QMainWindow):
                                  "properly and the background comes out even. (PixInsight: LocalNormalization)")
         self.even_sky.setChecked(self.settings.value("stack/even_sky", True, type=bool))
         self.even_sky.toggled.connect(lambda on: self.settings.setValue("stack/even_sky", on))
-        obox.addWidget(self.even_sky)
+        obox3 = QHBoxLayout()                 # third row: the stacking methods (keeps the page laptop-narrow)
+        obox3.addWidget(self.even_sky)
         self.drizzle = QCheckBox("Double the resolution (drizzle 2x)")
         self.drizzle.setToolTip("For frames taken with dithering (the scope nudged a few pixels between frames) and "
                                 "small, blocky stars: the frames' slightly different positions are combined on a "
@@ -503,13 +504,15 @@ class StackWindow(QMainWindow):
                                 "(PixInsight: DrizzleIntegration)")
         self.drizzle.setChecked(self.settings.value("stack/drizzle", False, type=bool))
         self.drizzle.toggled.connect(lambda on: self.settings.setValue("stack/drizzle", on))
-        obox.addWidget(self.drizzle)
+        obox3.addWidget(self.drizzle)
+        obox3.addStretch(1)
         obox.addSpacing(16)
         obox.addWidget(QLabel("Save as:"))
         obox.addWidget(self.fmt_fits)
         obox.addWidget(self.fmt_xisf)
         obox.addStretch(1)
         lay.addLayout(obox)
+        lay.addLayout(obox3)
 
         brow = QHBoxLayout()
         self.progress = QProgressBar()
