@@ -387,6 +387,42 @@ def run(app, out_dir: Path) -> int:
           f"{sorted(_ng.plan.night_flats)}), so dust that moved between nights leaves no shadow "
           f"(dust spots at {[round(v, 3) for v in _spots]} of the background)")
 
+    # --- Even out the sky between frames (local normalization): frames whose gradients change through the night
+    # (moon, haze, light pollution) are matched to the reference frame
+    _lr = np.random.default_rng(21)
+    _LH, _LW = 320, 420
+    _lyy, _lxx = np.mgrid[:_LH, :_LW].astype(np.float32)
+    _lst = [(_lr.uniform(10, 410), _lr.uniform(10, 310), _lr.uniform(1500, 15000)) for _ in range(160)]
+    _lneb = 300 * np.exp(-(((_lxx - 210) / 90) ** 2 + ((_lyy - 160) / 60) ** 2))
+    _ld = session / "localnorm"
+    _ld.mkdir(exist_ok=True)
+    _ltd = _lyy - (0.5 * _lxx + 40)
+    for _i in range(12):
+        _ang = _lr.uniform(0, 2 * np.pi)
+        _grad = 300 * _lr.uniform(0.3, 1.0) * ((np.cos(_ang) * (_lxx - 210) / 210 + np.sin(_ang) * (_lyy - 160) / 160) ** 2)   # changes every frame
+        _im = 1000 + _lneb + _grad + _lr.normal(0, 12, _lneb.shape)
+        for _x, _y, _f in _lst:
+            _im += _f * np.exp(-((_lxx - _x - _i * 0.4) ** 2 + (_lyy - _y) ** 2) / (2 * 1.6 ** 2))
+        if _i == 5:                                                  # a satellite trail in one frame
+            _im += 60 * np.exp(-(_ltd ** 2) / 2.0)
+        core.write_fits(_ld / f"L_{_i:02d}.fits", np.clip(_im, 0, 65535).astype(np.uint16),
+                        {"IMAGETYP": "Light Frame", "OBJECT": "LN", "FILTER": "L", "EXPTIME": 60.0,
+                         "DATE-OBS": f"2026-10-18T02:{_i:02d}:00"}, bitpix=16)
+    _linfo = [_stk.read_info(_p) for _p in sorted(_ld.glob("*.fits"))]
+
+    def _lstack(on):
+        _g = _stk.LightGroup("LN", "L", "Cam", "rig", [_stk.LightFrame(_x) for _x in _linfo])
+        _g.plan = _stk.CalPlan()
+        _r = _stk.stack_group(_g, _stk.StackOptions(work_dir=str(session / "ln_work"), formats=("fits",), local_norm=on))
+        _ref = core.read_fits(_r.ref_path)[0].astype(np.float32) if hasattr(core, "read_fits") else None
+        _diff = _stk.background_map((_r.data - _ref)[10:-10, 10:-10], 40)
+        return float(np.std(_diff)), _r.log
+    _t0, _ = _lstack(False)
+    _t1, _llog = _lstack(True)
+    check(_t1 < 0.25 * _t0 and any("Even out the sky" in l for l in _llog),
+          f"Even out the sky between frames: frames whose gradients change through the night are matched to the reference frame "
+          f"everywhere (background mismatch {_t0:.1f} -> {_t1:.1f} ADU)")
+
     # --- alt-az field rotation without darks: the camera's fixed pattern is taken out (no swirls) ---
     _ar = np.random.default_rng(11)
     _AH, _AW = 400, 520
@@ -1171,7 +1207,14 @@ def run(app, out_dir: Path) -> int:
               f"stacking rows: broadband first (L R G B), then narrowband; one tick box per kind ({_ord})")
         check(all(any(k == "dark" for k, _ in g.plan.warnings) for g in win.groups),
               "missing darks are reported before calibration is added")
+        _g_off = win.groups[-1].label()
+        win.groups[-1].enabled = False                      # the user unticks a row, then adds calibration
         win._add_cal_paths([raw_cal])
+        _still_off = [g.enabled for g in win.groups if g.label() == _g_off] == [False]
+        for g in win.groups:
+            g.enabled = True
+        win.fill_table()
+        check(_still_off, "a row the user unticked stays unticked after calibration frames are added")
         kinds = sorted(c.kind for c in win.items)
         check(kinds.count("bias") == 1 and kinds.count("dark") == 1, f"calibration sets recognised ({kinds})")
         plans = [(g.filter, bool(g.plan.bias), g.plan.dark_mode, bool(g.plan.flat)) for g in win.groups]

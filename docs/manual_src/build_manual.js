@@ -250,7 +250,8 @@ p("SubZeroAstro keeps calibration masters in a tidy structure inside the calibra
 p("`<calibration folder>\\<telescope rig>\\Masters\\<camera>\\Bias | Darks | Flats\\<filter>\\…`");
 bullets([
   "**Rig names**: the first time, pick a rig name for each camera + focal length (e.g. *265mm scope* or *SQA55*). This matters for ASIAIR, which records the mount, not the telescope.",
-  "**Darks** are matched by exposure, gain, offset and temperature (±3 °C). **Flats** are matched by camera, filter and rig, nearest in date. If you take flats every session (e.g. NINA's flat-panel sequence after imaging), a group of lights from several nights uses **each night's own flat** for that night's lights - dust that moved between nights leaves no shadows (the Flats cell and the stack log list them). **Bias** or **dark-flats** are needed to calibrate flats properly.",
+    "**Even out the sky between frames** (on by default; PixInsight calls it LocalNormalization): light pollution, haze and moonlight change through the night, so each frame's sky is brighter in a different corner. Before combining, every frame's sky is matched to the best frame's, so satellites, planes and noise are rejected properly and the background comes out even.",
+"**Darks** are matched by exposure, gain, offset and temperature (±3 °C). **Flats** are matched by camera, filter and rig, nearest in date. If you take flats every session (e.g. NINA's flat-panel sequence after imaging), a group of lights from several nights uses **each night's own flat** for that night's lights - dust that moved between nights leaves no shadows (the Flats cell and the stack log list them). **Bias** or **dark-flats** are needed to calibrate flats properly.",
   "You can add a folder of raw calibration sub-frames; SubZeroAstro builds the masters and saves them into the library.",
 ]);
 sec("4.4", "Settings worth knowing", ["Settings", "Intro animation", "Saved progress", "Star measurement"]);

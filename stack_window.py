@@ -487,6 +487,14 @@ class StackWindow(QMainWindow):
         self.cosmetic.setChecked(self.settings.value("stack/cosmetic", True, type=bool))
         self.cosmetic.toggled.connect(lambda on: self.settings.setValue("stack/cosmetic", on))
         obox.addWidget(self.cosmetic)
+        self.even_sky = QCheckBox("Even out the sky between frames")
+        self.even_sky.setToolTip("Light pollution, haze and moonlight change through the night, so each frame's sky "
+                                 "is brighter in a different corner. This matches every frame's sky to the best "
+                                 "frame's before they are combined, so satellites, planes and noise are rejected "
+                                 "properly and the background comes out even. (PixInsight: LocalNormalization)")
+        self.even_sky.setChecked(self.settings.value("stack/even_sky", True, type=bool))
+        self.even_sky.toggled.connect(lambda on: self.settings.setValue("stack/even_sky", on))
+        obox.addWidget(self.even_sky)
         obox.addSpacing(16)
         obox.addWidget(QLabel("Save as:"))
         obox.addWidget(self.fmt_fits)
@@ -538,7 +546,7 @@ class StackWindow(QMainWindow):
                                cal_root=self.cal_root.text().strip(),
                                save_cal_masters=self.save_cal.isChecked(),
                                align_common=self.align_common.isChecked(),
-                               cosmetic=self.cosmetic.isChecked())
+                               cosmetic=self.cosmetic.isChecked(), local_norm=self.even_sky.isChecked())
 
     @staticmethod
     def open_folder(path):
@@ -579,7 +587,12 @@ class StackWindow(QMainWindow):
                 self.log(f"Could not read the calibration masters folder ({e}) - using the added files only")
             added = st.group_calibration(self.added_infos)
             self.items = lib + added
+            # a group the user unticked stays unticked when the list is rebuilt (e.g. after adding calibration)
+            off = {g.label() for g in getattr(self, "groups", []) or [] if not g.enabled}
             self.groups = st.group_lights(self.lights, self.rigs)
+            for g in self.groups:
+                if g.label() in off:
+                    g.enabled = False
             pool = None
             if getattr(self, "sky_flats", None) is None or self.sky_flats.isChecked():
                 pool = []

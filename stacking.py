@@ -2067,6 +2067,7 @@ class StackOptions:
     comet: bool = True                      # comets: also stack on the comet (and combine)
     cosmetic: bool = True                   # replace hot pixels / cosmic rays in each calibrated frame
     pattern: bool = True                    # field rotation: take the camera's fixed pattern out (no swirls)
+    local_norm: bool = True                 # local normalization: every frame's background matched to the reference
 
 
 @dataclass
@@ -2247,6 +2248,39 @@ def sensor_pattern(frames_cal, model_planes, transforms, ks, bgs_list, ref_bg, b
     else:
         pat = pat - _smooth(pat, 4.0)
     return pat, int((cnt >= 5).mean() * 100)
+
+
+def background_map(plane: np.ndarray, block: int) -> np.ndarray:
+    """The smooth background of an aligned frame (NaN outside it): the median of large blocks, gently smoothed
+    and spread back to full size. Stars hardly move a block median; a nebula is the same in every frame, so it
+    drops out when two frames' maps are compared."""
+    h, w = plane.shape
+    nby, nbx = -(-h // block), -(-w // block)
+    pad = np.full((nby * block, nbx * block), np.nan, np.float32)
+    pad[:h, :w] = plane
+    blocks = pad.reshape(nby, block, nbx, block)[:, ::4, :, ::4]
+    with np.errstate(all="ignore"):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            grid = np.nanmedian(blocks, axis=(1, 3)).astype(np.float32)
+    ok = np.isfinite(grid)
+    if not ok.any():
+        return np.zeros((h, w), np.float32)
+    for _ in range(max(nby, nbx)):                       # empty blocks (outside the frame): from their neighbours
+        if ok.all():
+            break
+        p = np.pad(np.where(ok, grid, 0), 1)
+        q = np.pad(ok.astype(np.float32), 1)
+        s_ = sum(p[1 + dy:1 + dy + nby, 1 + dx:1 + dx + nbx] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+        n_ = sum(q[1 + dy:1 + dy + nby, 1 + dx:1 + dx + nbx] for dy in (-1, 0, 1) for dx in (-1, 0, 1))
+        fill = (~ok) & (n_ > 0)
+        grid = np.where(fill, s_ / np.maximum(n_, 1), grid)
+        ok = ok | fill
+    if nby >= 3 and nbx >= 3:                             # a little smoothing between blocks
+        p = np.pad(grid, 1, mode="edge")
+        grid = sum(p[1 + dy:1 + dy + nby, 1 + dx:1 + dx + nbx] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9.0
+    return _upsample(grid.astype(np.float32), nby * block, nbx * block)[:h, :w]
 
 
 def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=None, cancel=None,
@@ -2453,7 +2487,16 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             bgs.append(float(np.median(sm[~np.isnan(sm)])))
         return aligned, Tout, k_phot, bgs, noises, inl, rms
 
+    ln_block = max(64, int(max(out_h, out_w) / 16))
+    ref_maps = []
+
     def normalize(aligned, k_phot, bgs):
+        if getattr(opts, "local_norm", True) and ref_maps:
+            # local normalization: this frame's own background (gradients from the moon, haze, light pollution
+            # that change through the night) is replaced by the reference frame's, so every frame matches it
+            # everywhere - outlier rejection then sees only real outliers
+            return [((a - background_map(a, ln_block)) * np.float32(k_phot) + ref_maps[c])
+                    for c, a in enumerate(aligned)]
         return [((a - bgs[c]) * np.float32(k_phot) + np.float32(ref_bg[c])) for c, a in enumerate(aligned)]
 
     n = len(frames)
@@ -2472,6 +2515,10 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             continue
         if ref_bg is None:
             ref_bg = bgs
+            if getattr(opts, "local_norm", True):
+                ref_maps = [background_map(a, ln_block) for a in aligned]
+                log.append(f"Even out the sky between frames: every frame's sky matched to the reference frame's, "
+                           f"in {ln_block} px areas (PixInsight: LocalNormalization)")
         normed = normalize(aligned, k_phot, bgs)
         noise = float(np.mean(noises)) * k_phot
         weight = 1.0 / noise ** 2 if opts.weighting else 1.0
@@ -2860,7 +2907,8 @@ def _group_key(g, opts) -> str:
     for n_ in sorted(plan.night_flats):
         cal.append((n_, sorted(str(i.path) for i in plan.night_flats[n_][0].infos)))
     extra = repr((g.label(), cal, opts.kappa, opts.weighting, opts.osc_half, tuple(opts.formats),
-                  os.path.normcase(str(opts.masters_root)), opts.align_common, getattr(opts, "cosmetic", True)))
+                  os.path.normcase(str(opts.masters_root)), opts.align_common, getattr(opts, "cosmetic", True),
+                  getattr(opts, "local_norm", True)))
     return cp.file_key([f.info.path for f in g.frames], extra)
 
 
