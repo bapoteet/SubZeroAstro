@@ -84,26 +84,38 @@ def _unshuffle(b: bytes, item: int) -> bytes:
     return a.tobytes() + b[n * item:]
 
 
-def _zstd_frames(data: bytes) -> list[bytes]:
+def _zstd_one(chunk: bytes, limit: int) -> bytes:
+    """One complete frame (an incomplete one raises)."""
     try:
         import zstandard as zstd
+        return zstd.ZstdDecompressor().decompress(chunk, max_output_size=limit)
     except ImportError:                                   # pragma: no cover - bundled with the app
-        zstd = None
-    out, rest = [], data
-    while rest[:4] == ZSTD_MAGIC:
-        if zstd is not None:
-            d = zstd.ZstdDecompressor().decompressobj()
-            out.append(d.decompress(rest))
-            rest = d.unused_data
-        else:
+        try:
+            from compression import zstd as std_zstd      # Python 3.14+
+        except ImportError:
+            raise ValueError("PixInsight stores project images with Zstandard compression and the zstandard "
+                             "module is missing")
+        return std_zstd.decompress(chunk)
+
+
+def _zstd_frames(data: bytes, limit: int = 1 << 28) -> list[bytes]:
+    """The image is kept as several Zstandard frames one after the other: each decompressed on its own (a frame
+    starts at a frame marker; a marker that happens to sit inside compressed data is skipped)."""
+    marks = [m.start() for m in re.finditer(re.escape(ZSTD_MAGIC), data)] + [len(data)]
+    out, i = [], 0
+    while i < len(marks) - 1:
+        p, done = marks[i], False
+        for j in range(i + 1, len(marks)):
             try:
-                from compression import zstd as std_zstd     # Python 3.14+
-            except ImportError:
-                raise ValueError("PixInsight stores project images with Zstandard compression and the zstandard "
-                                 "module is missing")
-            d = std_zstd.ZstdDecompressor()
-            out.append(d.decompress(rest))
-            rest = d.unused_data
+                out.append(_zstd_one(data[p:marks[j]], limit))
+            except ValueError:
+                raise
+            except Exception:  # noqa: BLE001 - incomplete frame: the next marker was inside the data
+                continue
+            i, done = j, True
+            break
+        if not done:
+            raise ValueError("damaged PixInsight project image")
     return out
 
 
@@ -121,7 +133,8 @@ def decode_rawimage(blob: bytes) -> np.ndarray:
     start = blob.find(ZSTD_MAGIC, 32)
     if not (0 < w < 200000 and 0 < h < 200000 and 0 < nc <= 4) or start < 0:
         raise ValueError("unrecognised PixInsight project image")
-    frames = _zstd_frames(blob[start:])
+    block = struct.unpack_from("<I", blob, 140)[0]
+    frames = _zstd_frames(blob[start:], max(block, 1 << 20) * 2 if block else w * h * nc * 8 + 1024)
     raw_len = sum(len(f) for f in frames)
     item = raw_len // max(w * h * nc, 1)
     if item not in (1, 2, 4, 8) or item * w * h * nc != raw_len:
