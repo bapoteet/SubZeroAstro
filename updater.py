@@ -218,7 +218,7 @@ def mac_script(pid: int, zip_path: Path, target: Path, stage: Path) -> str:
     """Same on the Mac: ditto keeps the app's links and permissions, which plain unzipping loses. The new
     Contents are copied inside the existing SubZeroAstro.app first and only swapped in once complete, so a
     failed copy leaves the old version working (and only the app itself needs to be writable)."""
-    new_app = stage / "x" / target.name
+    new_app = stage / "x" / "SubZeroAstro.app"        # the zip's name, even if this copy was renamed
     c, cn, co = target / "Contents", target / "Contents.new", target / "Contents.old"
     return (
         "#!/bin/sh\n"

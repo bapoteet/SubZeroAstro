@@ -2995,6 +2995,10 @@ def run(app, out_dir: Path) -> int:
         _bat = (_stage / "update.bat").read_text(encoding="utf-8")
         _new = _stage / "new" / "SubZeroAstro"
         _mac = _up.mac_script(4242, _got, Path("/Applications/SubZeroAstro.app"), _uz / "mstage")
+        _mac2 = _up.mac_script(4242, _got, Path("/Users/me/Downloads/SubZeroAstro 9120.app"), _uz / "mstage")
+        check(str(_uz / "mstage" / "x" / "SubZeroAstro.app" / "Contents") in _mac2
+              and str(Path("/Users/me/Downloads/SubZeroAstro 9120.app") / "Contents.new") in _mac2,
+              "updates: a renamed copy (e.g. 'SubZeroAstro 9120.app') is updated in place from the zip's SubZeroAstro.app")
         _tl = _up._untranslocated(Path("/Applications/SubZeroAstro.app"))
         check(_tl == Path("/Applications/SubZeroAstro.app") and isinstance(_up.why_not(), str)
               and "Update Now:" in __import__("zip_logs").system_note()
