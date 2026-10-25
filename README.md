@@ -444,7 +444,7 @@ specifically requested by the user or the person installing or operating it.
 
 ## Credits
 
-Created by Brian A. Poteet ([@bapoteet](https://github.com/bapoteet)), built with Claude (Anthropic).
+Created by Brian A. Poteet, DVM ([@bapoteet](https://github.com/bapoteet)), built with Claude (Anthropic).
 
 ## License
 

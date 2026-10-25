@@ -680,7 +680,7 @@ ch(14, "Privacy, licence and credits");
 sec("14.1", "Privacy", ["Privacy"]);
 p("SubZeroAstro does not send any information anywhere unless you ask it to. It reads and writes images only where you point it. **Share to AstroBin…** only opens AstroBin's page in your browser. Companion programs (ASTAP, GraXpert, RC-Astro) are separate programs with their own terms.");
 sec("14.2", "Licence and credits", ["Licence", "MIT License", "Credits"]);
-p("SubZeroAstro is free software under the **MIT License**. Created by **Brian A. Poteet**, built with Claude (Anthropic). The culling view was inspired by FITS Blaster for macOS by Tom van Peer. PixInsight, BlurXTerminator, NoiseXTerminator, StarXTerminator, GraXpert, ASTAP, AstroBin and the telescope and filter names mentioned are trademarks of their respective owners.");
+p("SubZeroAstro is free software under the **MIT License**. Created by **Brian A. Poteet, DVM**, built with Claude (Anthropic). The culling view was inspired by FITS Blaster for macOS by Tom van Peer. PixInsight, BlurXTerminator, NoiseXTerminator, StarXTerminator, GraXpert, ASTAP, AstroBin and the telescope and filter names mentioned are trademarks of their respective owners.");
 
 // ------------------------------------------------------------------ index (own two-column section)
 ch(15, "Processing Techniques and Tips");
@@ -812,7 +812,7 @@ const cover = [
   new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 600 },
     children: [new TextRun({ text: `Version ${VERSION}  ·  Windows and Mac (Apple silicon)`, size: 22 })] }),
   new Paragraph({ alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: "by Brian A. Poteet  ·  October 2026", size: 22, color: GREY })] }),
+    children: [new TextRun({ text: "by Brian A. Poteet, DVM  ·  October 2026", size: 22, color: GREY })] }),
 ];
 // ------------------------------------------------------------------ highlights (after the cover, before the contents)
 const HIGHLIGHTS = [
@@ -887,7 +887,7 @@ for (const e of toc) {
 }
 
 const doc = new Document({
-  creator: "Brian A. Poteet", title: "SubZeroAstro User Manual", description: "User manual for SubZeroAstro " + VERSION,
+  creator: "Brian A. Poteet, DVM", title: "SubZeroAstro User Manual", description: "User manual for SubZeroAstro " + VERSION,
   styles: {
     default: { document: { run: { font: "Arial", size: 21 } } },
     paragraphStyles: [

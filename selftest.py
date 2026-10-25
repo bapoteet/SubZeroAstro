@@ -931,7 +931,7 @@ def run(app, out_dir: Path) -> int:
               "reset all settings to factory defaults keeps folders, tool locations, rigs and signature")
         # the intro animation: frames at set moments, and it closes by itself
         import splash as _sp
-        sp = _sp.Splash("SubZeroAstro", "Brian A. Poteet", "From subs to masters - zero hassle.", "0.0 test")
+        sp = _sp.Splash("SubZeroAstro", "Brian A. Poteet, DVM", "From subs to masters - zero hassle.", "0.0 test")
         sp.show()
         check(sp.xray_img is not None and sp.xray_img.width() > 100,
               "intro animation finds its radiograph picture (assets/splash_radiograph.png)")
@@ -946,7 +946,7 @@ def run(app, out_dir: Path) -> int:
             pm = sp.grab()
             pm.save(str(out_dir / f"0_splash_{t_:.2f}s.png"))
         sp.close()
-        sp2 = _sp.Splash("SubZeroAstro", "Brian A. Poteet", "From subs to masters - zero hassle.")
+        sp2 = _sp.Splash("SubZeroAstro", "Brian A. Poteet, DVM", "From subs to masters - zero hassle.")
         state["splash_done"] = False
         sp2.finished.connect(lambda: state.__setitem__("splash_done", True))
         sp2.start()

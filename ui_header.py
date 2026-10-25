@@ -2,7 +2,7 @@
 ui_header.py - the banner shown at the top of every SubZeroAstro window:
 
                          SubZeroAstro
-                       by Brian A. Poteet
+                       by Brian A. Poteet, DVM
                   Astro Image Quality and Cull
 
 It sits above the menus and toolbars, so it is always visible.
@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 APP_NAME = "SubZeroAstro"
-AUTHOR = "Brian A. Poteet"
+AUTHOR = "Brian A. Poteet, DVM"
 APP_VERSION = ""          # set by subzeroastro.py (the one place the version is written)
 
 PAGE_CULL = "Astro Image Quality and Cull"

@@ -145,7 +145,7 @@ def feather_edges(img):
 class Splash(QWidget):
     finished = Signal()
 
-    def __init__(self, title="SubZeroAstro", author="Brian A. Poteet",
+    def __init__(self, title="SubZeroAstro", author="Brian A. Poteet, DVM",
                  slogan="From subs to masters - zero hassle.", version="", parent=None):
         super().__init__(parent, Qt.SplashScreen | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
