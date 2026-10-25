@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.123 beta"
+APP_VERSION = "0.9.124 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -3069,7 +3069,8 @@ class MainWindow(QMainWindow):
             "masters for PixInsight — plate solving, gradient removal and the RC-Astro XTerminators included.<br>"
             "Rejected frames are moved to a <i>REJECTED</i> subfolder — nothing is ever deleted "
             "and your images are never modified.<br><br>"
-            "New versions install themselves: <i>Help › Check for Updates…</i> (or the blue bar on page 1).<br><br>"
+            "New versions install themselves: <i>Help › Check for Updates…</i> (or the blue bar on page 1).<br>"
+            f"<small>Installed in: {_install_place()}</small><br><br>"
             f"Created by {APP_AUTHOR}, built with Claude (Anthropic).<br>"
             f"<a href='{APP_URL}'>{APP_URL}</a><br>"
             "Free software under the MIT License. Provided as is, with no warranty.<br><br>"
@@ -3102,6 +3103,16 @@ def apply_dark_theme(app: QApplication):
     for role in (QPalette.Text, QPalette.ButtonText, QPalette.WindowText):
         p.setColor(QPalette.Disabled, role, QColor(110, 110, 118))
     app.setPalette(p)
+
+
+def _install_place() -> str:
+    """Where this copy lives (shown in Help › About), so it's easy to find and replace."""
+    try:
+        import updater
+        t = updater.install_target()
+        return str(t) if t is not None else f"{Path(__file__).resolve().parent} (running from Python)"
+    except Exception:  # noqa: BLE001
+        return "?"
 
 
 def main():
