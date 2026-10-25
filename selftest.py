@@ -2936,6 +2936,75 @@ def run(app, out_dir: Path) -> int:
         finally:
             _sza.QFileDialog.getExistingDirectory = _keep_ged
         check(_menu_ok is True, f"File › Open a Saved Project from the menu opens the folder picker ({_menu_ok})")
+        # in-app updates: the newest GitHub release, the blue banner, Update Now's helper (no network needed)
+        import updater as _up
+        import zipfile as _uzf
+        _an = _up.asset_name()
+        _rels = [{"tag_name": "v0.9.200-beta", "draft": True, "assets": [{"name": _an}]},
+                 {"tag_name": "v0.9.150-beta", "assets": [{"name": "SomethingElse.zip"}]},
+                 {"tag_name": "v0.9.130-beta", "name": "SubZeroAstro 0.9.130 beta", "body": "New: updates.",
+                  "html_url": "https://github.com/bapoteet/SubZeroAstro/releases/tag/v0.9.130-beta",
+                  "assets": [{"name": _an, "browser_download_url": "https://example.invalid/a.zip", "size": 150e6}]},
+                 {"tag_name": "v0.9.125-beta", "assets": [{"name": _an}]},
+                 {"tag_name": "v0.9.100-beta", "assets": [{"name": _an}]}]
+        _nr = _up.newest_release(_rels, "0.9.120 beta")
+        check(_nr is not None and _nr["tag"] == "v0.9.130-beta" and _nr["version"] == "0.9.130"
+              and _up.newest_release(_rels, "0.9.130 beta") is None and _up.is_newer("v1.0", "0.9.130 beta")
+              and not _up.is_newer("v0.9.119-beta", "0.9.119 beta") and _up.is_newer("v0.9.120-beta", fb.APP_VERSION) is False
+              and _up.asset_name("win32") == "SubZeroAstro-Windows.zip"
+              and _up.asset_name("darwin") == "SubZeroAstro-macOS-AppleSilicon.zip",
+              f"updates: the newest published release for this computer is found ({_nr and _nr['tag']}); "
+              f"drafts, older versions and other platforms are ignored")
+        _ub = w.update_banner
+        _ub.settings.remove(_up.SKIP_KEY)
+        _ub.start_check(manual=True, fetch=lambda: _rels)
+        _ub.checker.wait(10000)
+        QApplication.processEvents()
+        _shown = _ub.isVisibleTo(w) and "0.9.130" in _ub.label.text() and fb.APP_VERSION in _ub.label.text()
+        _btn = _ub.b_update.text()
+        _ub.skip()
+        _ub.show_release(_nr)
+        _skipped = not _ub.isVisibleTo(w) and _ub.settings.value(_up.SKIP_KEY) == "v0.9.130-beta"
+        _ub.show_release(_nr, force=True)
+        _forced = _ub.isVisibleTo(w)
+        _ub.hide()
+        _ub.settings.remove(_up.SKIP_KEY)
+        _said = []
+        _keep_info = _ub._info
+        _ub._info = lambda t, m: _said.append(m)
+        _ub.start_check(manual=True, fetch=lambda: _rels[-1:])
+        _ub.checker.wait(10000)
+        QApplication.processEvents()
+        _ub._info = _keep_info
+        check(_shown and _btn in ("Update Now", "Download…") and _skipped and _forced and not _ub.isVisibleTo(w)
+              and any("newest version" in m for m in _said)
+              and "act_check_updates" in vars(w) and w.act_auto_update.isCheckable(),
+              f"updates: a newer version shows the blue banner with '{_btn}'; Skip This Version hides it; "
+              f"Help › Check for Updates says when you're up to date ({_said[:1]})")
+        _uz = session.parent / "update_test"
+        _uz.mkdir(exist_ok=True)
+        _zip = _uz / "SubZeroAstro-Windows-src.zip"
+        with _uzf.ZipFile(_zip, "w") as _z:
+            _z.writestr("SubZeroAstro/SubZeroAstro.exe", b"MZ fake")
+            _z.writestr("SubZeroAstro/_internal/base_library.zip", b"x")
+        _stage = _uz / "stage"
+        _stage.mkdir(exist_ok=True)
+        _got = _up.download(_zip.as_uri(), _stage / "SubZeroAstro-Windows.zip")
+        _cmd = _up.prepare_handover(_got, _stage, platform="win32", pid=4242,
+                                    target=_uz / "Installed" / "SubZeroAstro")
+        _bat = (_stage / "update.bat").read_text(encoding="utf-8")
+        _new = _stage / "new" / "SubZeroAstro"
+        _mac = _up.mac_script(4242, _got, Path("/Applications/SubZeroAstro.app"), _uz / "mstage")
+        check(_cmd[:2] == ["cmd", "/c"] and (_new / "SubZeroAstro.exe").is_file()
+              and (_new / "_internal" / "base_library.zip").is_file()
+              and "PID eq 4242" in _bat and "robocopy" in _bat and "SubZeroAstro.exe" in _bat
+              and "ditto -x -k" in _mac and 'open "/Applications/SubZeroAstro.app"' in _mac
+              and _up.install_target("darwin", "/Applications/SubZeroAstro.app/Contents/MacOS/SubZeroAstro", True)
+              == Path("/Applications/SubZeroAstro.app")
+              and _up.install_target("win32", "C:/Apps/SubZeroAstro/SubZeroAstro.exe", True)
+              == Path("C:/Apps/SubZeroAstro") and _up.install_target(frozen=False) is None,
+              "updates: Update Now downloads and unpacks the new version and writes the helper that swaps it in "
+              "after SubZeroAstro closes, then restarts it (Windows and Mac)")
         # Zip My Logs: every open page's log plus a note about this computer, in one zip
         import zip_logs as _zl
         import zipfile as _zf

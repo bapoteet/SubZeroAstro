@@ -149,9 +149,13 @@ jobs:
         run: |
           $pre = @()
           if ($env:TAG -match 'beta|rc|alpha') { $pre = @('--prerelease') }
+          # the commit's own description becomes "What's New" (shown in the app's update banner too)
+          $news = (git log -1 --format=%B "${{ github.sha }}" | Where-Object { $_ -notmatch '^(Co-Authored-By|Claude-Session):' }) -join "`n"
+          $notes = "What's new: " + $news.Trim() + "`n`n" + "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder (or use Help > Check for Updates in the app). From subs to masters - zero hassle. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway. Free code signing provided by SignPath.io, certificate by SignPath Foundation (when signed)."
+          Set-Content -Path release_notes.md -Value $notes -Encoding utf8
           gh release create "$env:TAG" SubZeroAstro-Windows.zip --target "${{ github.sha }}" @pre `
             --title "SubZeroAstro $env:TAG" `
-            --notes "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder. From subs to masters - zero hassle. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway. Free code signing provided by SignPath.io, certificate by SignPath Foundation (when signed)."
+            --notes-file release_notes.md
 
   build-mac:
     # The same app for Macs with Apple silicon (M1/M2/M3/M4), built and self-tested on a real Mac.

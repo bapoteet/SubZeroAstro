@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.119 beta"
+APP_VERSION = "0.9.120 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -948,6 +948,8 @@ class MainWindow(QMainWindow):
         self._restore_settings()
         QTimer.singleShot(3000, self.cleanup_checkpoints)
         QTimer.singleShot(1200, self.tools_banner.start_check)     # optional helpers, checked in the background
+        if "--selftest" not in sys.argv:
+            QTimer.singleShot(4000, self.update_banner.start_check)  # a newer version on GitHub? (background)
         self.view.on_detail = self.request_detail
         self.update_status()
 
@@ -1151,6 +1153,9 @@ class MainWindow(QMainWindow):
         cv.setContentsMargins(0, 0, 0, 0)
         cv.setSpacing(0)
         import tool_check
+        import updater
+        self.update_banner = updater.UpdateBanner(self.settings, APP_VERSION)
+        cv.addWidget(self.update_banner)
         self.tools_banner = tool_check.ToolsBanner(self.settings)
         cv.addWidget(self.tools_banner)
         cv.addWidget(self.ready_bar)
@@ -1389,6 +1394,18 @@ class MainWindow(QMainWindow):
         a.triggered.connect(lambda: ui_header.zip_logs_for(self))
         m.addAction(a)
         m.addSeparator()
+        a = QAction("Check for Updates…", self)
+        a.setToolTip("Look on GitHub for a newer SubZeroAstro, and install it with Update Now")
+        a.triggered.connect(lambda: self.update_banner.start_check(manual=True))
+        m.addAction(a)
+        self.act_check_updates = a
+        a = QAction("Check for Updates at Startup", self)
+        a.setCheckable(True)
+        a.setChecked(self.settings.value("update/auto_check", True, type=bool))
+        a.toggled.connect(lambda on: self.settings.setValue("update/auto_check", on))
+        m.addAction(a)
+        self.act_auto_update = a
+        m.addSeparator()
         a = QAction("Keyboard Shortcuts", self)
         a.triggered.connect(self.show_keys)
         m.addAction(a)
@@ -1459,9 +1476,9 @@ class MainWindow(QMainWindow):
         self.display_pool.clear()
         self.save_disk_cache()
         self.save_session(clean=True)
-        ck = getattr(self.tools_banner, "checker", None)
-        if ck is not None and ck.isRunning():
-            ck.wait(10000)
+        for ck in (getattr(self.tools_banner, "checker", None), getattr(self.update_banner, "checker", None)):
+            if ck is not None and ck.isRunning():
+                ck.wait(10000)
         super().closeEvent(event)
 
     # ------------------------------------------------------------ opening
