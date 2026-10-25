@@ -1015,6 +1015,15 @@ class StackWindow(QMainWindow):
             box.setWindowModality(Qt.NonModal)           # never blocks - the log keeps the details too
             self._cal_box = box
             QTimer.singleShot(300, box.open)
+        tips = [(r.group.label(), line[len("TIP: drizzle - "):]) for r in ok for line in r.log
+                if line.startswith("TIP: drizzle - ")]
+        self.last_drizzle_tips = tips
+        if tips and not cal_warn:
+            box = QMessageBox(QMessageBox.Information, "Finer detail with drizzle?",
+                              "<br><br>".join(f"<b>{lbl}</b>: {t}" for lbl, t in tips[:4]), QMessageBox.Ok, self)
+            box.setWindowModality(Qt.NonModal)           # never blocks - the log keeps it too
+            self._drizzle_box = box
+            QTimer.singleShot(300, box.open)
         self.progress.setFormat(f"Done — {len(ok)} master{'s' if len(ok) != 1 else ''} saved"
                                 + (f", {len(bad)} failed" if bad else "")
                                 + ("  ·  next: Continue to Image Processing" if ok else ""))

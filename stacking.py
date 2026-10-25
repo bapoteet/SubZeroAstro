@@ -2085,6 +2085,7 @@ class StackResult:
     common_ref: str | None = None
     autocrop: tuple | None = None           # (x0, y0, x1, y1) covered by ~all frames
     extra: dict = field(default_factory=dict)   # more masters to save, e.g. {"Comet": …, "Stars": …}
+    dither: dict | None = None              # were the frames dithered (see dither_report)
 
 
 def coverage_map(transforms, out_shape, in_shape, step=8):
@@ -2333,6 +2334,20 @@ def drizzle_add(acc, wacc, planes_, T, add_of, keep_of, scale=2, pixfrac=0.8, we
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=max(1, min(8, (os.cpu_count() or 2)))) as ex:
         list(ex.map(band, range(0, oh, rows)))
+
+
+def dither_report(transforms, fwhms) -> dict:
+    """Were the frames dithered? From how far apart they sit (their shifts against the reference) and how well
+    their sub-pixel positions cover a pixel - drizzle needs both. Star size (FWHM, px) from page 1 when measured."""
+    t = np.array([[T[0, 2], T[1, 2]] for T in transforms], np.float64)
+    n = len(t)
+    spread = float(np.max(np.ptp(t, axis=0))) if n else 0.0
+    fr = np.mod(t, 1.0)
+    occ = len({(int(a * 4), int(b * 4)) for a, b in fr}) / 16.0 if n else 0.0
+    fw = [float(f) for f in fwhms if f]
+    fwhm = float(np.median(fw)) if fw else None
+    return {"dithered": n >= 10 and spread >= 2.0 and occ >= 0.5, "spread": spread, "phases": occ,
+            "fwhm": fwhm, "small_stars": fwhm is None or fwhm < 2.8, "frames": n}
 
 
 def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=None, cancel=None,
@@ -2616,6 +2631,22 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
                    f"({100 * (x1 - x0) * (y1 - y0) / (out_w * out_h):.0f}% of the image)")
     weights = np.array([e[4] for e in entries], np.float32)
     weights /= weights.mean()
+    # were the frames dithered (moved by small random amounts between frames)? and are the stars small? Then
+    # Double the resolution (drizzle 2x) can add detail - say so; and say so when it was on without dithering
+    try:
+        res.dither = dither_report([e[1] for e in entries], [f.fwhm for f in g.frames])
+        d_ = res.dither
+        if d_["dithered"] and d_["small_stars"] and not getattr(opts, "drizzle", False):
+            log.append(f"TIP: drizzle - these frames are dithered (moved up to {d_['spread']:.0f} px between frames, "
+                       f"{d_['phases']:.0%} of sub-pixel positions covered)"
+                       + (f" and the stars are small ({d_['fwhm']:.1f} px)" if d_["fwhm"] else "")
+                       + ": stacking again with 'Double the resolution (drizzle 2x)' can give finer detail. It "
+                       "makes stacking take noticeably longer and the masters 4x larger.")
+        elif getattr(opts, "drizzle", False) and not d_["dithered"]:
+            log.append("TIP: drizzle - these frames were hardly dithered, so drizzle could add little detail; "
+                       "stacking without it is faster and gives smaller masters.")
+    except Exception:  # noqa: BLE001 - advice only
+        pass
 
     def drizzle_stack(regular):
         """2x drizzle of all frames (dithered frames give finer detail), with the regular stack's rejection."""

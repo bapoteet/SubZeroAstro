@@ -468,6 +468,12 @@ def run(app, out_dir: Path) -> int:
           and any("Drizzle 2x" in l for l in _r1.log),
           f"2x drizzle: dithered, undersampled frames give a double-size master with finer stars "
           f"(star size {_f0:.2f} -> {_f1:.2f} px of the original pixels)")
+    _drift = [np.array([[1.0, 0, 0.4 * k], [0, 1.0, 0.0]]) for k in range(12)]   # slow drift, no dithering
+    _dr_no = _stk.dither_report(_drift, [3.5] * 12)
+    check(any(l.startswith("TIP: drizzle") and "dithered" in l for l in _r0.log) and not _dr_no["dithered"]
+          and not any(l.startswith("TIP: drizzle") for l in _r1.log),
+          f"dithered frames with small stars get the tip to try drizzle (and its longer stacking); a slow drift "
+          f"is not taken for dithering ({_r0.dither})")
 
     # --- alt-az field rotation without darks: the camera's fixed pattern is taken out (no swirls) ---
     _ar = np.random.default_rng(11)
