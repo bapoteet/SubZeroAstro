@@ -2995,6 +2995,12 @@ def run(app, out_dir: Path) -> int:
         _bat = (_stage / "update.bat").read_text(encoding="utf-8")
         _new = _stage / "new" / "SubZeroAstro"
         _mac = _up.mac_script(4242, _got, Path("/Applications/SubZeroAstro.app"), _uz / "mstage")
+        _tl = _up._untranslocated(Path("/Applications/SubZeroAstro.app"))
+        check(_tl == Path("/Applications/SubZeroAstro.app") and isinstance(_up.why_not(), str)
+              and "Update Now:" in __import__("zip_logs").system_note()
+              and "Contents.new" in _mac and "mv " in _mac,
+              f"updates: on the Mac the new version is copied inside SubZeroAstro.app and swapped in only when "
+              f"complete; the logs say whether Update Now can install here ({_up.why_not() or 'yes'})")
         check(_cmd[:2] == ["cmd", "/c"] and (_new / "SubZeroAstro.exe").is_file()
               and (_new / "_internal" / "base_library.zip").is_file()
               and "PID eq 4242" in _bat and "robocopy" in _bat and "SubZeroAstro.exe" in _bat

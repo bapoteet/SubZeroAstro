@@ -86,6 +86,40 @@ def fetch_releases(timeout=15) -> list:
 
 # ------------------------------------------------------------------ where this copy lives
 
+def _untranslocated(app: Path) -> Path:
+    """macOS 'App Translocation': an app opened straight from Downloads (still marked as downloaded) runs
+    from a hidden read-only copy. Ask macOS where the real SubZeroAstro.app is, so that one gets updated."""
+    if "/AppTranslocation/" not in str(app):
+        return app
+    try:
+        import ctypes
+        cf = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        sec = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/Security.framework/Security")
+        cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
+        cf.CFURLCreateFromFileSystemRepresentation.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long,
+                                                               ctypes.c_bool]
+        cf.CFURLGetFileSystemRepresentation.restype = ctypes.c_bool
+        cf.CFURLGetFileSystemRepresentation.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_char_p,
+                                                        ctypes.c_long]
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        sec.SecTranslocateCreateOriginalPathForURL.restype = ctypes.c_void_p
+        sec.SecTranslocateCreateOriginalPathForURL.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        raw = str(app).encode()
+        url = cf.CFURLCreateFromFileSystemRepresentation(None, raw, len(raw), True)
+        orig = sec.SecTranslocateCreateOriginalPathForURL(url, None) if url else None
+        if url:
+            cf.CFRelease(url)
+        if orig:
+            buf = ctypes.create_string_buffer(4096)
+            ok = cf.CFURLGetFileSystemRepresentation(orig, True, buf, 4096)
+            cf.CFRelease(orig)
+            if ok and buf.value:
+                return Path(buf.value.decode())
+    except Exception:  # noqa: BLE001
+        pass
+    return app
+
+
 def install_target(platform: str | None = None, exe: str | None = None, frozen: bool | None = None) -> Path | None:
     """What gets replaced: the app folder (Windows) or SubZeroAstro.app (Mac). None when running from source."""
     p = platform or sys.platform
@@ -98,7 +132,7 @@ def install_target(platform: str | None = None, exe: str | None = None, frozen: 
     if p == "darwin":
         for parent in exe_p.parents:
             if parent.suffix == ".app":
-                return parent
+                return _untranslocated(parent) if exe is None else parent
     return None
 
 
@@ -112,12 +146,25 @@ def _writable(folder: Path) -> bool:
         return False
 
 
-def can_self_update(platform: str | None = None) -> bool:
-    target = install_target(platform)
-    if target is None:
-        return False
+def why_not(platform: str | None = None) -> str:
+    """'' when Update Now can install by itself, else the reason (shown in the banner's tooltip and the logs)."""
     p = platform or sys.platform
-    return _writable(target if p.startswith("win") else target.parent)
+    if asset_name(p) is None:
+        return "no download for this kind of computer"
+    target = install_target(p)
+    if target is None:
+        return "running from Python, not the packaged app"
+    if "/AppTranslocation/" in str(target):
+        return ("macOS is running SubZeroAstro from a hidden read-only copy (it was opened straight from the "
+                "download) - move SubZeroAstro.app into Applications and open it from there")
+    if p.startswith("win"):
+        return "" if _writable(target) else f"can't write to {target}"
+    # Mac: the new version goes inside the existing SubZeroAstro.app, so only the app itself must be writable
+    return "" if _writable(target / "Contents") else f"can't write to {target}"
+
+
+def can_self_update(platform: str | None = None) -> bool:
+    return why_not(platform) == ""
 
 
 # ------------------------------------------------------------------ download, unpack, hand over
@@ -168,14 +215,23 @@ def windows_script(pid: int, new_dir: Path, target: Path, stage: Path) -> str:
 
 
 def mac_script(pid: int, zip_path: Path, target: Path, stage: Path) -> str:
-    """Same on the Mac: ditto keeps the app's links and permissions, which plain unzipping loses."""
+    """Same on the Mac: ditto keeps the app's links and permissions, which plain unzipping loses. The new
+    Contents are copied inside the existing SubZeroAstro.app first and only swapped in once complete, so a
+    failed copy leaves the old version working (and only the app itself needs to be writable)."""
     new_app = stage / "x" / target.name
+    c, cn, co = target / "Contents", target / "Contents.new", target / "Contents.old"
     return (
         "#!/bin/sh\n"
         f"while kill -0 {pid} 2>/dev/null; do sleep 1; done\n"
-        f'ditto -x -k "{zip_path}" "{stage / "x"}" && [ -d "{new_app}" ] && '
-        f'rm -rf "{target}" && ditto "{new_app}" "{target}"\n'
+        f'rm -rf "{cn}" "{co}"\n'
+        f'if ditto -x -k "{zip_path}" "{stage / "x"}" && [ -d "{new_app / "Contents"}" ] && '
+        f'ditto "{new_app / "Contents"}" "{cn}"; then\n'
+        f'  mv "{c}" "{co}" && mv "{cn}" "{c}" && rm -rf "{co}"\n'
+        f'  [ -d "{c}" ] || mv "{co}" "{c}"\n'
+        "fi\n"
+        f'rm -rf "{cn}"\n'
         f'xattr -dr com.apple.quarantine "{target}" 2>/dev/null\n'
+        f'touch "{target}"\n'
         f'open "{target}"\n'
         f'rm -rf "{stage}"\n'
     )
@@ -328,7 +384,10 @@ class UpdateBanner(QFrame):
                            f"<br><small>Update Now downloads it{size}, closes SubZeroAstro and starts the new "
                            f"version.</small>" if can_self_update() else
                            f"<b>SubZeroAstro {release['version']} is available</b> — you have {self.current}.")
-        self.b_update.setText("Update Now" if can_self_update() else "Download…")
+        reason = why_not()
+        self.b_update.setText("Update Now" if not reason else "Download…")
+        self.b_update.setToolTip("Download, install and restart" if not reason else
+                                 f"Opens the download page - this copy can't update itself: {reason}")
         self.show()
 
     def skip(self):
@@ -350,7 +409,11 @@ class UpdateBanner(QFrame):
     def update_now(self, ask=True):
         if not self.release:
             return
-        if not can_self_update():
+        reason = why_not()
+        if reason:
+            if "AppTranslocation" in str(install_target()) or "read-only copy" in reason:
+                self._info("Update SubZeroAstro", "SubZeroAstro can't update itself here: " + reason
+                           + ".\n\nAfter that, Update Now will work. The download page opens now.")
             QDesktopServices.openUrl(QUrl(self.release.get("page") or PAGE))
             return
         if ask and QMessageBox.question(

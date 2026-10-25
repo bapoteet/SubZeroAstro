@@ -28,6 +28,13 @@ def system_note() -> str:
              + (f", macOS {platform.mac_ver()[0]}" if sys.platform == "darwin" else ""),
              f"Python {platform.python_version()}" + ("  (packaged app)" if getattr(sys, "frozen", False) else "")]
     try:
+        import updater
+        lines.append(f"App: {sys.executable}")
+        reason = updater.why_not()
+        lines.append("Update Now: " + ("can install updates by itself" if not reason else f"opens the web page ({reason})"))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         import numpy
         import PySide6
         lines.append(f"numpy {numpy.__version__}, PySide6 {PySide6.__version__}")
