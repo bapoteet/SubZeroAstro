@@ -2998,7 +2998,7 @@ def run(app, out_dir: Path) -> int:
         check(_cmd[:2] == ["cmd", "/c"] and (_new / "SubZeroAstro.exe").is_file()
               and (_new / "_internal" / "base_library.zip").is_file()
               and "PID eq 4242" in _bat and "robocopy" in _bat and "SubZeroAstro.exe" in _bat
-              and "ditto -x -k" in _mac and 'open "/Applications/SubZeroAstro.app"' in _mac
+              and "ditto -x -k" in _mac and f'open "{Path("/Applications/SubZeroAstro.app")}"' in _mac
               and _up.install_target("darwin", "/Applications/SubZeroAstro.app/Contents/MacOS/SubZeroAstro", True)
               == Path("/Applications/SubZeroAstro.app")
               and _up.install_target("win32", "C:/Apps/SubZeroAstro/SubZeroAstro.exe", True)
