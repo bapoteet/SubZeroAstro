@@ -3148,6 +3148,33 @@ def run(app, out_dir: Path) -> int:
         check(_an and "lined up" in _an[0] and _spread < 0.6 and float(np.abs(_chs["R"][_far] - _rb[_far]).max()) < 0.01,
               f"comet imaged filter by filter (NINA Orbitals: R, G, B, L): the comet is lined up across the filters "
               f"(heads now within {_spread:.2f} px) while the stars stay put ({_an[:1]})")
+        # Save Project As can keep the masters with the project (one folder per target)
+        import shutil as _ksh
+        _kd = session.parent / "keep_masters_test"
+        _ksh.rmtree(_kd, ignore_errors=True)
+        (_kd / "masters").mkdir(parents=True)
+        _km1 = _kd / "masters" / "M101_L_Master_2026-10-15.fits"
+        _km1.write_bytes(b"x" * 1000)
+        (_kd / "masters" / "M101_L_Master_2026-10-15_stars.fits").write_bytes(b"y" * 500)
+        (_kd / "masters" / "M101_L_Master_2026-10-15_stacklog.txt").write_text("log")
+        _km2 = _kd / "masters" / "M101_R_Master.fits"
+        _km2.write_bytes(b"z" * 800)
+        (_kd / "masters" / "Other_target.fits").write_bytes(b"o")
+        _kp = _cf.Project(_kd / "work")
+        _kst = _cf.State(rgb=np.zeros((3, 40, 50), np.float32), target="M101", sources=[str(_km1), str(_km2)])
+        _kp.save(_kst, "load", "Masters loaded")
+        _kp.save(_kst, "stretch", "Brighten")
+        _kp2 = _kp.save_as(_kd / "M101 Pinwheel", keep_masters=True)
+        _knames = sorted(x.name for x in (_kp2.dir / "Masters").iterdir())
+        _ksh.move(str(_kd / "M101 Pinwheel"), str(_kd / "moved"))
+        _kp3 = _cf.Project(_kd / "moved")
+        _ksrc = _kp3.load(1).sources
+        check(_knames == ["M101_L_Master_2026-10-15.fits", "M101_L_Master_2026-10-15_stacklog.txt",
+                          "M101_L_Master_2026-10-15_stars.fits", "M101_R_Master.fits"]
+              and _km1.exists() and all(Path(x).exists() and "moved" in x for x in _ksrc)
+              and _kp3.keep_masters() == (0, 0),
+              f"Save Project As keeps the masters with the project ({len(_knames)} files: masters, star images, "
+              "stack log - not other targets'), the originals stay, and the moved project still finds them")
         # End this Project and Start New Project: every page closes, page 1 is empty and shown
         import ui_header as _uh2
         check("Start New Project" in fw2.btn_new_project.text() and

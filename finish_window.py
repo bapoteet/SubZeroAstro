@@ -994,12 +994,37 @@ class FinishWindow(QMainWindow):
         if not d:
             return
         self.settings.setValue("finish/project_dir", d)
+        keep = False
+        files = self.project.masters_to_keep()
+        inside = self.project.dir / F.Project.MASTERS
+        if files and not all(inside.resolve() in f.resolve().parents for f in files):
+            size = sum(f.stat().st_size for f in files)
+            box = QMessageBox(self)
+            box.setWindowTitle("Save Project As")
+            box.setText("Keep the masters with the project?")
+            box.setInformativeText(
+                f"Copies the {len(files)} master file(s) this project uses ({cp.human(size)}, with their star "
+                "images and stack logs) into a Masters folder inside the project, so everything for this target "
+                "is in one place - and redoing page 3, adding more nights or sharing to AstroBin keeps working "
+                "if you move the folder. Your original masters are left where they are.")
+            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            box.setDefaultButton(QMessageBox.Yes if self.settings.value("finish/keep_masters", True, type=bool)
+                                 else QMessageBox.No)
+            keep = box.exec() == QMessageBox.Yes
+            self.settings.setValue("finish/keep_masters", keep)
 
         def work():
-            return self.project.save_as(Path(d))
-        self.run_job(work, lambda p: (setattr(self, "project", p),
-                                      self.log(f"Project saved to {p.dir} ({cp.human(p.size())})")),
-                     "Saving project…")
+            return self.project.save_as(Path(d), keep_masters=keep)
+
+        def done(p):
+            self.project = p
+            if self.state is not None and p.steps:
+                self.state.sources = p.resolve_sources(p.manifest.get("sources", []))
+            kept = getattr(p, "kept", None)
+            self.log(f"Project saved to {p.dir} ({cp.human(p.size())})"
+                     + (f" - {kept[0]} master file(s) kept with it in {p.dir / F.Project.MASTERS}"
+                        if kept and kept[0] else ""))
+        self.run_job(work, done, "Saving project…")
 
     # ------------------------------------------------------------ state display
     def after_change(self):

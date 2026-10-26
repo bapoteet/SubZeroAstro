@@ -4081,7 +4081,7 @@ class Project:
                   linear=meta.get("linear", True), stars_linear=meta.get("stars_linear", True),
                   stars_out=meta.get("stars_out", False), done=meta.get("done", []),
                   skipped=meta.get("skipped", []), kind=meta.get("kind", "osc"), target=meta.get("target", ""),
-                  sources=meta.get("sources", []), palette=meta.get("palette"),
+                  sources=self.resolve_sources(meta.get("sources", [])), palette=meta.get("palette"),
                   lin_lum=z["lin_lum"].astype(np.float32) if "lin_lum" in z else None,
                   sat_core=bool(meta.get("sat_core", False)), filter=meta.get("filter"),
                   stars_hidden=bool(meta.get("stars_hidden", False)))
@@ -4101,7 +4101,71 @@ class Project:
         if self.steps:
             self._write()
 
-    def save_as(self, folder: Path) -> "Project":
+    MASTERS = "Masters"
+
+    def resolve_sources(self, sources) -> list:
+        """The masters, as paths that exist: a master that is no longer where it was (the project folder was
+        moved, or the masters were copied into it) is looked for in the project's own Masters folder."""
+        out = []
+        for p in sources or []:
+            q = Path(p)
+            if not q.exists():
+                alt = self.dir / self.MASTERS / q.name
+                if alt.exists():
+                    q = alt
+            out.append(str(q))
+        return out
+
+    def masters_to_keep(self) -> list:
+        """Every file that belongs with the project's masters: each master plus its companions in the same
+        folder (its stars-only image, stack log, comet/stars masters, notes - all named after it)."""
+        files = []
+        for p in self.resolve_sources(self.manifest.get("sources", [])):
+            q = Path(p)
+            if not q.exists():
+                continue
+            files.append(q)
+            for sib in sorted(q.parent.glob(q.stem + "_*")):
+                if sib.is_file() and sib not in files:
+                    files.append(sib)
+        return files
+
+    def keep_masters(self) -> tuple:
+        """Copy the masters (and their companions) into <project>/Masters and use those copies from now on,
+        so the project folder holds everything. The originals are left where they are. Returns (files, bytes)."""
+        dest = self.dir / self.MASTERS
+        files = [f for f in self.masters_to_keep() if dest.resolve() not in f.resolve().parents]
+        if not files:
+            return 0, 0
+        dest.mkdir(parents=True, exist_ok=True)
+        total = 0
+        for f in files:
+            t = dest / f.name
+            if not t.exists() or t.stat().st_size != f.stat().st_size:
+                tmp = t.with_name(t.name + ".copying")
+                shutil.copy2(f, tmp)
+                tmp.replace(t)
+            total += t.stat().st_size
+
+        def moved(lst):
+            return [str(dest / Path(p).name) if (dest / Path(p).name).exists() else p for p in lst or []]
+        self.manifest["sources"] = moved(self.manifest.get("sources"))
+        for st in self.steps:
+            mp = self.dir / st["dir"] / "meta.json"
+            meta = cp.read_json(mp, None)
+            if meta is not None:
+                meta["sources"] = moved(meta.get("sources"))
+                cp.write_json(mp, meta)
+        self._write()
+        return len(files), total
+
+    def save_as(self, folder: Path, keep_masters: bool = False) -> "Project":
+        proj = self._save_as(folder)
+        if keep_masters:
+            proj.kept = proj.keep_masters()
+        return proj
+
+    def _save_as(self, folder: Path) -> "Project":
         """Copy the project into a folder of the user's choice (a non-empty folder gets a
         <target>.szproj subfolder). Saving again to the same place keeps it as it is - every
         step is already written there - and an older copy is only replaced once the new one is
