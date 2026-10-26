@@ -285,7 +285,11 @@ class Rigs:
     @staticmethod
     def suggestion(info: ImgInfo) -> str:
         t = (info.telescope or "").strip()
-        mountish = re.search(r"\b(AM\d|EQ\d|HEQ|CEM|GEM|RST|mount|AZ-|iOptron|Rainbow|Sky-?Watcher\s+EQ)", t, re.I)
+        # mount drivers often land in TELESCOP (ASCOM / N.I.N.A.): AvalonStarGo.NET, EQMOD, OnStep, Simulator …
+        mountish = re.search(r"\b(AM\d|EQ\d|HEQ|CEM|GEM|RST|mount|AZ-|iOptron|Rainbow|Sky-?Watcher\s+EQ|StarGo|"
+                             r"Avalon|EQMOD|EQ-?ASCOM|GSServer|Green\s*Swamp|OnStep|10\s*Micron|Paramount|"
+                             r"TheSkyX|Losmandy|Gemini|Astro-?Physics\s+GTO|AP\s*V2|Simulator|ASCOM|Telescope\s*\d|"
+                             r"Alpaca|INDI|LX200|NexStar|SynScan|Pegasus\s*NYX|ZWO\s*AM)|\.NET\b", t, re.I)
         if t and not mountish:
             return safe_name(t)
         return f"{info.focal:g}mm scope" if info.focal else "My scope"
@@ -314,6 +318,7 @@ class CalItem:
     hot: tuple | None = None            # hot pixel coordinates (darks)
     sky: bool = False                   # a sky flat made from light frames (never saved to the library)
     sky_stats: dict = field(default_factory=dict)   # how good a sky flat came out (see sky_flat_problems)
+    skipped: list = field(default_factory=list)     # subframes that were gone or unreadable when building
 
     @property
     def ref(self) -> ImgInfo:
@@ -853,7 +858,22 @@ def build_master(item: CalItem, helper_bias: CalItem | None = None, helper_dark:
         if item.data.ndim == 3:
             item.data = item.data[0]
         return item.data
-    sources = [ImageSource(i.path) for i in item.infos]
+    sources, gone = [], set()
+    for i in item.infos:
+        # a file moved, renamed or deleted since it was added (or a drive that dropped out): leave it out
+        # and say so, rather than stopping the whole stack - as long as enough are left
+        try:
+            sources.append(ImageSource(i.path))
+        except OSError as e:
+            item.skipped.append((Path(i.path).name, getattr(e, "strerror", None) or str(e)))
+            gone.add(str(i.path))
+    if item.skipped and len(sources) < max(3, len(item.infos) // 2):
+        names = ", ".join(n for n, _ in item.skipped[:3]) + (" …" if len(item.skipped) > 3 else "")
+        raise FileNotFoundError(f"{len(item.skipped)} of the {len(item.infos)} {KIND_LABEL[item.kind].lower()} "
+                                f"subframes can't be opened any more ({names}) - were they moved, renamed or "
+                                "is the drive disconnected? Add the calibration folder again.")
+    if item.skipped:
+        item.infos = [i for i in item.infos if str(i.path) not in gone]
     sizes = {(s.h, s.w) for s in sources}
     if len(sizes) > 1:
         raise ValueError(f"{KIND_LABEL[item.kind]} subframes have different sizes")

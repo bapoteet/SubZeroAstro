@@ -3331,6 +3331,25 @@ def run(app, out_dir: Path) -> int:
               f"({_pw2[0].name if _pw2 else '-'})")
         _pwin.find.setText("")
         _pwin.close()
+        # a calibration subframe that vanished after it was added is left out (not a failed stack); mount
+        # drivers in TELESCOP don't become the telescope's name
+        import stacking as _sk
+        _mb = session.parent / "missing_bias_test"
+        _mb.mkdir(parents=True, exist_ok=True)
+        for _i in range(6):
+            core.write_fits(_mb / f"bias_{_i}.fits", (np.random.default_rng(_i).random((20, 30)) * 50 + 500).astype(np.uint16),
+                            {"IMAGETYP": "Bias Frame", "GAIN": 125}, bitpix=16)
+        _mi = _sk.CalItem("bias", [_sk.read_info(p) for p in sorted(_mb.glob("*.fits"))], False)
+        (_mb / "bias_2.fits").unlink()
+        _mm = _sk.build_master(_mi)
+
+        class _Ti:
+            telescope, focal = "AvalonStarGo.NET", 400.0
+        _rg = _sk.Rigs.suggestion(_Ti())
+        check(_mm is not None and _mm.shape == (20, 30) and _mi.count == 5 and _mi.skipped
+              and _mi.skipped[0][0] == "bias_2.fits" and _rg == "400mm scope",
+              f"a calibration subframe deleted after it was added is left out and the master still builds "
+              f"({_mi.count} of 6); a mount driver in TELESCOP gives '{_rg}', not the mount's name")
         # End this Project and Start New Project: every page closes, page 1 is empty and shown
         import ui_header as _uh2
         check("Start New Project" in fw2.btn_new_project.text() and

@@ -184,6 +184,11 @@ class StackWorker(QThread):
                     built.add(id(item))
                     if not item.master:
                         self.log.emit(f"Built {item.label()}")
+                        if item.skipped:
+                            self.log.emit(f"  left out {len(item.skipped)} subframe(s) that could not be opened any "
+                                          f"more (moved, renamed or deleted since they were added): "
+                                          + ", ".join(n for n, _ in item.skipped[:5])
+                                          + (" …" if len(item.skipped) > 5 else ""))
                         fg = (getattr(item, "sky_stats", None) or {}).get("flip_groups")
                         if item.sky and fg:
                             self.log.emit(f"  SkyFlat: the frames come from both sides of a meridian flip ({fg[0]} and "
@@ -1019,8 +1024,16 @@ class StackWindow(QMainWindow):
                 if line.startswith("TIP: drizzle - ")]
         self.last_drizzle_tips = tips
         if tips and not cal_warn:
-            box = QMessageBox(QMessageBox.Information, "Finer detail with drizzle?",
-                              "<br><br>".join(f"<b>{lbl}</b>: {t}" for lbl, t in tips[:4]), QMessageBox.Ok, self)
+            box = QMessageBox(QMessageBox.Information, "Optional: finer detail with drizzle",
+                              "<b>Your stack is done and fine as it is</b> - this is only a suggestion.<br><br>"
+                              + "<br><br>".join(f"<b>{lbl}</b>: {t}" for lbl, t in tips[:4]), QMessageBox.NoButton, self)
+            again = box.addButton("Stack Again with Drizzle", QMessageBox.AcceptRole)
+            box.addButton("Not Now", QMessageBox.RejectRole)
+
+            def _again():
+                self.drizzle.setChecked(True)
+                QTimer.singleShot(0, self.btn_start.click)
+            again.clicked.connect(_again)
             box.setWindowModality(Qt.NonModal)           # never blocks - the log keeps it too
             self._drizzle_box = box
             QTimer.singleShot(300, box.open)
