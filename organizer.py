@@ -30,7 +30,7 @@ from pathlib import Path
 import fits_core as core
 
 LOG_DIR = "_SubZeroAstro_organize"
-TOP = ("Lights", "Calibration", "Targets", "Darks library", "Bias library", "Calibration masters", "Flats", "Unsorted", LOG_DIR)
+TOP = ("Light Frames", "Calibration Frames", "Targets", "Darks library", "Bias library", "Calibration masters", "Flats", "Unsorted", LOG_DIR)
 EXTS = {e.lower() for e in core.LIGHT_EXTS}
 # in-between files of PixInsight WBPP / Siril / APP runs (calibrated, registered … copies of your subs) and
 # system folders: left alone - they are not your originals and can be made again
@@ -154,7 +154,7 @@ def _companions(p: Path) -> list:
     return out
 
 
-LAYOUTS = {"rig": "By rig: Lights / rig / target / night  and  Calibration / rig / Flats, Darks, Bias",
+LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration Frames / rig / Flats, Darks, Bias",
            "target": "By target: Targets / target / night_rig, with darks and bias libraries"}
 
 
@@ -304,13 +304,13 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
 
 
 def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected):
-    """Lights / <rig> / <target> / <night> / <filter>   and   Calibration / <rig> / Flats | Dark flats | Darks |
+    """Light Frames / <rig> / <target> / <night> / <filter>   and   Calibration Frames / <rig> / Flats | Dark flats | Darks |
     Bias | Masters - everything a rig (one telescope with its own camera) took, in one place."""
     import stacking as st
     rig = _rig(info, it.src) or "Unknown rig"
-    cal = Path("Calibration") / rig
+    cal = Path("Calibration Frames") / rig
     if typ in (None, "light") and looks_master and tgt:
-        it.kind, it.dst, it.why = "master", Path("Lights") / rig / tgt / "Masters" / name, "master light"
+        it.kind, it.dst, it.why = "master", Path("Light Frames") / rig / tgt / "Masters" / name, "master light"
         it.companions = _companions(it.src)
     elif typ in ("dark", "flat", "darkflat", "bias") and looks_master:
         sub = Path(_cal_folder(info)) if typ in ("dark", "bias") else Path(f"Flats {night}") / flt
@@ -320,7 +320,7 @@ def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected):
         if not tgt:
             it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "a light without a target name"
             return
-        sub = Path("Lights") / rig / tgt / night / flt
+        sub = Path("Light Frames") / rig / tgt / night / flt
         if rejected:
             sub = sub / core.REJECTED_DIR
         it.kind, it.dst = "light", sub / name

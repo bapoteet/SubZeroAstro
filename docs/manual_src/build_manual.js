@@ -690,14 +690,14 @@ table(["What", "Windows", "Mac"], [
 
 sec("13.3", "Organize My Astro Files", ["Organize My Astro Files", "Organize", "Library layout", "Darks library", "NAS", "Undo Last Run", "Duplicates"]);
 p("**File › Organize My Astro Files…** (page 1) sorts a folder full of FITS and XISF files - subs and masters, lights, flats, dark flats, darks and bias, from any number of nights and targets - into one tidy library. It reads each file's own header (IMAGETYP, OBJECT, FILTER, DATE-OBS, camera, gain, temperature), so the file names and the current mess don't matter. Pick the **folder to organize** (a whole drive or a **NAS** share works too - on Windows a mapped drive or `\\\\nas\\astro`, on a Mac the share as it appears under /Volumes) and where the organized files go (the same folder by default).");
-p("Pick the **Layout** in the window (remembered). **By rig** (the default) starts with two big folders - **Lights** and **Calibration** - and under each, one folder per rig (a telescope and the camera that lives on it). Calibration then goes by frame type, then camera:");
+p("Pick the **Layout** in the window (remembered). **By rig** (the default) starts with two big folders - **Light Frames** and **Calibration Frames** - and under each, one folder per rig (a telescope and the camera that lives on it). Calibration then goes by frame type, then camera:");
 table(["Files", "Go to (By rig)"], [
-  ["Lights", "`Lights/<rig>/<target>/<night>/<filter>/` (rejected ones keep their `REJECTED` folder)"],
-  ["Master lights, finished pictures", "`Lights/<rig>/<target>/Masters/` with their star images and stack logs"],
-  ["Flats / dark flats", "`Calibration/<rig>/Flats/<camera>/<night>/<filter>/` and `Calibration/<rig>/Dark flats/<camera>/<night>/<filter>/`"],
-  ["Darks", "`Calibration/<rig>/Darks/<camera>_G<gain>_O<offset>_<temp>C/<exposure>s/`"],
-  ["Bias", "`Calibration/<rig>/Bias/<camera>_G<gain>_O<offset>_<temp>C/`"],
-  ["Calibration masters", "`Calibration/<rig>/Masters/<camera settings>/` (master flats in `Flats <night>/<filter>`)"],
+  ["Lights", "`Light Frames/<rig>/<target>/<night>/<filter>/` (rejected ones keep their `REJECTED` folder)"],
+  ["Master lights, finished pictures", "`Light Frames/<rig>/<target>/Masters/` with their star images and stack logs"],
+  ["Flats / dark flats", "`Calibration Frames/<rig>/Flats/<camera>/<night>/<filter>/` and `Calibration Frames/<rig>/Dark flats/<camera>/<night>/<filter>/`"],
+  ["Darks", "`Calibration Frames/<rig>/Darks/<camera>_G<gain>_O<offset>_<temp>C/<exposure>s/`"],
+  ["Bias", "`Calibration Frames/<rig>/Bias/<camera>_G<gain>_O<offset>_<temp>C/`"],
+  ["Calibration masters", "`Calibration Frames/<rig>/Masters/<camera settings>/` (master flats in `Flats <night>/<filter>`)"],
   ["No header to go by", "`Unsorted/`"],
 ], [2600, 6760]);
 img("organize_routing.png", "Where each file goes (By rig): lights by rig, target and night (purple); each rig's own calibration (teal)", 480);
@@ -874,7 +874,7 @@ const HIGHLIGHTS = [
   ]],
   ["Page 1 – Quality & Cull", [
     ["Tonight's Target Picker", "What to shoot tonight from your site and patch of sky - hours in the dark, peak altitude, Moon, size in your frame; sends targets straight into N.I.N.A., built from your own template", "0.9.131"],
-    ["Organize My Astro Files", "Sorts a folder, drive or NAS of FITS/XISF subs and masters by rig (Lights / Calibration) or by target - preview first, copy or move, undo; duplicates flagged and kept, set aside or deleted", "0.9.129 / 0.9.130"],
+    ["Organize My Astro Files", "Sorts a folder, drive or NAS of FITS/XISF subs and masters by rig (Light Frames / Calibration Frames) or by target - preview first, copy or move, undo; duplicates flagged and kept, set aside or deleted", "0.9.129 / 0.9.130"],
     ["Star quality on every frame", "FWHM, eccentricity, SNR, star count and background, with a badge and a score against frames of the same camera and filter", "Stage 2"],
     ["Session chart", "One dot per frame in capture order, nights separated; click to jump, drag a range to flag or reject", "Stage 2"],
     ["Auto-cull presets", "Three strengths flag frames from FWHM, stars, SNR (catches thin cloud) and eccentricity; you review before rejecting, and it can be undone", "0.3.0"],
