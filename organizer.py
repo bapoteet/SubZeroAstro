@@ -32,6 +32,10 @@ import fits_core as core
 LOG_DIR = "_SubZeroAstro_organize"
 TOP = ("Targets", "Darks library", "Bias library", "Calibration masters", "Flats", "Unsorted", LOG_DIR)
 EXTS = {e.lower() for e in core.LIGHT_EXTS}
+# in-between files of PixInsight WBPP / Siril / APP runs (calibrated, registered … copies of your subs) and
+# system folders: left alone - they are not your originals and can be made again
+WORK_DIRS = {"calibrated", "registered", "debayered", "cosmetized", "measured", "fastintegration", "drizzle",
+             "process", "aligned", "normalized", "localnormalization", "system volume information"}
 COMPANION_EXTS = {".txt", ".json", ".csv", ".log"}
 
 
@@ -67,7 +71,16 @@ def _num_text(v, fmt="{:g}") -> str:
 def _cal_folder(info) -> str:
     import stacking as st
     cam = st.short_camera(info.camera)
-    return f"{cam}_G{_num_text(info.gain)}_{_num_text(info.temp, '{:.0f}')}C"
+    off = f"_O{_num_text(info.offset)}" if getattr(info, "offset", None) is not None else ""
+    return f"{cam}_G{_num_text(info.gain)}{off}_{_num_text(info.temp, '{:.0f}')}C"
+
+
+def _rig(info) -> str:
+    """Telescope name or focal length - added to a night's folder only when a target was shot with more
+    than one rig, so flats can never be matched to the other scope's lights."""
+    if info.telescope:
+        return _safe(re.sub(r"\s+", "", str(info.telescope)))[:24]
+    return f"{info.focal:.0f}mm" if info.focal else ""
 
 
 def _is_project_dir(d: Path) -> bool:
@@ -90,7 +103,8 @@ def scan(root, progress=None, stop=None) -> list:
         keep = []
         for n in sorted(dirnames, key=core.natural_key):
             p = d / n
-            if n.startswith(".") or n == LOG_DIR or n.endswith((".szproj", ".saving")) or _is_project_dir(p):
+            if (n.startswith((".", "$")) or n == LOG_DIR or n.endswith((".szproj", ".saving"))
+                    or n.lower() in WORK_DIRS or _is_project_dir(p)):
                 continue
             keep.append(n)
         dirnames[:] = keep
@@ -139,10 +153,16 @@ def classify(paths, read_info=None, progress=None, stop=None) -> list:
         infos.append(info)
 
     # which targets had lights on which night (with which telescope) - flats without a target go there
-    lights_on = {}
+    lights_on, rigs = {}, {}
     for it, info in zip(items, infos):
         if info is not None and info.type == "light" and not info.master and info.target and info.night:
             lights_on.setdefault(info.night, set()).add((st.target_name(info.target), info.telescope or ""))
+            rigs.setdefault(st.target_name(info.target), set()).add(_rig(info))
+
+    def session(tgt, info):
+        """The night's folder - with the rig added when this target was shot with more than one."""
+        r = _rig(info)
+        return f"{night}_{r}" if r and len(rigs.get(tgt, ())) > 1 else night
 
     for it, info in zip(items, infos):
         if info is None:
@@ -154,22 +174,24 @@ def classify(paths, read_info=None, progress=None, stop=None) -> list:
         night = info.night or "Unknown date"
         tgt = st.target_name(info.target) if info.target else ""
         it.night, it.filter, it.target = night, flt, tgt
+        looks_master = bool(info.master or "_prepared" in it.src.stem or re.search(r"master", name, re.I))
         if info.date_obs:
-            it.key = (info.date_obs, info.exptime, flt, info.camera, it.size, typ)
-        looks_master = info.master or "_prepared" in it.src.stem or re.search(r"master", name, re.I)
+            it.key = (info.date_obs, info.exptime, flt, info.camera, it.size, typ, looks_master)
         if typ in (None, "light") and looks_master and tgt:
             it.kind, it.dst = "master", Path("Targets") / tgt / "Masters" / name
             it.why = "master light"
             it.companions = _companions(it.src)
         elif typ in ("dark", "flat", "darkflat", "bias") and looks_master:
-            it.kind, it.dst = "calmaster", Path("Calibration masters") / name
+            sub = (Path(_cal_folder(info)) if typ in ("dark", "bias") else
+                   Path(_cal_folder(info)) / f"Flats {night}" / flt)
+            it.kind, it.dst = "calmaster", Path("Calibration masters") / sub / name
             it.why = f"master {typ}"
             it.companions = _companions(it.src)
         elif typ == "light" or (typ is None and tgt and info.exptime):
             if not tgt:
                 it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "a light without a target name"
             else:
-                sub = Path("Targets") / tgt / night / "LIGHT" / flt
+                sub = Path("Targets") / tgt / session(tgt, info) / "LIGHT" / flt
                 if rejected:
                     sub = sub / core.REJECTED_DIR
                 it.kind, it.dst = "light", sub / name
@@ -187,7 +209,7 @@ def classify(paths, read_info=None, progress=None, stop=None) -> list:
             else:
                 owner = None
             if owner:
-                it.kind, it.dst = typ, Path("Targets") / owner / night / folder / flt / name
+                it.kind, it.dst = typ, Path("Targets") / owner / session(owner, info) / folder / flt / name
                 it.why = f"{typ} of the night ({owner})"
             else:
                 it.kind, it.dst = typ, Path("Flats") / night / (folder if typ == "darkflat" else "") / flt / name
@@ -195,10 +217,10 @@ def classify(paths, read_info=None, progress=None, stop=None) -> list:
         elif typ == "dark":
             it.kind = "dark"
             it.dst = Path("Darks library") / _cal_folder(info) / f"{_num_text(info.exptime)}s" / name
-            it.why = "dark (library by camera, gain, temperature, exposure)"
+            it.why = "dark (library by camera, gain, offset, temperature, exposure)"
         elif typ == "bias":
             it.kind, it.dst = "bias", Path("Bias library") / _cal_folder(info) / name
-            it.why = "bias (library by camera, gain, temperature)"
+            it.why = "bias (library by camera, gain, offset, temperature)"
         else:
             it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "the header doesn't say what it is"
     if progress:
@@ -357,6 +379,13 @@ def summary(items) -> dict:
     return out
 
 
+def _same_drive(a, b) -> bool:
+    try:
+        return os.stat(a).st_dev == os.stat(b).st_dev
+    except OSError:
+        return False
+
+
 def execute(items, library, move=False, progress=None, stop=None) -> Path:
     """Copy or move the planned files; returns the undo log. A copy is checked (size) before a move removes
     the original; a file that fails is skipped and noted, the rest carry on."""
@@ -383,6 +412,10 @@ def execute(items, library, move=False, progress=None, stop=None) -> Path:
                 if dst.exists():
                     continue
                 dst.parent.mkdir(parents=True, exist_ok=True)
+                if move and _same_drive(src, dst.parent):
+                    os.rename(src, dst)            # same drive: just a new folder entry, instant even for 20 TB
+                    done.append({"src": str(src), "dst": str(dst)})
+                    continue
                 tmp = dst.with_name(dst.name + ".organizing")
                 shutil.copy2(src, tmp)
                 if tmp.stat().st_size != src.stat().st_size:

@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.130 beta"
+APP_VERSION = "0.9.131 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -1253,6 +1253,10 @@ class MainWindow(QMainWindow):
         self.act_organize = act("Organize My Astro Files…", self.open_organizer, None, QStyle.SP_DirIcon,
                                 "Sort the FITS and XISF files in a folder, drive or NAS into Targets › night › "
                                 "LIGHT / FLAT, a darks library and masters folders - preview first, undo any time")
+        self.act_picker = act("Tonight's Target Picker…", self.open_target_picker, "Ctrl+Shift+T",
+                              QStyle.SP_FileDialogContentsView,
+                              "What to shoot tonight from your site and your patch of sky - by type, size in "
+                              "your frame, hours in the dark - ready for N.I.N.A.")
         self.act_start_over = act("Start Over – Load New Data…", self.start_over, "Ctrl+N",
                                   QStyle.SP_BrowserReload,
                                   "Clear this session and open a new folder (Ctrl+N)")
@@ -1330,6 +1334,7 @@ class MainWindow(QMainWindow):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.act_organize)
+        m.addAction(self.act_picker)
         m.addSeparator()
         m.addAction(self.act_export)
         m.addAction(self.act_header_file)
@@ -1516,6 +1521,17 @@ class MainWindow(QMainWindow):
         import prepare_window
         return ui_header.open_page(self, "prep_win", tuple(str(f) for f in files),
                                    lambda: prepare_window.PrepareWindow(self, self.settings, files))
+
+    def open_target_picker(self):
+        """File › Tonight's Target Picker… (one window, kept while the app is open)."""
+        import target_picker_window
+        w = getattr(self, "_picker", None)
+        if w is None:
+            w = self._picker = target_picker_window.TargetPickerDialog(self.settings, self)
+        w.show()
+        w.raise_()
+        w.activateWindow()
+        return w
 
     def open_organizer(self):
         """File › Organize My Astro Files… (one window, kept while the app is open)."""

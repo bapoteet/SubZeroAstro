@@ -3199,7 +3199,8 @@ def run(app, out_dir: Path) -> int:
 
         def _ofits(name, typ, obj=None, flt=None, exp=60.0, t="2026-10-02T03:10:00", **extra):
             hd = {"IMAGETYP": typ, "EXPTIME": exp, "DATE-OBS": t, "INSTRUME": "ZWO ASI2600MM Pro",
-                  "GAIN": 100, "CCD-TEMP": -10.0, "SITELONG": -84.5}
+                  "GAIN": 100, "OFFSET": 50, "CCD-TEMP": -10.0, "SITELONG": -84.5,
+                  "TELESCOP": "SQA60"}
             if obj:
                 hd["OBJECT"] = obj
             if flt:
@@ -3210,6 +3211,9 @@ def run(app, out_dir: Path) -> int:
         _ofits("L2.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:14:00")
         _ksh.copy2(_od / "dump" / "L2.fits", _od / "dump" / "sub" / "L2 copy.fits")          # a true duplicate
         _ofits("sub/L1 (2).fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:10:00")  # same capture, other bytes
+        _ofits("L3.fits", "Light Frame", "M 31", "L", 120.0, "2026-10-09T03:10:00", TELESCOP="RASA8")
+        _ofits("MD.fits", "Dark Frame", None, None, 180.0, "2026-09-01T12:00:00", NCOMBINE=30)
+        (_od / "dump" / "MD.fits").rename(_od / "dump" / "MasterDark_180s.fits")
         _ofits("F1.fits", "Flat Field", None, "Ha", 1.5, "2026-10-02T10:00:00")
         _ofits("D1.fits", "Dark Frame", None, None, 180.0, "2026-09-01T12:00:00")
         _ofits("B1.fits", "Bias Frame", None, None, 0.001, "2026-09-01T12:00:00")
@@ -3222,9 +3226,11 @@ def run(app, out_dir: Path) -> int:
         check(_odst.get("L1.fits", "").startswith("Targets/M31/") and "/LIGHT/Ha/" in _odst["L1.fits"]
               and _odst.get("F1.fits", "").startswith(f"Targets/M31/{_night}/FLAT/Ha")
               and _odst.get("D1.fits", "").startswith("Darks library/") and "/180s/" in _odst["D1.fits"]
-              and _odst.get("B1.fits", "").startswith("Bias library/") and sorted(_odup) == ["L1 (2).fits", "L2 copy.fits"],
+              and _odst.get("B1.fits", "").startswith("Bias library/ASI2600MM_G100_O50_-10C/")
+              and _odst.get("L3.fits", "").startswith("Targets/M31/2026-10-08_RASA8/LIGHT/L")
+              and _odst.get("MasterDark_180s.fits", "").startswith("Calibration masters/ASI2600MM_G100_O50_-10C/") and sorted(_odup) == ["L1 (2).fits", "L2 copy.fits"],
               f"Organize My Astro Files sorts by header - lights and that night's flats under the target "
-              f"({_night}), darks by camera/gain/temperature/exposure, bias - and spots the duplicate ({_odup})")
+              f"({_night}), darks by camera/gain/offset/temperature/exposure, bias and calibration masters, the rig added when a target was shot with two - and spots the duplicate ({_odup})")
         _owin = w.open_organizer()
         _owin.src.setText(str(_od / "dump"))
         _owin.same.setChecked(True)
@@ -3243,11 +3249,78 @@ def run(app, out_dir: Path) -> int:
         _ogone = not (_od / "dump" / "L1.fits").exists() and (_od / "dump" / "sub" / "L1 (2).fits").exists()
         _owin.undo_last(ask=False, wait=True)
         _oback = sorted(p.name for p in (_od / "dump").glob("*.fits"))
-        check(_on == 5 and _ogone and len(_omoved) == 6 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits"]
+        check(_on == 7 and _ogone and len(_omoved) == 8 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "MasterDark_180s.fits"]
               and not (_od / "dump" / "Targets").exists(),
               f"File › Organize My Astro Files… moves {_on} files into place (the duplicate stays put) and Undo "
               f"Last Run puts every one back ({_oback})")
         _owin.close()
+        # Tonight's Target Picker: the sky worked out here (no internet), N.I.N.A.'s objects, a list N.I.N.A. imports
+        import datetime as _pdt
+        import target_picker as _tp
+        _pcat, _psrc = _tp.load_catalog()
+        _pm31 = next((t for t in _pcat if t.name == "M 31"), None)
+        _pnt, _ppl = _tp.plan_night([_pm31] if _pm31 else [], 32.78, -96.8, _pdt.date(2026, 10, 15),
+                                    _tp.Horizon(), 30.0)
+        _pp = _ppl[0] if _ppl else None
+        _psec = _tp.parse_view("open sky from NNW to SSW")
+        check(len(_pcat) > 3000 and _pm31 is not None and _pm31.common == "Andromeda Galaxy" and _pp is not None
+              and 7 < _pp.hours < 10.5 and 80 < _pp.peak_alt < 83 and 8.5 < _pnt.dark_hours < 10.5
+              and _psec[12] == 0 and _psec[4] == 90,
+              f"Tonight's Target Picker: {len(_pcat)} objects ({_psrc}); from Dallas on 15 Oct 2026 M 31 is up "
+              f"{_pp.hours if _pp else 0:.1f} h of the {_pnt.dark_hours:.1f} dark hours, peaking at "
+              f"{_pp.peak_alt if _pp else 0:.0f}°; 'open sky from NNW to SSW' opens the west and blocks the east")
+        _pwin = w.open_target_picker()
+        _pwin.lat.setValue(32.78)
+        _pwin.lon.setValue(-96.8)
+        from PySide6.QtCore import QDate as _QDate
+        _pwin.date.setDate(_QDate(2026, 10, 15))
+        _pwin.view.setText("open sky from NNW to SSW")
+        _pwin._apply_view()
+        _pwin.focal.setValue(360)
+        _pwin.pixel.setValue(3.76)
+        _pwin.wpx.setValue(6248)
+        _pwin.hpx.setValue(4176)
+        _pwin.compute()
+        _pshown = _pwin.visible_plans()
+        _pwin.group.setCurrentIndex(1)
+        _pgroups = _pwin.tree.topLevelItemCount()
+        _pcsv = session.parent / "picker_test.csv"
+        _pwin.tree.setCurrentItem(_pwin._first_plan_item())
+        _pwin.save_csv(str(_pcsv))
+        _plines = _pcsv.read_text(encoding="utf-8").splitlines() if _pcsv.exists() else []
+        check(len(_pshown) > 10 and _pgroups >= 2 and len(_plines) == 2
+              and _plines[0].startswith("Familiar Name,Catalogue Entry,Right Ascension (J2000),Declination (J2000)"),
+              f"File › Tonight's Target Picker… lists {len(_pshown)} targets for a western view, groups them by "
+              f"type ({_pgroups} groups) and saves a target list N.I.N.A. imports ({_plines[1:2]})")
+        # straight into N.I.N.A.'s target list: plain, then with one of those as the template
+        import json as _pj
+        _pnf = session.parent / "nina_targets_test"
+        _ksh.rmtree(_pnf, ignore_errors=True)
+        _pwin.settings.setValue("picker/nina_template", "")
+        _pw1 = _pwin.send_to_nina(folder=_pnf, ask=False) or []
+        _pdoc = _pj.loads(_pw1[0].read_text(encoding="utf-8")) if _pw1 else {}
+        _pdoc["Items"]["$values"].append({"$id": "99", "$type": "NINA.Sequencer.SequenceItem.Imaging.TakeExposure, "
+                                          "NINA.Sequencer", "ExposureTime": 300.0, "Coordinates": dict(
+                                              _pdoc["Target"]["InputCoordinates"], **{"$id": "98"})})
+        _ptpl = _pnf / "template.json"
+        _ptpl.write_text(_pj.dumps(_pdoc), encoding="utf-8")
+        _pwin.choose_template(str(_ptpl))
+        _pm = next((it for it in _pwin.plans if it.target.name == "M 31"), None)
+        _pwin.tree.clearSelection()
+        _pwin.find.setText("M 31")
+        _pwin.tree.setCurrentItem(_pwin._first_plan_item())
+        _pw2 = _pwin.send_to_nina(folder=_pnf, ask=False) or []
+        _pd2 = _pj.loads(_pw2[0].read_text(encoding="utf-8")) if _pw2 else {}
+        _pc = _pd2.get("Items", {}).get("$values", [{}])[-1].get("Coordinates", {})
+        check(len(_pw1) == 1 and _pdoc.get("$type", "").startswith("NINA.Sequencer.Container.DeepSkyObjectContainer")
+              and _pd2.get("Target", {}).get("TargetName") == "Andromeda Galaxy" and _pc.get("RAHours") == 0
+              and _pc.get("RAMinutes") == 42 and _pc.get("DecDegrees") == 41
+              and _pd2["Items"]["$values"][-1].get("ExposureTime") == 300.0,
+              f"Send to N.I.N.A. writes targets into N.I.N.A.'s target list ({_pw1[0].name if _pw1 else '-'}), and "
+              f"with one of your own as the template keeps its steps and moves every coordinate to the new target "
+              f"({_pw2[0].name if _pw2 else '-'})")
+        _pwin.find.setText("")
+        _pwin.close()
         # End this Project and Start New Project: every page closes, page 1 is empty and shown
         import ui_header as _uh2
         check("Start New Project" in fw2.btn_new_project.text() and

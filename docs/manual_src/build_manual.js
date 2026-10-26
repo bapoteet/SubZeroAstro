@@ -317,7 +317,17 @@ bullets([
   "**Ctrl+H** opens the full **FITS header** of the selected file, with search and Copy All.",
   "**Ctrl+I** hides or shows the image - useful on a slow network drive.",
 ]);
-sec("6.5", "On to stacking", ["Continue to Calibrate and Stack"]);
+sec("6.5", "Tonight's Target Picker", ["Tonight's Target Picker", "Target picker", "What to image tonight", "Horizon", "N.I.N.A. horizon file", "Import Targets", "Telescopius"]);
+p("**File › Tonight's Target Picker…** (Ctrl+Shift+T) answers *what can I shoot tonight from here?* Everything is worked out on your computer - no account, no internet, no AI - from the position of the Sun, Moon and each object through the night.");
+bullets([
+  "**Where and when**: your rig's latitude and longitude (west is negative). Pick one of your **N.I.N.A. profiles** - it also brings your focal length, pixel size and horizon file - or **Fill In From One of My Pictures…** to read them from a FITS/XISF header. Choose the night (tonight by default).",
+  "**Your sky**: click the compass to mark what you can't see - each click cycles *open → low trees (20°) → tall trees (35°) → blocked*. Or type it: *open sky from NNW to SSW* (the shorter way round), *trees to the east up to 30 degrees*, *house blocks N*, then **Use This Description**. A N.I.N.A. horizon file loads with **Load a N.I.N.A. Horizon File…**. **Lowest altitude** (30° by default) keeps you out of the thick, light-polluted air near the horizon.",
+  "**Your rig**: focal length, pixel size and sensor size give the *In your frame* column - how much of your picture each target fills, or whether it needs a mosaic.",
+  "**Work It Out** lists every target that is in the dark and above your horizon for at least the hours you ask: its window, how high it climbs and when, how far it is from the Moon, and a **Best** score (more hours, higher up, Moon out of the way - a bright Moon hurts galaxies far more than emission nebulae shot with a narrowband filter - and a good fit in your frame). Tick the types you want, filter by size, **group** by type, size or time of night, or type a name in **Find**. The chart below shows the selected target's altitude through the night with your horizon and the Moon.",
+  "**Into N.I.N.A.**: select targets and **Send to N.I.N.A.** - they appear straight away in N.I.N.A.'s target list (Advanced Sequencer › Targets › *SubZeroAstro*), ready to drag into your sequence. Pick **N.I.N.A. Template…** once - one of your own saved targets - and every target you send gets its exposures, autofocus, dithering and checks, with only the name and coordinates changed. (Running N.I.N.A. on another computer? Copy the files from *Documents/N.I.N.A/Targets/SubZeroAstro* to the same folder there.) **Save List for N.I.N.A.…** writes a target list for the simple Sequencer's **Import Targets** (the CSV layout Telescopius exports), and **Copy Coordinates** puts RA/Dec (J2000) on the clipboard for the Framing Assistant. **About This Target** shows the Wikipedia and SIMBAD notes; **Telescopius** copies the name and opens Telescopius.",
+  "The objects are N.I.N.A.'s deep-sky database - read from N.I.N.A. itself when it is installed on this computer, otherwise SubZeroAstro's built-in copy of its 4 000+ imaging-worthy objects. Times are in your computer's time zone; positions are good to a fraction of a degree - plenty for planning.",
+]);
+sec("6.6", "On to stacking", ["Continue to Calibrate and Stack"]);
 p("When you are happy, click **Calibrate and Stack ➜** at the top right. Only your kept frames go to page 2.");
 
 ch(7, "Page 2 – Calibrate and Stack");
@@ -681,12 +691,12 @@ table(["What", "Windows", "Mac"], [
 sec("13.3", "Organize My Astro Files", ["Organize My Astro Files", "Organize", "Library layout", "Darks library", "NAS", "Undo Last Run", "Duplicates"]);
 p("**File › Organize My Astro Files…** (page 1) sorts a folder full of FITS and XISF files - subs and masters, lights, flats, dark flats, darks and bias, from any number of nights and targets - into one tidy library. It reads each file's own header (IMAGETYP, OBJECT, FILTER, DATE-OBS, camera, gain, temperature), so the file names and the current mess don't matter. Pick the **folder to organize** (a whole drive or a **NAS** share works too - on Windows a mapped drive or `\\\\nas\\astro`, on a Mac the share as it appears under /Volumes) and where the organized files go (the same folder by default).");
 table(["Files", "Go to"], [
-  ["Lights", "`Targets/<target>/<night>/LIGHT/<filter>/` (rejected ones keep their `REJECTED` folder)"],
+  ["Lights", "`Targets/<target>/<night>/LIGHT/<filter>/` (rejected ones keep their `REJECTED` folder). A target shot with more than one telescope gets the rig in the night's name (`2026-10-15_SQA60`), so flats are never matched to the other scope's lights"],
   ["Flats and dark flats", "`Targets/<target>/<night>/FLAT/<filter>/` - with the target shot that night (same telescope); `Flats/<night>/…` if several targets could own them"],
-  ["Darks", "`Darks library/<camera>_G<gain>_<temp>C/<exposure>s/`"],
-  ["Bias", "`Bias library/<camera>_G<gain>_<temp>C/`"],
+  ["Darks", "`Darks library/<camera>_G<gain>_O<offset>_<temp>C/<exposure>s/`"],
+  ["Bias", "`Bias library/<camera>_G<gain>_O<offset>_<temp>C/`"],
   ["Master lights", "`Targets/<target>/Masters/` with their star images and stack logs"],
-  ["Calibration masters", "`Calibration masters/`"],
+  ["Calibration masters", "`Calibration masters/<camera>_G<gain>_O<offset>_<temp>C/` (master flats in a `Flats <night>/<filter>` folder below it) - reused across targets for months"],
   ["No header to go by", "`Unsorted/`"],
 ], [2600, 6760]);
 bullets([
@@ -694,7 +704,8 @@ bullets([
   "**Look Through the Files** only reads - it shows how many files go where, and a list of each file, where it goes and why. Nothing changes until you press **Organize**.",
   "**Copy** (the default) leaves the originals; **Move** moves them and removes the empty folders left behind. A copy is checked before a move removes the original.",
   "**Duplicates** (the same capture twice, e.g. *L_001 copy.fits*) are left where they are and flagged. Press **Duplicates…** to see each one next to the copy that is kept, tick the ones to deal with, then **Keep Them**, **Move to a Duplicates Folder** (set aside; Undo Last Run puts them back) or **Delete Ticked Duplicates…**. Delete compares every byte first and only deletes an exact copy - a file with the same capture time but different contents is kept for you to look at. Files that can't be read are left where they are and listed.",
-  "**Saved projects** (page 4) and files already in the right place are left alone, so running it again on the same library only tidies what is new.",
+  "**Saved projects** (page 4), files already in the right place, and the in-between folders other programs make (*calibrated*, *registered*, *debayered*, *process* … from PixInsight WBPP, Siril or APP) are left alone, so running it again on the same library only tidies what is new.",
+  "**Move on the same drive is instant** - the files only get a new folder, nothing is copied - so organizing a big drive in place takes about as long as reading the headers. Copy, or moving to another drive, copies every byte.",
   "**Undo Last Run** puts every moved file back (or removes the copies). Each run's log is kept in `_SubZeroAstro_organize` inside the library.",
   "A big NAS takes a while - reading headers over the network is the slow part. Stop is safe: what was done is in the log and can be undone.",
 ]);
@@ -703,7 +714,7 @@ ch(14, "Privacy, licence and credits");
 sec("14.1", "Privacy", ["Privacy"]);
 p("SubZeroAstro does not send any information anywhere unless you ask it to. It reads and writes images only where you point it. **Share to AstroBin…** only opens AstroBin's page in your browser. Companion programs (ASTAP, GraXpert, RC-Astro) are separate programs with their own terms.");
 sec("14.2", "Licence and credits", ["Licence", "MIT License", "Credits"]);
-p("SubZeroAstro is free software under the **MIT License**. Created by **Brian A. Poteet, DVM**, built with Claude (Anthropic). The culling view was inspired by FITS Blaster for macOS by Tom van Peer. PixInsight, BlurXTerminator, NoiseXTerminator, StarXTerminator, GraXpert, ASTAP, AstroBin and the telescope and filter names mentioned are trademarks of their respective owners.");
+p("SubZeroAstro is free software under the **MIT License**. Created by **Brian A. Poteet, DVM**, built with Claude (Anthropic). The culling view was inspired by FITS Blaster for macOS by Tom van Peer. PixInsight, BlurXTerminator, NoiseXTerminator, StarXTerminator, GraXpert, ASTAP, AstroBin and the telescope and filter names mentioned are trademarks of their respective owners. The deep-sky object list of Tonight's Target Picker comes from N.I.N.A. - Nighttime Imaging 'N' Astronomy (github.com/isbeorn/nina), used under the Mozilla Public License 2.0.");
 
 // ------------------------------------------------------------------ index (own two-column section)
 ch(15, "Processing Techniques and Tips");
@@ -857,6 +868,7 @@ const HIGHLIGHTS = [
     ["Windows and Apple-silicon Mac", "Both builds run a full self-test on real hardware before every release", "0.9.0"],
   ]],
   ["Page 1 – Quality & Cull", [
+    ["Tonight's Target Picker", "What to shoot tonight from your site and patch of sky - hours in the dark, peak altitude, Moon, size in your frame; sends targets straight into N.I.N.A., built from your own template", "0.9.131"],
     ["Organize My Astro Files", "Sorts a folder, drive or NAS of FITS/XISF subs and masters into Targets › night › LIGHT/FLAT, a darks library and masters folders - preview first, copy or move, undo; duplicates flagged and kept, set aside or deleted", "0.9.129 / 0.9.130"],
     ["Star quality on every frame", "FWHM, eccentricity, SNR, star count and background, with a badge and a score against frames of the same camera and filter", "Stage 2"],
     ["Session chart", "One dot per frame in capture order, nights separated; click to jump, drag a range to flag or reject", "Stage 2"],
