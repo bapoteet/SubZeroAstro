@@ -203,10 +203,11 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
         except OSError:
             pass
 
-    def session(tgt, info):
-        """The night's folder - with the rig added when this target was shot with more than one."""
-        r = _rig(info)
-        return f"{night}_{r}" if r and len(rigs.get(tgt, ())) > 1 else night
+    def session(tgt, info, path=None):
+        """The night's folder, always named with the rig when it is known (2026-10-01_SQA60): a target shot with
+        several rigs never mixes their lights and flats, and you can see at a glance which scope took them."""
+        r = _rig(info, path)
+        return f"{night}_{r}" if r else night
 
     for it, info in zip(items, infos):
         if info is None:
@@ -249,7 +250,7 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             if not tgt:
                 it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "a light without a target name"
             else:
-                sub = Path("Targets") / tgt / session(tgt, info) / "LIGHT" / flt
+                sub = Path("Targets") / tgt / session(tgt, info, it.src) / "LIGHT" / flt
                 if rejected:
                     sub = sub / core.REJECTED_DIR
                 it.kind, it.dst = "light", sub / name
@@ -272,7 +273,7 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             if owner:
                 there = existing.get((owner, night), [])
                 pick = [d for r, d in there if r == frig] or ([there[0][1]] if len(there) == 1 else [])
-                nightdir = pick[0] if pick else session(owner, info)
+                nightdir = pick[0] if pick else session(owner, info, it.src)
                 it.kind, it.dst = typ, Path("Targets") / owner / nightdir / folder / flt / name
                 it.why = f"{typ} of the night ({owner})"
             else:
