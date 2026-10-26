@@ -53,6 +53,7 @@ class Item:
     companions: list = field(default_factory=list)
     key: tuple | None = None             # same capture (time, exposure, filter, camera, size) = the same frame
     same_as: Path | None = None         # for a duplicate: the copy that is kept
+    info: object = field(default=None, repr=False, compare=False)   # the header read (kept for re-planning)
 
 
 def _safe(s) -> str:
@@ -76,6 +77,7 @@ def _cal_folder(info) -> str:
 
 
 _RIGS = None          # SubZeroAstro's own rig names (Calibrate and Stack › rig names), set by classify()
+_GUESS = {}           # (camera, focal) -> rig name read from your folder names, set by classify()
 
 
 def _rig(info, path=None) -> str:
@@ -93,6 +95,9 @@ def _rig(info, path=None) -> str:
     t = (info.telescope or "").strip()
     if t and st.Rigs.suggestion(info) == st.safe_name(t):          # a telescope, not a mount driver
         return _safe(re.sub(r"\s+", "", t))[:24]
+    g = _GUESS.get(_rig_key(info))
+    if g:                                                           # your own folder name for this rig
+        return _safe(re.sub(r"\s+", "", g))[:24]
     if info.focal:
         return f"{info.focal:.0f}mm"
     if path is not None:
@@ -158,7 +163,8 @@ LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration
            "target": "By target: Targets / target / night_rig, with darks and bias libraries"}
 
 
-def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None, layout="rig") -> list:
+def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None, layout="rig",
+             root=None) -> list:
     """Read each header and decide where the file belongs (relative to the library). Returns [Item].
     rigs: SubZeroAstro's saved rig names (stacking.Rigs), so a rig you named keeps its name."""
     import stacking as st
@@ -180,8 +186,18 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             items.append(it)
             infos.append(None)
             continue
+        it.info = info
         items.append(it)
         infos.append(info)
+
+    # rigs without a name or a telescope in the header: the folder name their files sit under (SQA60Pro/…)
+    global _GUESS
+    _GUESS = {}
+    for it in items:
+        it.target = st.target_name(it.info.target) if (it.info is not None and it.info.target) else ""
+    for c in rig_candidates(items, rigs, root=root if root is not None else library):
+        if not c["named"] and c["guess"]:
+            _GUESS[c["key"]] = c["guess"]
 
     # which targets had lights on which night (with which telescope) - flats without a target go there
     lights_on, rigs, existing = {}, {}, {}
@@ -599,3 +615,115 @@ def last_log(library) -> Path | None:
     logs = sorted((p for p in d.glob("organize_*.json")
                    if not p.name.endswith((".undone.json", "_deleted.json"))), key=lambda p: p.stat().st_mtime)
     return logs[-1] if logs else None
+
+
+# ---------------------------------------------------------------- rig names
+_NOT_RIG = re.compile(r"(?i)^(\d{4}[-_]?\d{2}[-_]?\d{2}.*|lights?|light[ _]?frames?|calibration( frames)?|cal(ib)?|"
+                      r"flats?|darks?|bias(es)?|dark[ _]?flats?|flat[ _]?darks?|masters?|rejected|ha|oiii|sii|[lrgb]|"
+                      r"h[- _]?alpha|lum|red|green|blue|no ?filter|\d+(\.\d+)?s|unsorted|incoming.*|astro.*|data|"
+                      r"images?|captures?|n\.?i\.?n\.?a\.?|sequence.*|[a-z]:)$")
+
+
+def _tnorm(n):
+    return re.sub(r"[\W_]", "", n or "").lower()
+
+
+def _ancestor_names(p, stop=None, targets=()):
+    """Folder names above a file that could name a rig (not a date, filter, frame type, target …), nearest
+    first, up to the scanned folder (stop, included)."""
+    out = []
+    for anc in list(Path(p).parents)[:8]:
+        n = anc.name
+        if stop is not None and len(anc.parts) < len(Path(stop).parts):
+            break
+        tn = _tnorm(n)
+        if n and not _NOT_RIG.match(n) and not any(t and len(tn) >= 3 and (tn in t or t in tn) for t in targets):
+            out.append(n)
+        if stop is not None and anc == Path(stop):
+            break
+    return out
+
+
+def _guess_names(groups, root=None) -> dict:
+    """For each rig group: the folder name its files share that the other rigs' files don't - the one nearest
+    the top (rig folders sit above target and night folders), e.g. SQA60Pro in SQA60Pro/Veil/2026-09-01/."""
+    import os
+    from collections import Counter
+    allp = [str(p) for g in groups.values() for p in g["paths"]]
+    if root is not None:
+        stop = Path(root)                  # the folder you picked: its own name counts (e.g. SQA60Pro)
+    else:
+        try:
+            stop = Path(os.path.commonpath(allp)) if allp else None
+        except ValueError:
+            stop = None
+    targets = {_tnorm(t) for g in groups.values() for t in g["targets"]}
+    per = {}
+    for k, g in groups.items():
+        c, depth = Counter(), {}
+        for p in g["paths"]:
+            names = _ancestor_names(p, stop, targets)
+            for d, n in enumerate(names):
+                c[n] += 1
+                depth[n] = max(depth.get(n, 0), d)
+        per[k] = (c, depth, len(g["paths"]))
+    out = {}
+    for k, (c, depth, n) in per.items():
+        others = set()
+        for k2, (c2, _, _) in per.items():
+            if k2 != k:
+                others |= set(c2)
+        cands = [m for m, v in c.items() if v >= max(1, (2 * n) // 3) and (m not in others or len(per) == 1)]
+        if cands:
+            out[k] = max(cands, key=lambda m: (depth[m], c[m]))
+    return out
+
+
+def _rig_key(info):
+    return ((info.camera or "").strip(), round(float(info.focal), 0) if info.focal else None,
+            str(info.telescope or "").strip())
+
+
+def rig_candidates(items, rigs=None, root=None) -> list:
+    """Every rig found (camera + focal length, as Calibrate and Stack names them), with how many files, the
+    telescope the header names, a few example folders and the name it gets now - for Name Your Rigs."""
+    import stacking as st
+    groups = {}
+    for it in items:
+        info = it.info
+        if info is None or it.status == "error":
+            continue
+        k = _rig_key(info)
+        g = groups.setdefault(k, {"camera": k[0], "focal": k[1], "telescopes": set(), "paths": [], "targets": set()})
+        if info.telescope:
+            g["telescopes"].add(str(info.telescope).strip())
+        g["paths"].append(it.src)
+        if it.target:
+            g["targets"].add(it.target)
+    guesses = _guess_names(groups, root)
+    out = []
+    for k, g in groups.items():
+        named = None
+        try:
+            named = (rigs or st.Rigs()).lookup(g["camera"], g["focal"])
+        except Exception:  # noqa: BLE001
+            pass
+        probe = type("I", (), {"camera": g["camera"], "focal": g["focal"],
+                               "telescope": next(iter(g["telescopes"]), None)})()
+        guess = guesses.get(k, "")
+        tel = probe.telescope or ""
+        tel_ok = bool(tel) and st.Rigs.suggestion(probe) == st.safe_name(tel)
+        now = named or (_safe(re.sub(r"\s+", "", tel))[:24] if tel_ok else (f"{g['focal']:.0f}mm" if g["focal"] else ""))
+        ex = []
+        for p in g["paths"]:
+            d = str(Path(p).parent)
+            if d not in ex:
+                ex.append(d)
+            if len(ex) >= 3:
+                break
+        out.append({"key": k, "guess": guess, "camera": g["camera"], "focal": g["focal"],
+                    "telescopes": sorted(g["telescopes"]),
+                    "files": len(g["paths"]), "examples": ex, "named": named, "now": now,
+                    "suggest": named or guess or now})
+    out.sort(key=lambda r: (-r["files"]))
+    return out

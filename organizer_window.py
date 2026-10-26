@@ -2,6 +2,7 @@
 works too), see the plan, then copy or move, with undo."""
 from __future__ import annotations
 
+import re
 import traceback
 from pathlib import Path
 
@@ -104,6 +105,12 @@ class OrganizeDialog(QDialog):
         self.b_go.setEnabled(False)
         self.b_go.setToolTip("Lights up after Step 1, once you have seen the plan")
         self.b_go.clicked.connect(lambda: self.go())
+        self.b_rigs = QPushButton("Name Your Rigs…")
+        self.b_rigs.setEnabled(False)
+        self.b_rigs.setToolTip("The rigs found in your files (camera + focal length) and the folder name each gets - "
+                               "give each one its proper name (SQA60, RASA8, Poseidon …). Remembered for next time "
+                               "and used by Calibrate and Stack too.")
+        self.b_rigs.clicked.connect(lambda: self.name_rigs())
         self.b_dups = QPushButton("Step 2 – Duplicates… (if any)")
         self.b_dups.setEnabled(False)
         self.b_dups.setToolTip("See the duplicates found, and keep them, move them to a Duplicates folder or "
@@ -114,7 +121,7 @@ class OrganizeDialog(QDialog):
         self.b_stop = QPushButton("Stop")
         self.b_stop.setVisible(False)
         self.b_stop.clicked.connect(lambda: setattr(self.job, "stop", True) if self.job else None)
-        for b in (self.b_scan, self.b_dups, self.b_go, self.b_undo, self.b_stop):
+        for b in (self.b_scan, self.b_rigs, self.b_dups, self.b_go, self.b_undo, self.b_stop):
             h.addWidget(b)
         h.addStretch(1)
         lay.addLayout(h)
@@ -162,13 +169,15 @@ class OrganizeDialog(QDialog):
         return Path((self.src.text() if self.same.isChecked() else self.dst.text()).strip())
 
     def _busy(self, on):
-        for w in (self.b_scan, self.b_go, self.b_dups, self.b_undo, self.src, self.dst, self.same, self.copy, self.move,
+        for w in (self.b_scan, self.b_rigs, self.b_go, self.b_dups, self.b_undo, self.src, self.dst, self.same,
+                  self.copy, self.move,
                   self.layout_box):
             w.setEnabled(not on)
         if not on:
             self.dst.setEnabled(not self.same.isChecked())
             self.b_go.setEnabled(bool([i for i in self.items if i.status == "move"]))
             self.b_dups.setEnabled(bool(O.duplicates(self.items)))
+            self.b_rigs.setEnabled(bool(self.items))
         self.b_stop.setVisible(on)
         self.bar.setVisible(on)
 
@@ -211,11 +220,12 @@ class OrganizeDialog(QDialog):
             rigs = None
 
         layout = self.layout_box.currentData() or "rig"
+        self._plan_args = (lib, layout, src)
 
         def work(job):
             paths = O.scan(src, progress=lambda t, n: job.note.emit(t, 0, 0), stop=lambda: job.stop)
             items = O.classify(paths, progress=lambda t, i: job.note.emit(t, i, len(paths)), stop=lambda: job.stop,
-                               library=lib, rigs=rigs, layout=layout)
+                               library=lib, rigs=rigs, layout=layout, root=src)
             job.note.emit("Checking for duplicates and name clashes…", 0, 0)
             return O.plan(items, lib)
         self._run(work, self._show_plan, wait)
@@ -259,6 +269,15 @@ class OrganizeDialog(QDialog):
                 self.table.setItem(r, c, cell)
         self.b_go.setEnabled(sm["files"] > 0)
         self.b_dups.setEnabled(bool(O.duplicates(items)))
+        self.b_rigs.setEnabled(bool(items))
+        unnamed = [r for r in O.rig_candidates(items, self._rigs(), root=(getattr(self, "_plan_args", None) or
+                                                                         (None, None, None))[2])
+                   if not r["named"] and not r["guess"] and (not r["now"] or re.match(r"^\d+mm$", r["now"]))]
+        if unnamed and (self._plan_args[1] if getattr(self, "_plan_args", None) else "rig") == "rig":
+            self.status.setText(self.status.text() + f"<br><b>{len(unnamed)} rig(s) have no name</b> - nothing in their "
+                                "headers or folders names the telescope, so they would be filed as "
+                                + ", ".join(sorted({r['now'] or 'Unknown rig' for r in unnamed})[:6])
+                                + ". Press <b>Name Your Rigs…</b> to give them their names.")
 
     # ---------------------------------------------------------------- go / undo
     def go(self, ask=True, wait=False):
@@ -411,3 +430,91 @@ class DuplicatesDialog(QDialog):
             return
         self.close()
         self.owner.handle_duplicates(todo, delete, wait)
+
+    # ---------------------------------------------------------------- rig names
+    def _rigs(self):
+        try:
+            import json as _json
+            import stacking as _st
+            return _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
+        except Exception:  # noqa: BLE001
+            return None
+
+    def name_rigs(self, names=None):
+        """Name Your Rigs…: one row per rig found; the names are saved where Calibrate and Stack keeps its rig
+        names, and the plan is worked out again straight away (no headers are read twice)."""
+        rigs = self._rigs()
+        cands = O.rig_candidates(self.items, rigs, root=(getattr(self, "_plan_args", None) or (None, None, None))[2])
+        if not cands:
+            return None
+        if names is None:
+            d = RigNamesDialog(self, cands)
+            if not d.exec():
+                return None
+            names = d.names()
+        import json as _json
+        import stacking as _st
+        rigs = rigs or _st.Rigs()
+        changed = 0
+        for c, n in zip(cands, names):
+            n = (n or "").strip()
+            if n and n != (c["named"] or ""):
+                rigs.set(c["camera"], c["focal"], n)
+                changed += 1
+        self.settings.setValue("stack/rigs", _json.dumps(rigs.entries))
+        lib, layout, src = getattr(self, "_plan_args", (self.library(), "rig", None))
+        cache = {str(it.src): it.info for it in self.items}
+
+        def cached(p):
+            v = cache.get(str(p))
+            if v is None:
+                raise OSError("could not be read")
+            return v
+        items = O.plan(O.classify([it.src for it in self.items], read_info=cached, library=lib, rigs=rigs,
+                                  layout=layout, root=src), lib)
+        self._show_plan(items)
+        return changed
+
+
+class RigNamesDialog(QDialog):
+    def __init__(self, owner, cands):
+        super().__init__(owner)
+        self.setWindowTitle("Name Your Rigs")
+        lay = QVBoxLayout(self)
+        lab = QLabel("One row per rig found in your files - a rig is a camera on a telescope, told apart by the "
+                     "camera and the focal length in each header. Type the name you want for its folders (e.g. "
+                     "<i>SQA60</i>, <i>RASA8</i>, <i>Poseidon</i>). The suggestion comes from your own folder names "
+                     "where they show it. Names are remembered, and Calibrate and Stack uses them too.")
+        lab.setWordWrap(True)
+        lay.addWidget(lab)
+        self.table = QTableWidget(len(cands), 6)
+        self.table.setHorizontalHeaderLabels(["Name", "Camera", "Focal length", "Header says", "Files",
+                                              "Example folder"])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(5, QHeaderView.Stretch)
+        for r, c in enumerate(cands):
+            vals = [c["suggest"] or "", c["camera"] or "?", f"{c['focal']:.0f} mm" if c["focal"] else "?",
+                    ", ".join(c["telescopes"]) or "-", str(c["files"]), c["examples"][0] if c["examples"] else ""]
+            for k, v in enumerate(vals):
+                cell = QTableWidgetItem(v)
+                if k:
+                    cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+                if k == 5:
+                    cell.setToolTip("\n".join(c["examples"]))
+                self.table.setItem(r, k, cell)
+        lay.addWidget(self.table, 1)
+        h = QHBoxLayout()
+        h.addStretch(1)
+        ok = QPushButton("Use These Names")
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        h.addWidget(ok)
+        h.addWidget(cancel)
+        lay.addLayout(h)
+        self.resize(1000, 420)
+
+    def names(self):
+        return [self.table.item(r, 0).text() for r in range(self.table.rowCount())]

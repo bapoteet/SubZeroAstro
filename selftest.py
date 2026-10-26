@@ -3299,12 +3299,44 @@ def run(app, out_dir: Path) -> int:
               and _rdst.get("f2.fits", "").startswith("Calibration Frames/SQA60/Flats/ASI2600MM/2026-10-01/OIII/"),
               f"Organize, by rig (the default): Light Frames/rig/target/night/filter and Calibration Frames/rig/Flats, Darks, "
               f"Bias, Masters ({_rl.get('L1.fits')}; {_rl.get('D1.fits')})")
+        # no telescope in the headers (only a focal length): the rig name comes from your own folders -
+        # SQA60Pro/Veil/2026-09-01/… is filed under SQA60Pro, not "360mm", whether the drive or that folder is picked
+        _gr = session.parent / "organize_rigname_test" / "IncomingAstroData"
+        _ksh.rmtree(_gr.parent, ignore_errors=True)
+
+        def _gfits(rel, hd):
+            _p = _gr / rel
+            _p.parent.mkdir(parents=True, exist_ok=True)
+            _h = {"INSTRUME": "ZWO ASI2600MC Pro", "GAIN": 100, "OFFSET": 50, "CCD-TEMP": -10.0, "SITELONG": -84.5,
+                  "EXPTIME": 180.0, "FOCALLEN": 360}
+            _h.update(hd)
+            core.write_fits(_p, (_orng.random((10, 12)) * 1000).astype(np.uint16), _h, bitpix=16)
+        _gfits("SQA60Pro/Veil/2026-09-01/Light_001.fits", {"IMAGETYP": "Light", "OBJECT": "Veil Nebula",
+                                                           "DATE-OBS": "2026-09-02T03:00:00"})
+        _gfits("SQA60Pro/Veil/2026-09-01/FLAT/Flat_001.fits", {"IMAGETYP": "Flat", "DATE-OBS": "2026-09-02T10:00:00",
+                                                               "EXPTIME": 1.0})
+        _gfits("RedCat/M31/2026-09-03/Light_001.fits", {"IMAGETYP": "Light", "OBJECT": "M31", "FOCALLEN": 250,
+                                                        "DATE-OBS": "2026-09-04T03:00:00"})
+        _gd = {}
+        for _groot in (_gr, _gr / "SQA60Pro"):
+            for _gi in _og.plan(_og.classify(_og.scan(_groot), library=_groot, root=_groot), _groot):
+                _gd[(_groot.name, _gi.src.name, _gi.src.parent.name)] = str(_gi.dst.relative_to(_groot)).replace("\\", "/")
+        check(_gd.get(("IncomingAstroData", "Light_001.fits", "2026-09-01"), "").startswith("Light Frames/SQA60Pro/VeilNebula/")
+              and _gd.get(("IncomingAstroData", "Light_001.fits", "2026-09-03"), "").startswith("Light Frames/RedCat/M31/")
+              and _gd.get(("IncomingAstroData", "Flat_001.fits", "FLAT"), "").startswith("Calibration Frames/SQA60Pro/Flats/")
+              and _gd.get(("SQA60Pro", "Light_001.fits", "2026-09-01"), "").startswith("Light Frames/SQA60Pro/"),
+              f"Organize: with no telescope in the headers, the rig is named from your folders "
+              f"({_gd.get(('IncomingAstroData', 'Light_001.fits', '2026-09-01'))}), not the focal length")
         _owin = w.open_organizer()
         _owin.layout_box.setCurrentIndex(_owin.layout_box.findData("rig"))
         _owin.src.setText(str(_od / "dump"))
         _owin.same.setChecked(True)
         _owin.move.setChecked(True)
         _owin.scan(wait=True)
+        _rc = _og.rig_candidates(_owin.items, _owin._rigs(), root=_od / "dump")
+        _keep_rigs = _owin.settings.value("stack/rigs", "[]")
+        _owin.name_rigs(names=[c["suggest"] for c in _rc])        # Name Your Rigs, keeping the suggestions
+        _owin.settings.setValue("stack/rigs", _keep_rigs)
         _on = len([i for i in _owin.items if i.status == "move"])
         _odd = _owin.open_duplicates()
         _odn = _odd.table.rowCount() if _odd else 0
