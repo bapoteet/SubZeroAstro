@@ -3229,7 +3229,7 @@ def run(app, out_dir: Path) -> int:
         _ofits("D1.fits", "Dark Frame", None, None, 180.0, "2026-09-01T12:00:00")
         _ofits("B1.fits", "Bias Frame", None, None, 0.001, "2026-09-01T12:00:00")
         (_od / "dump" / "notes.txt").write_text("not a picture")
-        _oitems = _og.plan(_og.classify(_og.scan(_od / "dump")), _od / "dump")
+        _oitems = _og.plan(_og.classify(_og.scan(_od / "dump"), layout="target"), _od / "dump")
         _odst = {i.src.name: str(i.dst.relative_to(_od / "dump")).replace("\\", "/") for i in _oitems
                  if i.status == "move"}
         _odup = [i.src.name for i in _oitems if i.status == "duplicate"]
@@ -3271,7 +3271,7 @@ def run(app, out_dir: Path) -> int:
                                             "DATE-OBS": "2026-09-02T10:00:00"})
         _cfits("Esprit100/Darks/300s/d3.fits", {"IMAGETYP": "Dark", "EXPTIME": 300.0, "DATE-OBS": "2026-09-02T10:00:00"})
         _cdst = {i.src.name: str(i.dst.relative_to(_oc)).replace("\\", "/")
-                 for i in _og.plan(_og.classify(_og.scan(_oc / "Calibration"), library=_oc), _oc) if i.dst}
+                 for i in _og.plan(_og.classify(_og.scan(_oc / "Calibration"), library=_oc, layout="target"), _oc) if i.dst}
         check(_cdst.get("f1.fits") == "Targets/M31/2026-10-01_SQA60/FLAT/Ha/f1.fits"
               and _cdst.get("f2.fits") == "Targets/M31/2026-10-01_SQA60/FLAT/OIII/f2.fits"
               and _cdst.get("f3.fits") == "Flats/RASA8/2026-10-05/L/f3.fits"
@@ -3283,7 +3283,24 @@ def run(app, out_dir: Path) -> int:
               f"shot that night with that scope, the rest are kept by scope and night ({_cdst.get('f3.fits')}); "
               "darks and bias go to each rig's own library - three ASI2600MMs on three rigs, shot at the same "
               "second, stay three cameras")
+        # the rig-first layout (the default): Lights / rig / target / night / filter and Calibration / rig / …
+        _rdst = {i.src.name: str(i.dst.relative_to(_oc)).replace("\\", "/")
+                 for i in _og.plan(_og.classify(_og.scan(_oc / "Calibration"), library=_oc), _oc) if i.dst}
+        _rl = {i.src.name: str(i.dst.relative_to(_od / "dump")).replace("\\", "/")
+               for i in _og.plan(_og.classify(_og.scan(_od / "dump")), _od / "dump") if i.status == "move"}
+        check(_rl.get("L1.fits", "").startswith("Lights/SQA60/M31/2026-10-01/Ha/")
+              and _rl.get("L3.fits", "").startswith("Lights/RASA8/M31/2026-10-08/L/")
+              and _rl.get("F1.fits", "").startswith("Calibration/SQA60/Flats/2026-10-01/Ha/")
+              and _rl.get("D1.fits", "").startswith("Calibration/SQA60/Darks/ASI2600MM_G100_O50_-10C/180s/")
+              and _rl.get("B1.fits", "").startswith("Calibration/SQA60/Bias/ASI2600MM_G100_O50_-10C/")
+              and _rl.get("M31_final.fits", "") == "Lights/SQA60/M31/Masters/M31_final.fits"
+              and _rl.get("MasterDark_180s.fits", "").startswith("Calibration/SQA60/Masters/ASI2600MM_G100_O50_-10C/")
+              and _rdst.get("d3.fits", "").startswith("Calibration/Esprit100/Darks/")
+              and _rdst.get("f2.fits", "").startswith("Calibration/SQA60/Flats/2026-10-01/OIII/"),
+              f"Organize, by rig (the default): Lights/rig/target/night/filter and Calibration/rig/Flats, Darks, "
+              f"Bias, Masters ({_rl.get('L1.fits')}; {_rl.get('D1.fits')})")
         _owin = w.open_organizer()
+        _owin.layout_box.setCurrentIndex(_owin.layout_box.findData("rig"))
         _owin.src.setText(str(_od / "dump"))
         _owin.same.setChecked(True)
         _owin.move.setChecked(True)

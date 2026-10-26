@@ -690,19 +690,21 @@ table(["What", "Windows", "Mac"], [
 
 sec("13.3", "Organize My Astro Files", ["Organize My Astro Files", "Organize", "Library layout", "Darks library", "NAS", "Undo Last Run", "Duplicates"]);
 p("**File › Organize My Astro Files…** (page 1) sorts a folder full of FITS and XISF files - subs and masters, lights, flats, dark flats, darks and bias, from any number of nights and targets - into one tidy library. It reads each file's own header (IMAGETYP, OBJECT, FILTER, DATE-OBS, camera, gain, temperature), so the file names and the current mess don't matter. Pick the **folder to organize** (a whole drive or a **NAS** share works too - on Windows a mapped drive or `\\\\nas\\astro`, on a Mac the share as it appears under /Volumes) and where the organized files go (the same folder by default).");
-table(["Files", "Go to"], [
-  ["Lights", "`Targets/<target>/<night>_<rig>/LIGHT/<filter>/` (rejected ones keep their `REJECTED` folder). The night folder carries the rig (`2026-10-15_SQA60`), so a target shot with several telescopes never mixes their lights and flats, and you can see which scope took them"],
-  ["Flats and dark flats", "`Targets/<target>/<night>_<rig>/FLAT/<filter>/` - with the target shot that night with the same telescope, including targets organized in an earlier run (so a folder of calibration frames only can be sorted on its own); otherwise `Flats/<scope>/<night>/<filter>/`. Files without IMAGETYP are recognised from folder names above them (*Flats*, *Darks*, *Bias*)"],
-  ["Darks", "`Darks library/<rig>/<camera>_G<gain>_O<offset>_<temp>C/<exposure>s/` - one library per rig, because two cameras of the same model are still two different sensors (hot pixels, amp glow)"],
-  ["Bias", "`Bias library/<rig>/<camera>_G<gain>_O<offset>_<temp>C/`"],
-  ["Master lights", "`Targets/<target>/Masters/` with their star images and stack logs"],
-  ["Calibration masters", "`Calibration masters/<rig>/<camera>_G<gain>_O<offset>_<temp>C/` (master flats in a `Flats <night>/<filter>` folder below it) - reused across targets for months"],
+p("Pick the **Layout** in the window (remembered). **By rig** (the default) keeps everything one rig - a telescope and the camera that lives on it - took in one place:");
+table(["Files", "Go to (By rig)"], [
+  ["Lights", "`Lights/<rig>/<target>/<night>/<filter>/` (rejected ones keep their `REJECTED` folder)"],
+  ["Master lights, finished pictures", "`Lights/<rig>/<target>/Masters/` with their star images and stack logs"],
+  ["Flats / dark flats", "`Calibration/<rig>/Flats/<night>/<filter>/` and `Calibration/<rig>/Dark flats/<night>/<filter>/`"],
+  ["Darks", "`Calibration/<rig>/Darks/<camera>_G<gain>_O<offset>_<temp>C/<exposure>s/`"],
+  ["Bias", "`Calibration/<rig>/Bias/<camera>_G<gain>_O<offset>_<temp>C/`"],
+  ["Calibration masters", "`Calibration/<rig>/Masters/<camera settings>/` (master flats in `Flats <night>/<filter>`)"],
   ["No header to go by", "`Unsorted/`"],
 ], [2600, 6760]);
-img("organize_routing.png", "Where each file goes: the header decides - per-target folders (purple) and shared libraries by camera settings (teal)", 480);
-img("organize_tree.png", "An organized library (example: M 31 shot with two telescopes)", 480);
+img("organize_routing.png", "Where each file goes (By rig): lights by rig, target and night (purple); each rig's own calibration (teal)", 480);
+img("organize_tree.png", "An organized library, By rig (example: two telescopes with the same camera model)", 480);
+p("**By target** puts all of one object's data together instead: `Targets/<target>/<night>_<rig>/LIGHT/<filter>/` and `…/FLAT/<filter>/`, `Targets/<target>/Masters/`, with darks and bias in `Darks library/<rig>/…` and `Bias library/<rig>/…`. Flats join the target shot that night with the same telescope - including targets organized in an earlier run, so a folder of calibration frames only can be sorted on its own; otherwise they go to `Flats/<scope>/<night>/<filter>/`.");
 bullets([
-  "**The rig** is the name you gave it in Calibrate and Stack (e.g. *Poseidon*); otherwise the telescope in the header (a mount driver such as *EQMOD* or *AvalonStarGo.NET* doesn't count), else the focal length, else - for calibration frames sorted by hand into *<scope>/Darks/…* - the folder name above *Darks*, *Flats* or *Bias*. So nine ASI2600s on nine rigs keep nine separate dark libraries.",
+  "**The rig** is the name you gave it in Calibrate and Stack (e.g. *Poseidon*); otherwise the telescope in the header (a mount driver such as *EQMOD* or *AvalonStarGo.NET* doesn't count), else the focal length, else - for calibration frames sorted by hand into *<scope>/Darks/…* - the folder name above *Darks*, *Flats* or *Bias*. So sixteen ASI2600s on sixteen rigs keep sixteen separate sets of darks, bias and flats.",
   "**The night** is the evening date at your site (from the header's longitude), so a session that runs past midnight stays together.",
   "**Step 1 – Look Through the Files** only reads - it shows how many files go where, and a list of each file, where it goes and why. Nothing changes until you press **Step 3 – Organize** (greyed out until Step 1 has run). Do **Step 2 – Duplicates…** in between when Step 1 finds any.",
   "**Copy** (the default) leaves the originals; **Move** moves them and removes the empty folders left behind. A copy is checked before a move removes the original.",
@@ -872,7 +874,7 @@ const HIGHLIGHTS = [
   ]],
   ["Page 1 – Quality & Cull", [
     ["Tonight's Target Picker", "What to shoot tonight from your site and patch of sky - hours in the dark, peak altitude, Moon, size in your frame; sends targets straight into N.I.N.A., built from your own template", "0.9.131"],
-    ["Organize My Astro Files", "Sorts a folder, drive or NAS of FITS/XISF subs and masters into Targets › night › LIGHT/FLAT, a darks library and masters folders - preview first, copy or move, undo; duplicates flagged and kept, set aside or deleted", "0.9.129 / 0.9.130"],
+    ["Organize My Astro Files", "Sorts a folder, drive or NAS of FITS/XISF subs and masters by rig (Lights / Calibration) or by target - preview first, copy or move, undo; duplicates flagged and kept, set aside or deleted", "0.9.129 / 0.9.130"],
     ["Star quality on every frame", "FWHM, eccentricity, SNR, star count and background, with a badge and a score against frames of the same camera and filter", "Stage 2"],
     ["Session chart", "One dot per frame in capture order, nights separated; click to jump, drag a range to flag or reject", "Stage 2"],
     ["Auto-cull presets", "Three strengths flag frames from FWHM, stars, SNR (catches thin cloud) and eccentricity; you review before rejecting, and it can be undone", "0.3.0"],

@@ -6,7 +6,7 @@ import traceback
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QDialog, QFileDialog,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressBar,
                                QPushButton, QRadioButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
@@ -46,10 +46,10 @@ class OrganizeDialog(QDialog):
         lay = QVBoxLayout(self)
         intro = QLabel(
             "Sorts your FITS and XISF files - subs and masters, lights, flats, darks, dark flats and bias - into "
-            "one tidy layout, read from each file's own header: <i>Targets › target › night › LIGHT / FLAT</i>, "
-            "a darks library by camera, gain, temperature and exposure, and each target's masters together. "
-            "Nothing changes until you have seen the plan; every run can be undone; nothing is ever deleted. "
-            "Saved projects are left alone. A NAS works too - pick its shared folder.")
+            "one tidy layout, read from each file's own header (target, rig, night, filter, camera settings), "
+            "so file names and the current mess don't matter. Pick the layout below. Nothing changes until you "
+            "have seen the plan; every run can be undone; only exact duplicates can be deleted, and only when "
+            "you say so. Saved projects are left alone. A NAS works too - pick its shared folder.")
         intro.setWordWrap(True)
         lay.addWidget(intro)
 
@@ -74,6 +74,18 @@ class OrganizeDialog(QDialog):
         self.same.setChecked(self.settings.value("organize/same", True, type=bool))
         self.same.toggled.connect(self._same_toggled)
         lay.addWidget(self.same)
+        h = QHBoxLayout()
+        h.addWidget(QLabel("Layout:"))
+        self.layout_box = QComboBox()
+        for key, text in O.LAYOUTS.items():
+            self.layout_box.addItem(text, key)
+        cur = self.settings.value("organize/layout", "rig") or "rig"
+        self.layout_box.setCurrentIndex(max(0, self.layout_box.findData(cur)))
+        self.layout_box.setToolTip("By rig: everything one telescope (and its camera) took, together - lights by "
+                                   "target and night, its own flats, darks and bias.\nBy target: all of one "
+                                   "object's nights together, darks and bias in libraries per rig.")
+        h.addWidget(self.layout_box, 1)
+        lay.addLayout(h)
         h = QHBoxLayout()
         self.copy = QRadioButton("Copy (the originals stay where they are)")
         self.move = QRadioButton("Move (the files end up only in the new place)")
@@ -150,7 +162,8 @@ class OrganizeDialog(QDialog):
         return Path((self.src.text() if self.same.isChecked() else self.dst.text()).strip())
 
     def _busy(self, on):
-        for w in (self.b_scan, self.b_go, self.b_dups, self.b_undo, self.src, self.dst, self.same, self.copy, self.move):
+        for w in (self.b_scan, self.b_go, self.b_dups, self.b_undo, self.src, self.dst, self.same, self.copy, self.move,
+                  self.layout_box):
             w.setEnabled(not on)
         if not on:
             self.dst.setEnabled(not self.same.isChecked())
@@ -186,7 +199,8 @@ class OrganizeDialog(QDialog):
             QMessageBox.information(self, "Organize My Astro Files", "Pick the folder to organize first.")
             return
         for k, v in (("organize/src", str(src)), ("organize/dst", self.dst.text()),
-                     ("organize/same", self.same.isChecked()), ("organize/move", self.move.isChecked())):
+                     ("organize/same", self.same.isChecked()), ("organize/move", self.move.isChecked()),
+                     ("organize/layout", self.layout_box.currentData())):
             self.settings.setValue(k, v)
 
         try:
@@ -196,10 +210,12 @@ class OrganizeDialog(QDialog):
         except Exception:  # noqa: BLE001
             rigs = None
 
+        layout = self.layout_box.currentData() or "rig"
+
         def work(job):
             paths = O.scan(src, progress=lambda t, n: job.note.emit(t, 0, 0), stop=lambda: job.stop)
             items = O.classify(paths, progress=lambda t, i: job.note.emit(t, i, len(paths)), stop=lambda: job.stop,
-                               library=lib, rigs=rigs)
+                               library=lib, rigs=rigs, layout=layout)
             job.note.emit("Checking for duplicates and name clashes…", 0, 0)
             return O.plan(items, lib)
         self._run(work, self._show_plan, wait)

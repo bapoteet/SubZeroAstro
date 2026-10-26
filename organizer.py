@@ -30,7 +30,7 @@ from pathlib import Path
 import fits_core as core
 
 LOG_DIR = "_SubZeroAstro_organize"
-TOP = ("Targets", "Darks library", "Bias library", "Calibration masters", "Flats", "Unsorted", LOG_DIR)
+TOP = ("Lights", "Calibration", "Targets", "Darks library", "Bias library", "Calibration masters", "Flats", "Unsorted", LOG_DIR)
 EXTS = {e.lower() for e in core.LIGHT_EXTS}
 # in-between files of PixInsight WBPP / Siril / APP runs (calibrated, registered … copies of your subs) and
 # system folders: left alone - they are not your originals and can be made again
@@ -154,7 +154,11 @@ def _companions(p: Path) -> list:
     return out
 
 
-def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None) -> list:
+LAYOUTS = {"rig": "By rig: Lights / rig / target / night  and  Calibration / rig / Flats, Darks, Bias",
+           "target": "By target: Targets / target / night_rig, with darks and bias libraries"}
+
+
+def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None, layout="rig") -> list:
     """Read each header and decide where the file belongs (relative to the library). Returns [Item].
     rigs: SubZeroAstro's saved rig names (stacking.Rigs), so a rig you named keeps its name."""
     import stacking as st
@@ -235,6 +239,9 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             it.key = (info.date_obs, info.exptime, flt, info.camera, it.size, typ, looks_master,
                       info.telescope, info.focal, str(it.src.parent.parent.parent.name) if not info.telescope
                       and not info.focal else "")
+        if layout == "rig":
+            _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected)
+            continue
         if typ in (None, "light") and looks_master and tgt:
             it.kind, it.dst = "master", Path("Targets") / tgt / "Masters" / name
             it.why = "master light"
@@ -294,6 +301,41 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     if progress:
         progress("Headers read", len(paths))
     return items
+
+
+def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected):
+    """Lights / <rig> / <target> / <night> / <filter>   and   Calibration / <rig> / Flats | Dark flats | Darks |
+    Bias | Masters - everything a rig (one telescope with its own camera) took, in one place."""
+    rig = _rig(info, it.src) or "Unknown rig"
+    cal = Path("Calibration") / rig
+    if typ in (None, "light") and looks_master and tgt:
+        it.kind, it.dst, it.why = "master", Path("Lights") / rig / tgt / "Masters" / name, "master light"
+        it.companions = _companions(it.src)
+    elif typ in ("dark", "flat", "darkflat", "bias") and looks_master:
+        sub = Path(_cal_folder(info)) if typ in ("dark", "bias") else Path(f"Flats {night}") / flt
+        it.kind, it.dst, it.why = "calmaster", cal / "Masters" / sub / name, f"master {typ} ({rig})"
+        it.companions = _companions(it.src)
+    elif typ == "light" or (typ is None and tgt and info.exptime):
+        if not tgt:
+            it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "a light without a target name"
+            return
+        sub = Path("Lights") / rig / tgt / night / flt
+        if rejected:
+            sub = sub / core.REJECTED_DIR
+        it.kind, it.dst = "light", sub / name
+        it.why = f"light ({rig})" + (" - rejected on page 1" if rejected else "")
+    elif typ in ("flat", "darkflat"):
+        it.kind = typ
+        it.dst = cal / ("Flats" if typ == "flat" else "Dark flats") / night / flt / name
+        it.why = f"{'flat' if typ == 'flat' else 'dark flat'} of {night} ({rig})"
+    elif typ == "dark":
+        it.kind = "dark"
+        it.dst = cal / "Darks" / _cal_folder(info) / f"{_num_text(info.exptime)}s" / name
+        it.why = f"dark ({rig}: camera settings, exposure)"
+    elif typ == "bias":
+        it.kind, it.dst, it.why = "bias", cal / "Bias" / _cal_folder(info) / name, f"bias ({rig}: camera settings)"
+    else:
+        it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "the header doesn't say what it is"
 
 
 def _quick_hash(p: Path) -> str:
