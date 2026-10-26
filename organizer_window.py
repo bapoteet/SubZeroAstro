@@ -86,10 +86,11 @@ class OrganizeDialog(QDialog):
         h.addStretch(1)
         lay.addLayout(h)
         h = QHBoxLayout()
-        self.b_scan = QPushButton("Look Through the Files (nothing is changed)")
+        self.b_scan = QPushButton("Step 1 – Look Through the Files (nothing is changed)")
         self.b_scan.clicked.connect(lambda: self.scan())
-        self.b_go = QPushButton("Organize")
+        self.b_go = QPushButton("Step 2 – Organize")
         self.b_go.setEnabled(False)
+        self.b_go.setToolTip("Lights up after Step 1, once you have seen the plan")
         self.b_go.clicked.connect(lambda: self.go())
         self.b_dups = QPushButton("Duplicates…")
         self.b_dups.setEnabled(False)
@@ -105,7 +106,7 @@ class OrganizeDialog(QDialog):
             h.addWidget(b)
         h.addStretch(1)
         lay.addLayout(h)
-        self.status = QLabel("Pick a folder, then Look Through the Files.")
+        self.status = QLabel("Pick a folder, then Step 1 – Look Through the Files. Step 2 – Organize lights up once you have seen the plan.")
         self.status.setWordWrap(True)
         lay.addWidget(self.status)
         self.bar = QProgressBar()
@@ -212,7 +213,7 @@ class OrganizeDialog(QDialog):
                          "keep, set aside or delete them")
         if sm.get("error"):
             parts.append(f"{sm['error']} file(s) could not be read - left where they are")
-        self.status.setText("<br>".join(parts) + ("<br>Check the list, then press <b>Organize</b>."
+        self.status.setText("<br>".join(parts) + ("<br>Check the list, then press <b>Step 2 – Organize</b>."
                                                   if sm["files"] else "<br>Nothing to do."))
         lib = self.library()
         order = {"move": 0, "duplicate": 1, "error": 2, "here": 3}

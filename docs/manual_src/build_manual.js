@@ -701,7 +701,7 @@ table(["Files", "Go to"], [
 ], [2600, 6760]);
 bullets([
   "**The night** is the evening date at your site (from the header's longitude), so a session that runs past midnight stays together.",
-  "**Look Through the Files** only reads - it shows how many files go where, and a list of each file, where it goes and why. Nothing changes until you press **Organize**.",
+  "**Step 1 – Look Through the Files** only reads - it shows how many files go where, and a list of each file, where it goes and why. Nothing changes until you press **Step 2 – Organize** (greyed out until Step 1 has run).",
   "**Copy** (the default) leaves the originals; **Move** moves them and removes the empty folders left behind. A copy is checked before a move removes the original.",
   "**Duplicates** (the same capture twice, e.g. *L_001 copy.fits*) are left where they are and flagged. Press **Duplicates…** to see each one next to the copy that is kept, tick the ones to deal with, then **Keep Them**, **Move to a Duplicates Folder** (set aside; Undo Last Run puts them back) or **Delete Ticked Duplicates…**. Delete compares every byte first and only deletes an exact copy - a file with the same capture time but different contents is kept for you to look at. Files that can't be read are left where they are and listed.",
   "**Saved projects** (page 4), files already in the right place, and the in-between folders other programs make (*calibrated*, *registered*, *debayered*, *process* … from PixInsight WBPP, Siril or APP) are left alone, so running it again on the same library only tidies what is new.",
