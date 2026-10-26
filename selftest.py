@@ -3290,13 +3290,13 @@ def run(app, out_dir: Path) -> int:
                for i in _og.plan(_og.classify(_og.scan(_od / "dump")), _od / "dump") if i.status == "move"}
         check(_rl.get("L1.fits", "").startswith("Lights/SQA60/M31/2026-10-01/Ha/")
               and _rl.get("L3.fits", "").startswith("Lights/RASA8/M31/2026-10-08/L/")
-              and _rl.get("F1.fits", "").startswith("Calibration/SQA60/Flats/2026-10-01/Ha/")
+              and _rl.get("F1.fits", "").startswith("Calibration/SQA60/Flats/ASI2600MM/2026-10-01/Ha/")
               and _rl.get("D1.fits", "").startswith("Calibration/SQA60/Darks/ASI2600MM_G100_O50_-10C/180s/")
               and _rl.get("B1.fits", "").startswith("Calibration/SQA60/Bias/ASI2600MM_G100_O50_-10C/")
               and _rl.get("M31_final.fits", "") == "Lights/SQA60/M31/Masters/M31_final.fits"
               and _rl.get("MasterDark_180s.fits", "").startswith("Calibration/SQA60/Masters/ASI2600MM_G100_O50_-10C/")
               and _rdst.get("d3.fits", "").startswith("Calibration/Esprit100/Darks/")
-              and _rdst.get("f2.fits", "").startswith("Calibration/SQA60/Flats/2026-10-01/OIII/"),
+              and _rdst.get("f2.fits", "").startswith("Calibration/SQA60/Flats/ASI2600MM/2026-10-01/OIII/"),
               f"Organize, by rig (the default): Lights/rig/target/night/filter and Calibration/rig/Flats, Darks, "
               f"Bias, Masters ({_rl.get('L1.fits')}; {_rl.get('D1.fits')})")
         _owin = w.open_organizer()

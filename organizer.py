@@ -306,6 +306,7 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
 def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected):
     """Lights / <rig> / <target> / <night> / <filter>   and   Calibration / <rig> / Flats | Dark flats | Darks |
     Bias | Masters - everything a rig (one telescope with its own camera) took, in one place."""
+    import stacking as st
     rig = _rig(info, it.src) or "Unknown rig"
     cal = Path("Calibration") / rig
     if typ in (None, "light") and looks_master and tgt:
@@ -326,7 +327,7 @@ def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected):
         it.why = f"light ({rig})" + (" - rejected on page 1" if rejected else "")
     elif typ in ("flat", "darkflat"):
         it.kind = typ
-        it.dst = cal / ("Flats" if typ == "flat" else "Dark flats") / night / flt / name
+        it.dst = cal / ("Flats" if typ == "flat" else "Dark flats") / st.short_camera(info.camera) / night / flt / name
         it.why = f"{'flat' if typ == 'flat' else 'dark flat'} of {night} ({rig})"
     elif typ == "dark":
         it.kind = "dark"

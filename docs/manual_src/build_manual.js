@@ -690,11 +690,11 @@ table(["What", "Windows", "Mac"], [
 
 sec("13.3", "Organize My Astro Files", ["Organize My Astro Files", "Organize", "Library layout", "Darks library", "NAS", "Undo Last Run", "Duplicates"]);
 p("**File › Organize My Astro Files…** (page 1) sorts a folder full of FITS and XISF files - subs and masters, lights, flats, dark flats, darks and bias, from any number of nights and targets - into one tidy library. It reads each file's own header (IMAGETYP, OBJECT, FILTER, DATE-OBS, camera, gain, temperature), so the file names and the current mess don't matter. Pick the **folder to organize** (a whole drive or a **NAS** share works too - on Windows a mapped drive or `\\\\nas\\astro`, on a Mac the share as it appears under /Volumes) and where the organized files go (the same folder by default).");
-p("Pick the **Layout** in the window (remembered). **By rig** (the default) keeps everything one rig - a telescope and the camera that lives on it - took in one place:");
+p("Pick the **Layout** in the window (remembered). **By rig** (the default) starts with two big folders - **Lights** and **Calibration** - and under each, one folder per rig (a telescope and the camera that lives on it). Calibration then goes by frame type, then camera:");
 table(["Files", "Go to (By rig)"], [
   ["Lights", "`Lights/<rig>/<target>/<night>/<filter>/` (rejected ones keep their `REJECTED` folder)"],
   ["Master lights, finished pictures", "`Lights/<rig>/<target>/Masters/` with their star images and stack logs"],
-  ["Flats / dark flats", "`Calibration/<rig>/Flats/<night>/<filter>/` and `Calibration/<rig>/Dark flats/<night>/<filter>/`"],
+  ["Flats / dark flats", "`Calibration/<rig>/Flats/<camera>/<night>/<filter>/` and `Calibration/<rig>/Dark flats/<camera>/<night>/<filter>/`"],
   ["Darks", "`Calibration/<rig>/Darks/<camera>_G<gain>_O<offset>_<temp>C/<exposure>s/`"],
   ["Bias", "`Calibration/<rig>/Bias/<camera>_G<gain>_O<offset>_<temp>C/`"],
   ["Calibration masters", "`Calibration/<rig>/Masters/<camera settings>/` (master flats in `Flats <night>/<filter>`)"],
