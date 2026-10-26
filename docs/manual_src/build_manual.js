@@ -431,6 +431,8 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Mote Buster ◇", "Fix Dust Donuts: finds the round shadows of dust and divides them out with a synthetic flat - the detail underneath comes back", "A new flat, or DBE with division"],
   ["Take Stars Out", "Hides the stars so the nebula can be brightened strongly (instant if page 3 already separated them)", "StarXTerminator"],
   ["Brighten the Image (Stretch)", "The stretch - five strengths, three methods", "STF / HistogramTransformation / GHS"],
+  ["Bring Out the Tail ◇ (comets)", "Takes away part of the round glow of the comet's head (the coma), measured all the way round the nucleus, so the tail and ion streamers stand out", "1/rho or azimuthal-median coma model + PixelMath"],
+  ["Reveal Comet Jets ◇ (comets)", "Brings out jets and shells near the nucleus by comparing the picture with copies of itself turned a little around the nucleus (Larson-Sekanina); *Jets map only* gives the grey study picture. Best with the stars out", "LarsonSekanina"],
   ["Adjust Colours ◇", "Bring out (or calm) one colour at a time - reds, yellows, greens, cyans, blues, magentas; grey and white stay as they are", "ColorSaturation"],
   ["Tame Bright Core ◇", "Recovers detail in a burnt-out galaxy core or bright nebula: lowers the core's glow towards its surroundings and brings its structure back from the linear data; a nucleus burnt out even in the masters is rounded off so no hard white dot is left, and the stronger versions take in more of the area around the core (works best right after Brighten the Image (Stretch))", "HDRMultiscaleTransform with a mask"],
   ["Adjust Brightness & Contrast", "Curves presets, sliders and a curve you can drag", "CurvesTransformation"],
@@ -747,8 +749,15 @@ bullets([
   "**Globular clusters** (M13, M92): *Brighten Gentle* keeps the core resolved; *Tame Bright Core* if the centre turns into a white disc.",
 ]);
 
-sec("15.7", "Comets (more coming)", ["Comet processing"]);
-p("SubZeroAstro already makes a second stack that follows the comet (10.6). A full comet guide comes with the comet update. For now: many short subs (the comet moves), and process the *_Comet* master for the comet and the *_Stars* master for the stars.");
+sec("15.7", "Comets", ["Comet processing", "Orbitals", "Comet LRGB", "Larson-Sekanina", "Comet tail"]);
+p("SubZeroAstro recognises a comet by its name (*C/2023 A3*, *12P/Pons-Brooks*, or any name with *comet* in it) and handles it from stacking to the finished picture:");
+bullets([
+  "**Capturing:** many short subs - the comet moves. With N.I.N.A.'s **Orbitals** plugin the mount follows the comet; a typical plan cycles the filters, e.g. 6 x 60 s each of R, G and B, then 6 x 30 s of L, again and again. Keep the target name the comet's name so SubZeroAstro knows it is a comet. Take flats for every filter as usual.",
+  "**Page 2 (stacking):** each filter is stacked on the stars and then again following the comet (10.6). The main master joins the sharp stars and the sharp comet; *_Comet* and *_Stars* masters are saved next to it.",
+  "**Page 4 (combining):** when the filters were shot one after another, the comet sits in a slightly different place in each filter's master. SubZeroAstro moves just the comet (head and tail) in each filter onto the comet in the L (or first) master, so the comet's colours line up while the stars stay where they are. The load note says how far each filter's comet was moved.",
+  "**Page 4 (steps):** after **Brighten the Image (Stretch)**, two comet steps are offered: **Bring Out the Tail** (take away part of the round coma so the tail and streamers show) and **Reveal Comet Jets** (Larson-Sekanina: jets and shells near the nucleus; *Jets map only* makes the grey study picture to save separately). **Darken the Sky Background** is recommended so the faint tail stands out; star removal and shrinking are optional.",
+  "**Tips:** take the stars out before Reveal Comet Jets (stars turned around the nucleus leave little arcs). Use Go Back to Here to compare versions. A comet that barely moves during the session is simply stacked on the stars.",
+]);
 
 sec("15.8", "Moon and planets (coming)", ["Planetary imaging", "Moon processing", "Lucky imaging"]);
 p("A page for video of the Moon and planets (lucky imaging: grade thousands of frames, stack the best, sharpen) is on the way. For now: video (SER/AVI) with very short exposures for planets and Moon close-ups; single frames, stacked, for a full Moon; the best 10-25% of the frames usually give the sharpest result.");
@@ -841,6 +850,7 @@ const HIGHLIGHTS = [
     ["Hot-pixel-proof star matching", "Single-pixel spikes are ignored, so frames with hundreds of hot pixels line up on the sky, not the sensor", "0.9.51"],
     ["Plate-solution guided alignment", "Frames and masters that carry a plate solution are lined up from where they point on the sky, with the stars fine-tuning it - rescues matches that fail and catches ones that are wrong", "0.9.53"],
     ["Comet stacking", "A second stack follows the comet; stars and comet are both sharp in the final master", "0.9.22"],
+    ["Comet LRGB", "Filters shot one after another (NINA Orbitals): the comet is lined up across the filters on page 4, the stars stay put", "0.9.126"],
   ]],
   ["Page 3 – Astro Image Processing", [
     ["One run for every filter", "Auto-crop, plate solve, gradient removal and the RC-Astro tools on every master of the target, with the same crop", "0.5.0"],
@@ -849,6 +859,7 @@ const HIGHLIGHTS = [
     ["PixInsight next steps", "Linear XISF/FITS plus a plan of the PixInsight processes still to run, with done steps ticked", "0.5.0"],
   ]],
   ["Page 4 – Finishing Touches", [
+    ["Comet steps", "Bring Out the Tail and Reveal Comet Jets (Larson-Sekanina), offered for comets after the stretch", "0.9.126"],
     ["Recommended next step", "Tailored to your data (colour, mono, narrowband, smart scope) and the target (galaxy, nebula, cluster, comet)", "0.7"],
     ["Pick from your own image, then fine-tune", "Small versions of your picture to choose from; clicking previews big without applying; plain-language sliders fine-tune it, and the app says how much of the picture they change", "0.7 / 0.9.48"],
     ["Do It Again", "Repeatable steps (curves, saturation, noise, Mote Buster …) can be run once more on their own result", "0.9.48"],

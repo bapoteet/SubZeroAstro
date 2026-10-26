@@ -3089,6 +3089,65 @@ def run(app, out_dir: Path) -> int:
               and all(Path(f).parent.parent == Path(_co.masters_root) for f in _cfiles),
               f"comet stack follows the comet (moved {_mv:.1f} px, truly 51.4) and saves "
               f"{[Path(f).name for f in _cfiles]}")
+        # comet processing on page 4: nucleus, Reveal Comet Jets, Bring Out the Tail, filters lined up on the comet
+        import finish as _cf
+        _ch, _cw = 600, 800
+        _gy, _gx = np.mgrid[0:_ch, 0:_cw].astype(np.float32)
+        _ncx, _ncy = 470.0, 250.0
+        _rr = np.hypot(_gx - _ncx, _gy - _ncy)
+        _ua = np.deg2rad(200)
+        _al = (_gx - _ncx) * np.cos(_ua) + (_gy - _ncy) * np.sin(_ua)
+        _pp = -(_gx - _ncx) * np.sin(_ua) + (_gy - _ncy) * np.cos(_ua)
+        _ja = np.deg2rad(-60)
+        _jl = (_gx - _ncx) * np.cos(_ja) + (_gy - _ncy) * np.sin(_ja)
+        _jp = -(_gx - _ncx) * np.sin(_ja) + (_gy - _ncy) * np.cos(_ja)
+        _cimg = (0.08 + 0.5 * np.exp(-_rr / 20) + 0.15 * np.exp(-_rr / 90)
+                 + np.where(_al > 0, 0.12 * np.exp(-_al / 350) * np.exp(-(_pp / (15 + 0.15 * _al)) ** 2), 0)
+                 + np.where((_jl > 5) & (_jl < 70), 0.06 * np.exp(-(_jp / 2.5) ** 2) * np.exp(-_jl / 50), 0)
+                 + np.random.default_rng(5).normal(0, 0.004, (_ch, _cw))).astype(np.float32)
+        _cs = _cf.State(rgb=np.clip(np.stack([_cimg * 0.9, _cimg, _cimg * 0.95]), 0, 1), linear=False,
+                        kind="osc", target="C/2026 X1 (Test)")
+        _nu = _cf.comet_nucleus(_cf._lum(_cs.rgb))
+        _wfk = [t.key for t, _st in _cf.workflow(_cs)]
+        _wfo = [t.key for t, _st in _cf.workflow(_cf.State(rgb=_cs.rgb, linear=False, kind="osc", target="M 42"))]
+        _jt, _tt = _cf.TOOLS["comet_jets"], _cf.TOOLS["comet_tail"]
+        _jo = _jt.apply(_cs, _jt.variants(_cs)[1].params)
+        _jm = (np.abs(_jp) < 2) & (_jl > 15) & (_jl < 45)
+        _jb = (np.abs(_jp) > 7) & (np.abs(_jp) < 12) & (_jl > 15) & (_jl < 45)
+        _jc0 = float(_cf._lum(_cs.rgb)[_jm].mean() - _cf._lum(_cs.rgb)[_jb].mean())
+        _jc1 = float(_cf._lum(_jo.rgb)[_jm].mean() - _cf._lum(_jo.rgb)[_jb].mean())
+        _to = _tt.apply(_cs, _tt.variants(_cs)[1].params)
+
+        def _tail_ratio(img):
+            yl = _cf._lum(img)
+            return float(yl[(_al > 120) & (_al < 200) & (np.abs(_pp) < 8)].mean()
+                         / yl[(_rr > 120) & (_rr < 200) & (_al < -40)].mean())
+        check(_nu is not None and abs(_nu[0] * _cw - 0.5 - _ncx) < 2.5 and abs(_nu[1] * _ch - 0.5 - _ncy) < 2.5
+              and "comet_jets" in _wfk and "comet_tail" in _wfk and "comet_jets" not in _wfo
+              and _jc1 > 1.5 * _jc0 and _tail_ratio(_to.rgb) > 1.15 * _tail_ratio(_cs.rgb),
+              f"comets on page 4: the head is found ({_nu and round(_nu[0] * _cw - 0.5, 1)}, "
+              f"{_nu and round(_nu[1] * _ch - 0.5, 1)} - truly {_ncx:g}, {_ncy:g}); Reveal Comet Jets brings out a "
+              f"jet ({_jc0:.3f} -> {_jc1:.3f}) and Bring Out the Tail lifts the tail over the round coma "
+              f"({_tail_ratio(_cs.rgb):.2f} -> {_tail_ratio(_to.rgb):.2f}); offered only for comets")
+
+        def _cchan(dx, dy, seed):
+            rr = np.hypot(_gx - (_ncx + dx), _gy - (_ncy + dy))
+            c = 0.05 + 0.4 * np.exp(-rr / 20) + 0.1 * np.exp(-rr / 80)
+            c = c + np.random.default_rng(seed).normal(0, 0.002, (_ch, _cw))
+            for i in range(40):
+                g = np.random.default_rng(300 + i)
+                sx, sy = g.uniform(0, _cw), g.uniform(0, _ch)
+                c = c + 0.4 * np.exp(-((_gx - sx) ** 2 + (_gy - sy) ** 2) / (2 * 1.3 ** 2))
+            return c.astype(np.float32)
+        _chs = {"L": _cchan(0, 0, 1), "R": _cchan(6, -3, 2), "G": _cchan(3, -1.5, 3), "B": _cchan(-4, 2, 4)}
+        _rb = _chs["R"].copy()
+        _an = _cf.align_comet_channels(_chs)
+        _pos = {k: _cf.comet_nucleus(v) for k, v in _chs.items()}
+        _spread = max(np.hypot((p[0] - _pos["L"][0]) * _cw, (p[1] - _pos["L"][1]) * _ch) for p in _pos.values())
+        _far = _rr > 250
+        check(_an and "lined up" in _an[0] and _spread < 0.6 and float(np.abs(_chs["R"][_far] - _rb[_far]).max()) < 0.01,
+              f"comet imaged filter by filter (NINA Orbitals: R, G, B, L): the comet is lined up across the filters "
+              f"(heads now within {_spread:.2f} px) while the stars stay put ({_an[:1]})")
         # End this Project and Start New Project: every page closes, page 1 is empty and shown
         import ui_header as _uh2
         check("Start New Project" in fw2.btn_new_project.text() and

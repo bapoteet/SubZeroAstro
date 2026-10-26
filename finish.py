@@ -565,6 +565,12 @@ def load_state(paths) -> State:
             s.stars_missing = True
         return s
     chans, cstars, notes = assemble_mono(masters, stars_of)
+    import targets as _tg
+    if _tg.is_comet(s.target) and len(chans) >= 2:
+        try:
+            notes = notes + align_comet_channels(chans)
+        except Exception as e:  # noqa: BLE001 - never stop loading over this
+            notes = notes + [f"comet: could not line up the filters on the comet ({e})"]
     s.channels, s.channel_stars = chans, cstars
     if notes:
         s.load_note = "; ".join(notes)
@@ -3562,9 +3568,279 @@ class TameCore(Tool):
             img = np.clip(img, 0, 255).astype(np.uint8)
         return img
 
+# --------------------------------------------------------------------------
+# Comets: find the nucleus, reveal jets (Larson-Sekanina) and the tail (take away the round coma)
+
+def comet_nucleus(y: np.ndarray):
+    """Where the comet's head is, as fractions (fx, fy) of the width and height. Stars are taken away
+    first (an opening keeps only blobs bigger than a star), then the brightest smooth spot is found and
+    refined at full size. None when nothing comet-like stands out."""
+    sm, f = _small_plane(y.astype(np.float32), 700)
+    blob = _blur(_opening(sm, 3), 3.0)
+    sky = float(np.median(blob))
+    noise = float(np.median(np.abs(blob - sky))) * 1.4826 + 1e-6
+    iy, ix = np.unravel_index(int(np.argmax(blob)), blob.shape)
+    if (blob[iy, ix] - sky) / noise < 8:
+        return None
+    # refine on the full-size picture, in a small window around the coarse spot
+    h, w = y.shape
+    cy, cx = int((iy + 0.5) * f), int((ix + 0.5) * f)
+    r = max(12, 3 * f)
+    y0, y1, x0, x1 = max(0, cy - r), min(h, cy + r + 1), max(0, cx - r), min(w, cx + r + 1)
+    raw = y[y0:y1, x0:x1].astype(np.float32)
+    if min(raw.shape) < 7:
+        return (cx + 0.5) / w, (cy + 0.5) / h
+    # a 3x3 median takes out noise without smearing the head toward the tail (a blur would)
+    win = np.median(np.stack([np.roll(np.roll(raw, dy, 0), dx, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1)]), 0)
+    inner = win[2:-2, 2:-2]
+    jy, jx = np.unravel_index(int(np.argmax(inner)), inner.shape)
+    jy, jx = jy + 2, jx + 2
+
+    def _sub(a, b, c):                       # parabola through three samples: where its top is
+        d = a - 2 * b + c
+        return 0.0 if d == 0 else float(np.clip(0.5 * (a - c) / d, -0.5, 0.5))
+    px = jx + _sub(win[jy, jx - 1], win[jy, jx], win[jy, jx + 1])
+    py = jy + _sub(win[jy - 1, jx], win[jy, jx], win[jy + 1, jx])
+    return (x0 + px + 0.5) / w, (y0 + py + 0.5) / h
+
+
+def _rotate_about(a: np.ndarray, cx: float, cy: float, deg: float) -> np.ndarray:
+    """The plane turned by deg degrees around (cx, cy) - bilinear, in row bands to keep memory low."""
+    h, w = a.shape
+    t = np.deg2rad(deg)
+    c, sn = np.float32(np.cos(t)), np.float32(np.sin(t))
+    out = np.empty_like(a, dtype=np.float32)
+    xs = np.arange(w, dtype=np.float32) - np.float32(cx)
+    band = max(1, int(4e6 // max(w, 1)))
+    for r0 in range(0, h, band):
+        ys = np.arange(r0, min(h, r0 + band), dtype=np.float32)[:, None] - np.float32(cy)
+        sx = c * xs[None, :] + sn * ys + np.float32(cx)          # where each output pixel comes from
+        sy = -sn * xs[None, :] + c * ys + np.float32(cy)
+        sx = np.clip(sx, 0, w - 1.001)
+        sy = np.clip(sy, 0, h - 1.001)
+        x0, y0 = sx.astype(np.int32), sy.astype(np.int32)
+        fx, fy = sx - x0, sy - y0
+        out[r0:r0 + band] = ((a[y0, x0] * (1 - fx) + a[y0, x0 + 1] * fx) * (1 - fy)
+                             + (a[y0 + 1, x0] * (1 - fx) + a[y0 + 1, x0 + 1] * fx) * fy)
+    return out
+
+
+def larson_sekanina(y: np.ndarray, cx: float, cy: float, angle: float) -> np.ndarray:
+    """Larson-Sekanina rotational gradient: 2*I - I(turned +a) - I(turned -a) around the nucleus.
+    Anything round about the nucleus (the coma) cancels out; jets, shells and tail rays remain."""
+    return 2 * y - _rotate_about(y, cx, cy, angle) - _rotate_about(y, cx, cy, -angle)
+
+
+def radial_profile_model(y: np.ndarray, cx: float, cy: float, bins: int = 400) -> np.ndarray:
+    """The round part of the coma: at each distance from the nucleus, the median brightness all the way
+    round (a tail covers only a few directions, so the median ignores it)."""
+    h, w = y.shape
+    sm, f = _small_plane(y.astype(np.float32), 900)
+    hh, ww = sm.shape
+    yy, xx = np.mgrid[0:hh, 0:ww].astype(np.float32)
+    rr = np.hypot((xx + 0.5) * f - cx, (yy + 0.5) * f - cy)
+    rmax = float(rr.max()) + 1
+    edges = np.linspace(0, np.sqrt(rmax), bins + 1) ** 2               # finer steps near the nucleus
+    idx = np.clip(np.searchsorted(edges, rr.ravel()) - 1, 0, bins - 1)
+    vals = sm.ravel()
+    order = np.argsort(idx, kind="stable")
+    sidx, sval = idx[order], vals[order]
+    starts = np.searchsorted(sidx, np.arange(bins))
+    ends = np.searchsorted(sidx, np.arange(bins), side="right")
+    prof = np.array([np.median(sval[a:b]) if b > a else np.nan for a, b in zip(starts, ends)], np.float32)
+    good = ~np.isnan(prof)
+    mids = (edges[:-1] + edges[1:]) / 2
+    prof = np.interp(mids, mids[good], prof[good]).astype(np.float32)
+    # keep it falling outward (a median ring can wobble)
+    prof = np.minimum.accumulate(prof)
+    ry = (np.arange(h, dtype=np.float32) + 0.5)[:, None] - cy
+    out = np.empty((h, w), np.float32)
+    xs2 = ((np.arange(w, dtype=np.float32) + 0.5) - cx) ** 2
+    band = max(1, int(4e6 // max(w, 1)))
+    for r0 in range(0, h, band):
+        rad = np.sqrt(ry[r0:r0 + band] ** 2 + xs2[None, :])
+        out[r0:r0 + band] = np.interp(rad, mids, prof)
+    return out
+
+
+def _shift_plane(a: np.ndarray, dx: float, dy: float) -> np.ndarray:
+    """The plane moved by (dx, dy) pixels (bilinear; the edges repeat)."""
+    h, w = a.shape
+    xs = np.clip(np.arange(w, dtype=np.float32) - dx, 0, w - 1.001)
+    ys = np.clip(np.arange(h, dtype=np.float32) - dy, 0, h - 1.001)
+    x0, y0 = xs.astype(np.int32), ys.astype(np.int32)
+    fx, fy = (xs - x0)[None, :], (ys - y0)[:, None]
+    top = a[y0][:, x0] * (1 - fx) + a[y0][:, x0 + 1] * fx
+    bot = a[y0 + 1][:, x0] * (1 - fx) + a[y0 + 1][:, x0 + 1] * fx
+    return (top * (1 - fy) + bot * fy).astype(np.float32)
+
+
+def comet_mask(y: np.ndarray) -> np.ndarray:
+    """Soft mask (0..1, full size) of the comet's head and tail: blobs bigger than stars that stand out of
+    the sky, grown a little so the faint edges are included."""
+    h, w = y.shape
+    sm, f = _small_plane(y.astype(np.float32), 700)
+    op = _blur(_opening(sm, 3), 3.0)
+    sky = float(np.median(op))
+    noise = float(np.median(np.abs(op - sky))) * 1.4826 + 1e-9
+    m = np.clip((op - sky - 3 * noise) / (6 * noise), 0, 1)
+    m = _blur(-_min_filter(-m, 4), 3.0)
+    return np.clip(_resize(m, h, w), 0, 1)
+
+
+def align_comet_channels(chans: dict, ref_key: str | None = None) -> list:
+    """Comets imaged one filter after another (e.g. NINA's Orbitals: R, G, B, then L) sit in a slightly
+    different place in each filter's master once the masters are lined up on the stars - the comet moved in
+    between. This moves only the comet (head and tail) in each filter onto the reference filter's comet, so
+    the colours of the comet line up; the stars stay where they are. Changes chans in place; returns notes."""
+    if len(chans) < 2:
+        return []
+    keys = list(chans)
+    ref_key = ref_key if ref_key in chans else ("L" if "L" in chans else keys[0])
+    ref = chans[ref_key]
+    h, w = ref.shape
+    pr = comet_nucleus(ref)
+    if pr is None:
+        return ["comet: its head could not be found in the " + ref_key + " master, so the filters were not "
+                "lined up on the comet"]
+    prx, pry = pr[0] * w - 0.5, pr[1] * h - 0.5
+    mref = comet_mask(ref)
+    moved, notes = [], []
+    for k in keys:
+        if k == ref_key:
+            continue
+        pk = comet_nucleus(chans[k])
+        if pk is None:
+            notes.append(f"comet: not found in {k}, left as it is")
+            continue
+        dx, dy = prx - (pk[0] * w - 0.5), pry - (pk[1] * h - 0.5)
+        dist = float(np.hypot(dx, dy))
+        if dist < 0.7:
+            continue
+        if dist > 0.1 * max(h, w):
+            notes.append(f"comet: in {k} it seems {dist:.0f} px away from {ref_key} - too far to be the same "
+                         "night, left as it is")
+            continue
+        shifted = _shift_plane(chans[k], dx, dy)
+        region = np.maximum(mref, _shift_plane(mref, -dx, -dy))        # where the comet is now and was
+        chans[k] = (chans[k] * (1 - region) + shifted * region).astype(np.float32)
+        moved.append(f"{k} {dist:.1f} px")
+    if moved:
+        notes.insert(0, f"comet lined up across the filters on {ref_key} (it had moved: " + ", ".join(moved)
+                     + ") - the stars stay where they are")
+    return notes
+
+
+class _CometTool(Tool):
+    optional = True
+
+    def possible(self, s):
+        return target_type(s) == "comet"
+
+    def applicable(self, s):
+        if target_type(s) != "comet":
+            return False, "Only for comets"
+        if s.rgb is None:
+            return False, "Combine the colour channels first"
+        if s.linear:
+            return False, "Brighten the image first"
+        return True, ""
+
+    @staticmethod
+    def nucleus(s):
+        return comet_nucleus(_lum(s.rgb)) or (0.5, 0.5)
+
+    @staticmethod
+    def centre(s, params):
+        h, w = s.shape
+        return float(params["fx"]) * w - 0.5, float(params["fy"]) * h - 0.5
+
+
+class CometJets(_CometTool):
+    key = "comet_jets"
+    title = "Reveal Comet Jets"
+    tip = ("Brings out jets, shells and fine rays in the comet's head that the bright, round glow of the coma "
+           "hides. It compares the picture with copies of itself turned a little around the nucleus: whatever is "
+           "round cancels out, and the structure stays. Works best with the stars taken out. "
+           "(PixInsight: LarsonSekanina)")
+
+    def variants(self, s):
+        fx, fy = self.nucleus(s)
+        base = {"fx": fx, "fy": fy, "angle": 10.0, "detail": 1.5}
+        return [Variant("Subtle", dict(base, amount=0.35)),
+                Variant("Moderate", dict(base, amount=0.7), "", True),
+                Variant("Strong", dict(base, amount=1.2, angle=15.0)),
+                Variant("Jets map only", dict(base, amount=0.0, map=True),
+                        "The structure on its own, grey - a study picture, not for the final image")]
+
+    def sliders(self, s, params):
+        if params.get("map"):
+            return [Slider("angle", "Turn (degrees)", 3, 40, params["angle"],
+                           "Small turns show fine jets near the nucleus; bigger turns show broad features", 1)]
+        return [Slider("amount", "Strength", 0.0, 2.0, params["amount"], "How strongly the structure is added"),
+                Slider("angle", "Turn (degrees)", 3, 40, params["angle"],
+                       "Small turns show fine jets near the nucleus; bigger turns show broad features", 1),
+                Slider("detail", "Smoothing", 0.5, 4.0, params["detail"],
+                       "Smooths the structure before adding it, so noise isn't brought out with it", 0.1)]
+
+    def apply(self, s, params):
+        s = s.copy()
+        cx, cy = self.centre(s, params)
+        sc = max(s.shape) / 2000.0                           # angles act the same at any picture size;
+        y = _lum(s.rgb)                                      # the smoothing scales with it
+        d = _blur(larson_sekanina(y, cx, cy, float(params["angle"])), max(0.5, float(params["detail"]) * sc))
+        if params.get("map"):
+            spread = float(np.percentile(np.abs(d), 99.5)) + 1e-6
+            g = np.clip(0.5 + 0.45 * d / spread, 0, 1).astype(np.float32)
+            s.rgb = np.repeat(g[None], 3 if s.is_color else 1, axis=0)
+            if s.stars is not None:
+                s.stars = np.zeros_like(s.stars)
+        else:
+            a = float(params["amount"])
+            sky = float(np.median(y[::3, ::3]))
+            # only on the comet, not in the empty sky (where it would only bring out noise)
+            wgt = np.clip((_blur(y, 4.0 * max(1, sc)) - sky - 0.02) / 0.1, 0, 1)
+            s.rgb = _apply_lum(s.rgb, lambda yy: np.clip(yy + a * wgt * d, 0, 1))
+        s.done.append(self.key)
+        return s
+
+
+class CometTail(_CometTool):
+    key = "comet_tail"
+    title = "Bring Out the Tail"
+    tip = ("Takes away part of the bright, round glow around the comet's head (the coma), so the tail, "
+           "the faint ion streamers and any jets stand out. The round glow is measured all the way round the "
+           "nucleus at every distance; the tail points one way only, so it is left alone.")
+
+    def variants(self, s):
+        fx, fy = self.nucleus(s)
+        return [Variant(n, {"fx": fx, "fy": fy, "amount": a}, "", i == 1)
+                for i, (n, a) in enumerate((("Subtle", 0.35), ("Moderate", 0.6), ("Strong", 0.85)))]
+
+    def sliders(self, s, params):
+        return [Slider("amount", "How much of the round glow to take away", 0.0, 1.0, params["amount"],
+                       "More shows more of the tail's structure, but the head looks less natural")]
+
+    def apply(self, s, params):
+        s = s.copy()
+        cx, cy = self.centre(s, params)
+        a = float(params["amount"])
+        y = _lum(s.rgb)
+        sky = float(np.median(y[::3, ::3]))
+        model = np.maximum(radial_profile_model(y, cx, cy) - sky, 0)
+
+        def fn(yy):
+            out = yy - a * model
+            # keep the head bright: lift what is left back up a little
+            return np.clip(sky + (out - sky) / max(0.35, 1 - 0.55 * a), 0, 1)
+        s.rgb = _apply_lum(s.rgb, fn)
+        s.done.append(self.key)
+        return s
+
+
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
                             TameCore(), Curves(), Saturation(), AdjustColours(), LocalContrast(), BrightenStars(), ShrinkStars(),
-                            StarColours(), PutStarsBack(),
+                            StarColours(), PutStarsBack(), CometTail(), CometJets(),
                             DustDonuts(), DarkenSky(), FinalNoise(), FlipPicture(), FinalCrop(), SpotFix(), SignPicture())}
 
 # steps that can sensibly be run again on their own result ("Do It Again"); one-way steps (combining,
@@ -3650,6 +3926,8 @@ TYPE_WHY = {
                          "burnt out. Tame it now, before Curves and Saturation brighten it further - or Skip it "
                          "if the core already shows its detail."),
     ("comet", "sky"): "A comet: a darker, even sky lets the faint tail show.",
+    ("comet", "comet_tail"): "A comet: take away some of the round glow of the head so the tail stands out.",
+    ("comet", "comet_jets"): "A comet: bring out jets and shells near the nucleus (best with the stars out).",
 }
 
 
@@ -3664,6 +3942,9 @@ def workflow(s: State) -> list:
     optional - none is ever taken away."""
     steps = list(WORKFLOWS.get(s.kind, WORKFLOWS["osc"]))
     tune = TYPE_TUNING.get(target_type(s), {})
+    if target_type(s) == "comet" and "stretch" in steps:
+        i = steps.index("stretch") + 1
+        steps[i:i] = ["comet_tail", "comet_jets"]
     if target_type(s) == "planetary nebula" and "core" in steps and "curves" in steps:
         # a planetary's ring is tamed after Curves (whose contrast would make it white again), before Saturation
         steps.remove("core")
@@ -3996,6 +4277,9 @@ PI_EQUIVALENT = {
     "denoise": "NoiseXTerminator - a light pass (denoise about 0.3-0.5) on the stretched image",
     "sky": "AutomaticBackgroundExtractor or DynamicBackgroundExtraction to model the sky glow, then PixelMath "
            "$T - k*model (k about 0.5) so only part of the glow is taken away",
+    "comet_jets": "LarsonSekanina (centre on the nucleus, angle about 10 degrees), blended back with PixelMath",
+    "comet_tail": "A 1/rho or azimuthal-median coma model (e.g. the CometAlignment / Comet suite scripts), "
+                  "subtracted in part with PixelMath",
 }
 
 
