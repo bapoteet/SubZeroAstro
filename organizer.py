@@ -130,7 +130,7 @@ def _companions(p: Path) -> list:
     return out
 
 
-def classify(paths, read_info=None, progress=None, stop=None) -> list:
+def classify(paths, read_info=None, progress=None, stop=None, library=None) -> list:
     """Read each header and decide where the file belongs (relative to the library). Returns [Item]."""
     import stacking as st
     read_info = read_info or st.read_info
@@ -153,11 +153,28 @@ def classify(paths, read_info=None, progress=None, stop=None) -> list:
         infos.append(info)
 
     # which targets had lights on which night (with which telescope) - flats without a target go there
-    lights_on, rigs = {}, {}
+    lights_on, rigs, existing = {}, {}, {}
     for it, info in zip(items, infos):
         if info is not None and info.type == "light" and not info.master and info.target and info.night:
-            lights_on.setdefault(info.night, set()).add((st.target_name(info.target), info.telescope or ""))
+            lights_on.setdefault(info.night, set()).add((st.target_name(info.target), _rig(info)))
             rigs.setdefault(st.target_name(info.target), set()).add(_rig(info))
+    # nights already in the library (organized before): flats sorted on their own - a folder of calibration
+    # frames only - still find the target that was shot that night
+    if library is not None:
+        tdir = Path(library) / "Targets"
+        try:
+            for td in (tdir.iterdir() if tdir.is_dir() else []):
+                if not td.is_dir():
+                    continue
+                for nd in td.iterdir():
+                    m = re.match(r"^(\d{4}-\d{2}-\d{2})(?:_(.+))?$", nd.name)
+                    if m and nd.is_dir() and (nd / "LIGHT").is_dir():
+                        lights_on.setdefault(m.group(1), set()).add((td.name, m.group(2) or ""))
+                        existing.setdefault((td.name, m.group(1)), []).append((m.group(2) or "", nd.name))
+                        if m.group(2):
+                            rigs.setdefault(td.name, set()).add(m.group(2))
+        except OSError:
+            pass
 
     def session(tgt, info):
         """The night's folder - with the rig added when this target was shot with more than one."""
@@ -170,6 +187,11 @@ def classify(paths, read_info=None, progress=None, stop=None) -> list:
         name = it.src.name
         rejected = it.src.parent.name.upper() == core.REJECTED_DIR
         typ = info.type
+        if typ is None:                 # no IMAGETYP: a folder above it may say (Flats/Ha/…, Darks/300s/…)
+            for anc in list(it.src.parents)[1:4]:
+                typ = st.folder_kind(anc.name)
+                if typ:
+                    break
         flt = _safe(info.filter or "No filter")
         night = info.night or "Unknown date"
         tgt = st.target_name(info.target) if info.target else ""
@@ -204,21 +226,29 @@ def classify(paths, read_info=None, progress=None, stop=None) -> list:
         elif typ in ("flat", "darkflat"):
             folder = "FLAT" if typ == "flat" else "DARKFLAT"
             owners = sorted(lights_on.get(night, set()))
-            same_scope = [t for t, tel in owners if tel == (info.telescope or "")]
+            frig = _rig(info)
+            same_scope = {t for t, r in owners if frig and r == frig}
+            # a target shot that night with this scope - or with a scope we can't tell apart from it
+            maybe = {t for t, r in owners if not frig or not r or r == frig}
             if tgt and any(t == tgt for t, _ in owners):
                 owner = tgt
-            elif len(set(same_scope)) == 1:
-                owner = same_scope[0]
-            elif len({t for t, _ in owners}) == 1:
-                owner = owners[0][0]
+            elif len(same_scope) == 1:
+                owner = next(iter(same_scope))
+            elif len(maybe) == 1:
+                owner = next(iter(maybe))
             else:
                 owner = None
             if owner:
-                it.kind, it.dst = typ, Path("Targets") / owner / session(owner, info) / folder / flt / name
+                there = existing.get((owner, night), [])
+                pick = [d for r, d in there if r == frig] or ([there[0][1]] if len(there) == 1 else [])
+                nightdir = pick[0] if pick else session(owner, info)
+                it.kind, it.dst = typ, Path("Targets") / owner / nightdir / folder / flt / name
                 it.why = f"{typ} of the night ({owner})"
             else:
-                it.kind, it.dst = typ, Path("Flats") / night / (folder if typ == "darkflat" else "") / flt / name
-                it.why = f"{typ} - several (or no) targets that night"
+                scope = frig or st.short_camera(info.camera)
+                it.kind, it.dst = typ, Path("Flats") / scope / night / (folder if typ == "darkflat" else "") / flt / name
+                it.why = (f"{typ} - several targets that night, kept by scope" if owners else
+                          f"{typ} - no lights from that night here yet, kept by scope and night")
         elif typ == "dark":
             it.kind = "dark"
             it.dst = Path("Darks library") / _cal_folder(info) / f"{_num_text(info.exptime)}s" / name

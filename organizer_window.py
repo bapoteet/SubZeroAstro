@@ -191,7 +191,8 @@ class OrganizeDialog(QDialog):
 
         def work(job):
             paths = O.scan(src, progress=lambda t, n: job.note.emit(t, 0, 0), stop=lambda: job.stop)
-            items = O.classify(paths, progress=lambda t, i: job.note.emit(t, i, len(paths)), stop=lambda: job.stop)
+            items = O.classify(paths, progress=lambda t, i: job.note.emit(t, i, len(paths)), stop=lambda: job.stop,
+                               library=lib)
             job.note.emit("Checking for duplicates and name clashes…", 0, 0)
             return O.plan(items, lib)
         self._run(work, self._show_plan, wait)

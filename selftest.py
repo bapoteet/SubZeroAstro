@@ -3243,6 +3243,40 @@ def run(app, out_dir: Path) -> int:
               and _odst.get("MasterDark_180s.fits", "").startswith("Calibration masters/ASI2600MM_G100_O50_-10C/") and sorted(_odup) == ["L1 (2).fits", "L2 copy.fits"],
               f"Organize My Astro Files sorts by header - lights and that night's flats under the target "
               f"({_night}), darks by camera/gain/offset/temperature/exposure, bias and calibration masters, the rig added when a target was shot with two - and spots the duplicate ({_odup})")
+        # a folder of calibration frames only, sorted by scope (Flats/<filter>, Darks/<exposure>, Bias), some
+        # without IMAGETYP: flats find the target already organized from that night (right scope), others are
+        # kept by scope and night; darks and bias go to the libraries
+        _oc = session.parent / "organize_cal_test"
+        _ksh.rmtree(_oc, ignore_errors=True)
+        (_oc / "Targets" / "M31" / "2026-10-01_SQA60" / "LIGHT" / "Ha").mkdir(parents=True)
+        (_oc / "Targets" / "M31" / "2026-10-08_RASA8" / "LIGHT" / "L").mkdir(parents=True)
+
+        def _cfits(rel, hd):
+            _p = _oc / "Calibration" / rel
+            _p.parent.mkdir(parents=True, exist_ok=True)
+            _h = {"INSTRUME": "ZWO ASI2600MM Pro", "GAIN": 100, "OFFSET": 50, "CCD-TEMP": -10.0, "SITELONG": -84.5,
+                  "EXPTIME": 1.0}
+            _h.update(hd)
+            core.write_fits(_p, (_orng.random((10, 12)) * 1000).astype(np.uint16), _h, bitpix=16)
+        _cfits("SQA60/Flats/Ha/f1.fits", {"IMAGETYP": "Flat", "FILTER": "Ha", "TELESCOP": "SQA60",
+                                          "DATE-OBS": "2026-10-02T10:00:00"})
+        _cfits("SQA60/Flats/OIII/f2.fits", {"FILTER": "OIII", "TELESCOP": "SQA60", "DATE-OBS": "2026-10-02T10:05:00"})
+        _cfits("RASA8/Flats/L/f3.fits", {"IMAGETYP": "Flat", "FILTER": "L", "TELESCOP": "RASA8",
+                                         "DATE-OBS": "2026-10-06T10:00:00"})
+        _cfits("RASA8/Darks/300s/d1.fits", {"IMAGETYP": "Dark", "TELESCOP": "RASA8", "EXPTIME": 300.0,
+                                            "DATE-OBS": "2026-09-02T10:00:00"})
+        _cfits("RASA8/Bias/b1.fits", {"IMAGETYP": "Bias", "TELESCOP": "RASA8", "EXPTIME": 0.0,
+                                      "DATE-OBS": "2026-09-02T10:00:00"})
+        _cdst = {i.src.name: str(i.dst.relative_to(_oc)).replace("\\", "/")
+                 for i in _og.plan(_og.classify(_og.scan(_oc / "Calibration"), library=_oc), _oc) if i.dst}
+        check(_cdst.get("f1.fits") == "Targets/M31/2026-10-01_SQA60/FLAT/Ha/f1.fits"
+              and _cdst.get("f2.fits") == "Targets/M31/2026-10-01_SQA60/FLAT/OIII/f2.fits"
+              and _cdst.get("f3.fits") == "Flats/RASA8/2026-10-05/L/f3.fits"
+              and _cdst.get("d1.fits", "").startswith("Darks library/ASI2600MM_G100_O50_-10C/300s/")
+              and _cdst.get("b1.fits", "").startswith("Bias library/ASI2600MM_G100_O50_-10C/"),
+              f"Organize a calibration-only folder (by scope, some files without IMAGETYP): flats join the target "
+              f"shot that night with that scope, the rest are kept by scope and night ({_cdst.get('f3.fits')}); "
+              "darks and bias go to the libraries")
         _owin = w.open_organizer()
         _owin.src.setText(str(_od / "dump"))
         _owin.same.setChecked(True)

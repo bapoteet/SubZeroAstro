@@ -692,7 +692,7 @@ sec("13.3", "Organize My Astro Files", ["Organize My Astro Files", "Organize", "
 p("**File › Organize My Astro Files…** (page 1) sorts a folder full of FITS and XISF files - subs and masters, lights, flats, dark flats, darks and bias, from any number of nights and targets - into one tidy library. It reads each file's own header (IMAGETYP, OBJECT, FILTER, DATE-OBS, camera, gain, temperature), so the file names and the current mess don't matter. Pick the **folder to organize** (a whole drive or a **NAS** share works too - on Windows a mapped drive or `\\\\nas\\astro`, on a Mac the share as it appears under /Volumes) and where the organized files go (the same folder by default).");
 table(["Files", "Go to"], [
   ["Lights", "`Targets/<target>/<night>/LIGHT/<filter>/` (rejected ones keep their `REJECTED` folder). A target shot with more than one telescope gets the rig in the night's name (`2026-10-15_SQA60`), so flats are never matched to the other scope's lights"],
-  ["Flats and dark flats", "`Targets/<target>/<night>/FLAT/<filter>/` - with the target shot that night (same telescope); `Flats/<night>/…` if several targets could own them"],
+  ["Flats and dark flats", "`Targets/<target>/<night>/FLAT/<filter>/` - with the target shot that night with the same telescope, including targets organized in an earlier run (so a folder of calibration frames only can be sorted on its own); otherwise `Flats/<scope>/<night>/<filter>/`. Files without IMAGETYP are recognised from folder names above them (*Flats*, *Darks*, *Bias*)"],
   ["Darks", "`Darks library/<camera>_G<gain>_O<offset>_<temp>C/<exposure>s/`"],
   ["Bias", "`Bias library/<camera>_G<gain>_O<offset>_<temp>C/`"],
   ["Master lights", "`Targets/<target>/Masters/` with their star images and stack logs"],
