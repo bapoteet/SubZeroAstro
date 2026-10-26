@@ -3175,6 +3175,21 @@ def run(app, out_dir: Path) -> int:
               and _kp3.keep_masters() == (0, 0),
               f"Save Project As keeps the masters with the project ({len(_knames)} files: masters, star images, "
               "stack log - not other targets'), the originals stay, and the moved project still finds them")
+        # a page-3 (prepared) master brings its stacked master along; projects copied between Mac and PC find theirs
+        (_kd / "pm" / "Prepared").mkdir(parents=True)
+        (_kd / "pm" / "M51_L_Master.fits").write_bytes(b"s" * 300)
+        (_kd / "pm" / "M51_L_Master_stacklog.txt").write_text("log")
+        _kpp = _kd / "pm" / "Prepared" / "M51_L_Master_prepared.xisf"
+        _kpp.write_bytes(b"p" * 300)
+        _kq = _cf.Project(_kd / "w2")
+        _kq.save(_cf.State(rgb=np.zeros((3, 20, 20), np.float32), target="M51", sources=[str(_kpp)]), "load", "x")
+        _kq2 = _kq.save_as(_kd / "M51", keep_masters=True)
+        _kn2 = sorted(x.name for x in (_kq2.dir / "Masters").iterdir())
+        _kq2.manifest["sources"] = [r"C:\Users\me\Astro\Prepared\M51_L_Master_prepared.xisf"]   # written on a PC
+        check(_kn2 == ["M51_L_Master.fits", "M51_L_Master_prepared.xisf", "M51_L_Master_stacklog.txt"]
+              and Path(_kq2.resolve_sources(_kq2.manifest["sources"])[0]).exists(),
+              f"keeping the masters also keeps the stacked master behind a page-3 one ({_kn2}), and a project "
+              "saved on a PC finds its masters on a Mac (and the other way round)")
         # End this Project and Start New Project: every page closes, page 1 is empty and shown
         import ui_header as _uh2
         check("Start New Project" in fw2.btn_new_project.text() and

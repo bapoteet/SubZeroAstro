@@ -1146,6 +1146,10 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
         hdr = [(k, v, c) for k, v, c in m.cards if k not in ("HISTORY",)]
         hdr += [("HISTORY", f"SubZeroAstro prepare: {t}", "") for _k, t in m.steps]
         hdr.append(("PREPARED", True, "prepared for PixInsight by SubZeroAstro"))
+        try:
+            hdr.append(("ORIGFILE", Path(m.path).name[:68], "stacked master this was prepared from"))
+        except Exception:  # noqa: BLE001
+            pass
         if i in stars_images:
             hdr.append(("STARLESS", True, "stars removed (StarXTerminator); stars in *_stars file"))
         base = out_dir / f"{m.name}_prepared"

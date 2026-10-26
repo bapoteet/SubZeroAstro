@@ -4103,6 +4103,11 @@ class Project:
 
     MASTERS = "Masters"
 
+    @staticmethod
+    def _name(p) -> str:
+        """A file's name from a path written on any computer (Windows paths use backslashes)."""
+        return str(p).replace("\\", "/").rstrip("/").split("/")[-1]
+
     def resolve_sources(self, sources) -> list:
         """The masters, as paths that exist: a master that is no longer where it was (the project folder was
         moved, or the masters were copied into it) is looked for in the project's own Masters folder."""
@@ -4110,7 +4115,7 @@ class Project:
         for p in sources or []:
             q = Path(p)
             if not q.exists():
-                alt = self.dir / self.MASTERS / q.name
+                alt = self.dir / self.MASTERS / self._name(p)
                 if alt.exists():
                     q = alt
             out.append(str(q))
@@ -4120,15 +4125,35 @@ class Project:
         """Every file that belongs with the project's masters: each master plus its companions in the same
         folder (its stars-only image, stack log, comet/stars masters, notes - all named after it)."""
         files = []
-        for p in self.resolve_sources(self.manifest.get("sources", [])):
-            q = Path(p)
-            if not q.exists():
-                continue
-            files.append(q)
-            for sib in sorted(q.parent.glob(q.stem + "_*")):
-                if sib.is_file() and sib not in files:
-                    files.append(sib)
-        return files
+
+        def add(q: Path):
+            if q.exists() and q not in files:
+                files.append(q)
+                for sib in sorted(q.parent.glob(q.stem + "_*")):
+                    if sib.is_file() and sib not in files:
+                        files.append(sib)
+        srcs = [Path(p) for p in self.resolve_sources(self.manifest.get("sources", []))]
+        srcs += [Path(p) for p in self.manifest.get("origins", {}).values()]
+        for q in srcs:
+            add(q)
+            # a page-3 ("_prepared") master: also keep the stacked master it was made from - needed to redo
+            # page 3 from scratch or to add more nights. It sits one folder up (…/Prepared) unless page 3
+            # saved elsewhere; newer prepared masters name it in their header (ORIGFILE)
+            if q.stem.endswith("_prepared") or "_prepared_" in q.stem:
+                base = q.stem.split("_prepared")[0]
+                names = [base]
+                try:
+                    import prepare as P
+                    org = str(P.load_master(q).look.get("ORIGFILE") or "")
+                    if org:
+                        names.insert(0, Path(org).stem)
+                except Exception:  # noqa: BLE001
+                    pass
+                for folder in (q.parent.parent, q.parent):
+                    for nm in names:
+                        for ext in (".fits", ".fit", ".xisf", ".tif", ".tiff"):
+                            add(folder / (nm + ext))
+        return [f for f in files if not f.stem.endswith("_prepared_stars") or f.exists()]
 
     def keep_masters(self) -> tuple:
         """Copy the masters (and their companions) into <project>/Masters and use those copies from now on,
@@ -4148,7 +4173,11 @@ class Project:
             total += t.stat().st_size
 
         def moved(lst):
-            return [str(dest / Path(p).name) if (dest / Path(p).name).exists() else p for p in lst or []]
+            return [str(dest / self._name(p)) if (dest / self._name(p)).exists() else p for p in lst or []]
+        origins = dict(self.manifest.get("origins", {}))
+        for f in files:
+            origins.setdefault(f.name, str(f))              # where each copied file came from
+        self.manifest["origins"] = origins
         self.manifest["sources"] = moved(self.manifest.get("sources"))
         for st in self.steps:
             mp = self.dir / st["dir"] / "meta.json"
