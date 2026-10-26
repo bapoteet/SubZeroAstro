@@ -88,11 +88,11 @@ class OrganizeDialog(QDialog):
         h = QHBoxLayout()
         self.b_scan = QPushButton("Step 1 – Look Through the Files (nothing is changed)")
         self.b_scan.clicked.connect(lambda: self.scan())
-        self.b_go = QPushButton("Step 2 – Organize")
+        self.b_go = QPushButton("Step 3 – Organize")
         self.b_go.setEnabled(False)
         self.b_go.setToolTip("Lights up after Step 1, once you have seen the plan")
         self.b_go.clicked.connect(lambda: self.go())
-        self.b_dups = QPushButton("Duplicates…")
+        self.b_dups = QPushButton("Step 2 – Duplicates… (if any)")
         self.b_dups.setEnabled(False)
         self.b_dups.setToolTip("See the duplicates found, and keep them, move them to a Duplicates folder or "
                                "delete them")
@@ -102,11 +102,11 @@ class OrganizeDialog(QDialog):
         self.b_stop = QPushButton("Stop")
         self.b_stop.setVisible(False)
         self.b_stop.clicked.connect(lambda: setattr(self.job, "stop", True) if self.job else None)
-        for b in (self.b_scan, self.b_go, self.b_dups, self.b_undo, self.b_stop):
+        for b in (self.b_scan, self.b_dups, self.b_go, self.b_undo, self.b_stop):
             h.addWidget(b)
         h.addStretch(1)
         lay.addLayout(h)
-        self.status = QLabel("Pick a folder, then Step 1 – Look Through the Files. Step 2 – Organize lights up once you have seen the plan.")
+        self.status = QLabel("Pick a folder, then Step 1 – Look Through the Files. Step 2 deals with any duplicates it finds; Step 3 – Organize lights up once you have seen the plan.")
         self.status.setWordWrap(True)
         lay.addWidget(self.status)
         self.bar = QProgressBar()
@@ -209,11 +209,11 @@ class OrganizeDialog(QDialog):
         if sm.get("here"):
             parts.append(f"{sm['here']} already in the right place")
         if sm.get("duplicate"):
-            parts.append(f"{sm['duplicate']} duplicate(s) - left where they are; press <b>Duplicates…</b> to "
+            parts.append(f"{sm['duplicate']} duplicate(s) - left where they are; press <b>Step 2 – Duplicates…</b> to "
                          "keep, set aside or delete them")
         if sm.get("error"):
             parts.append(f"{sm['error']} file(s) could not be read - left where they are")
-        self.status.setText("<br>".join(parts) + ("<br>Check the list, then press <b>Step 2 – Organize</b>."
+        self.status.setText("<br>".join(parts) + ("<br>Check the list, deal with any duplicates (<b>Step 2</b>), then press <b>Step 3 – Organize</b>."
                                                   if sm["files"] else "<br>Nothing to do."))
         lib = self.library()
         order = {"move": 0, "duplicate": 1, "error": 2, "here": 3}
