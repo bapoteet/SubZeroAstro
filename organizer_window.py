@@ -360,6 +360,51 @@ class OrganizeDialog(QDialog):
         self._run(work, done, wait)
 
 
+    # ---------------------------------------------------------------- rig names
+    def _rigs(self):
+        try:
+            import json as _json
+            import stacking as _st
+            return _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
+        except Exception:  # noqa: BLE001
+            return None
+
+    def name_rigs(self, names=None):
+        """Name Your Rigs…: one row per rig found; the names are saved where Calibrate and Stack keeps its rig
+        names, and the plan is worked out again straight away (no headers are read twice)."""
+        rigs = self._rigs()
+        cands = O.rig_candidates(self.items, rigs, root=(getattr(self, "_plan_args", None) or (None, None, None))[2])
+        if not cands:
+            return None
+        if names is None:
+            d = RigNamesDialog(self, cands)
+            if not d.exec():
+                return None
+            names = d.names()
+        import json as _json
+        import stacking as _st
+        rigs = rigs or _st.Rigs()
+        changed = 0
+        for c, n in zip(cands, names):
+            n = (n or "").strip()
+            if n and n != (c["named"] or ""):
+                rigs.set(c["camera"], c["focal"], n)
+                changed += 1
+        self.settings.setValue("stack/rigs", _json.dumps(rigs.entries))
+        lib, layout, src = getattr(self, "_plan_args", (self.library(), "rig", None))
+        cache = {str(it.src): it.info for it in self.items}
+
+        def cached(p):
+            v = cache.get(str(p))
+            if v is None:
+                raise OSError("could not be read")
+            return v
+        items = O.plan(O.classify([it.src for it in self.items], read_info=cached, library=lib, rigs=rigs,
+                                  layout=layout, root=src), lib)
+        self._show_plan(items)
+        return changed
+
+
 class DuplicatesDialog(QDialog):
     """The duplicates found: tick the ones to deal with, then keep, set aside or delete them. Deleting only
     removes a file that is byte for byte the same as the copy that is kept."""
@@ -430,51 +475,6 @@ class DuplicatesDialog(QDialog):
             return
         self.close()
         self.owner.handle_duplicates(todo, delete, wait)
-
-    # ---------------------------------------------------------------- rig names
-    def _rigs(self):
-        try:
-            import json as _json
-            import stacking as _st
-            return _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
-        except Exception:  # noqa: BLE001
-            return None
-
-    def name_rigs(self, names=None):
-        """Name Your Rigs…: one row per rig found; the names are saved where Calibrate and Stack keeps its rig
-        names, and the plan is worked out again straight away (no headers are read twice)."""
-        rigs = self._rigs()
-        cands = O.rig_candidates(self.items, rigs, root=(getattr(self, "_plan_args", None) or (None, None, None))[2])
-        if not cands:
-            return None
-        if names is None:
-            d = RigNamesDialog(self, cands)
-            if not d.exec():
-                return None
-            names = d.names()
-        import json as _json
-        import stacking as _st
-        rigs = rigs or _st.Rigs()
-        changed = 0
-        for c, n in zip(cands, names):
-            n = (n or "").strip()
-            if n and n != (c["named"] or ""):
-                rigs.set(c["camera"], c["focal"], n)
-                changed += 1
-        self.settings.setValue("stack/rigs", _json.dumps(rigs.entries))
-        lib, layout, src = getattr(self, "_plan_args", (self.library(), "rig", None))
-        cache = {str(it.src): it.info for it in self.items}
-
-        def cached(p):
-            v = cache.get(str(p))
-            if v is None:
-                raise OSError("could not be read")
-            return v
-        items = O.plan(O.classify([it.src for it in self.items], read_info=cached, library=lib, rigs=rigs,
-                                  layout=layout, root=src), lib)
-        self._show_plan(items)
-        return changed
-
 
 class RigNamesDialog(QDialog):
     def __init__(self, owner, cands):
