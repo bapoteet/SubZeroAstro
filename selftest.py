@@ -3224,6 +3224,7 @@ def run(app, out_dir: Path) -> int:
         _ofits("L3.fits", "Light Frame", "M 31", "L", 120.0, "2026-10-09T03:10:00", TELESCOP="RASA8")
         _ofits("MD.fits", "Dark Frame", None, None, 180.0, "2026-09-01T12:00:00", NCOMBINE=30)
         (_od / "dump" / "MD.fits").rename(_od / "dump" / "MasterDark_180s.fits")
+        _ofits("M31_final.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:10:00", NCOMBINE=40)
         _ofits("F1.fits", "Flat Field", None, "Ha", 1.5, "2026-10-02T10:00:00")
         _ofits("D1.fits", "Dark Frame", None, None, 180.0, "2026-09-01T12:00:00")
         _ofits("B1.fits", "Bias Frame", None, None, 0.001, "2026-09-01T12:00:00")
@@ -3238,6 +3239,7 @@ def run(app, out_dir: Path) -> int:
               and _odst.get("D1.fits", "").startswith("Darks library/") and "/180s/" in _odst["D1.fits"]
               and _odst.get("B1.fits", "").startswith("Bias library/ASI2600MM_G100_O50_-10C/")
               and _odst.get("L3.fits", "").startswith("Targets/M31/2026-10-08_RASA8/LIGHT/L")
+              and _odst.get("M31_final.fits", "") == "Targets/M31/Masters/M31_final.fits"
               and _odst.get("MasterDark_180s.fits", "").startswith("Calibration masters/ASI2600MM_G100_O50_-10C/") and sorted(_odup) == ["L1 (2).fits", "L2 copy.fits"],
               f"Organize My Astro Files sorts by header - lights and that night's flats under the target "
               f"({_night}), darks by camera/gain/offset/temperature/exposure, bias and calibration masters, the rig added when a target was shot with two - and spots the duplicate ({_odup})")
@@ -3259,7 +3261,7 @@ def run(app, out_dir: Path) -> int:
         _ogone = not (_od / "dump" / "L1.fits").exists() and (_od / "dump" / "sub" / "L1 (2).fits").exists()
         _owin.undo_last(ask=False, wait=True)
         _oback = sorted(p.name for p in (_od / "dump").glob("*.fits"))
-        check(_on == 7 and _ogone and len(_omoved) == 8 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "MasterDark_180s.fits"]
+        check(_on == 8 and _ogone and len(_omoved) == 9 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "M31_final.fits", "MasterDark_180s.fits"]
               and not (_od / "dump" / "Targets").exists(),
               f"File › Organize My Astro Files… moves {_on} files into place (the duplicate stays put) and Undo "
               f"Last Run puts every one back ({_oback})")

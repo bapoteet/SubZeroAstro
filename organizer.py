@@ -174,7 +174,12 @@ def classify(paths, read_info=None, progress=None, stop=None) -> list:
         night = info.night or "Unknown date"
         tgt = st.target_name(info.target) if info.target else ""
         it.night, it.filter, it.target = night, flt, tgt
-        looks_master = bool(info.master or "_prepared" in it.src.stem or re.search(r"master", name, re.I))
+        # masters and processed results (a colour 3-plane image, several frames combined, or a name that says so)
+        # go to the target's Masters folder - never into a night's LIGHT folder as if they were subs
+        looks_master = bool(info.master or "_prepared" in it.src.stem or re.search(r"master", name, re.I)
+                            or (getattr(info, "planes", 1) or 1) >= 3 or (info.ncombine or 0) > 1
+                            or re.search(r"(final|processed|stretched|integration|drizzle|stack(ed)?|_linear|"
+                                         r"starless|_stars)", name, re.I))
         if info.date_obs:
             it.key = (info.date_obs, info.exptime, flt, info.camera, it.size, typ, looks_master)
         if typ in (None, "light") and looks_master and tgt:
