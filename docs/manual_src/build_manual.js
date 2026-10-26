@@ -215,7 +215,7 @@ p("Delete the app folder (Windows) or drag SubZeroAstro from Applications to the
 
 ch(4, "First-time setup");
 sec("4.1", "Tell SubZeroAstro where your tools are", ["Tool locations", "ASTAP", "GraXpert", "RC-Astro CLI", "Device (GPU)"]);
-p("When SubZeroAstro starts, it checks for ASTAP, GraXpert and the RC-Astro CLI in the background. If one is missing - or RC-Astro is installed but a tool is not licensed - a slim **amber banner** appears at the top of page 1, saying what you would miss (for example *plate solving is skipped*). Nothing is wrong: you can still cull and stack. The banner has two buttons:");
+p("When SubZeroAstro starts, it checks for ASTAP, GraXpert and the RC-Astro CLI in the background. If one is missing - or RC-Astro is installed but a tool is not licensed, or ASTAP has no star database next to it (ASTAP can't plate solve without one; D50 is a separate download on the same page) - a slim **amber banner** appears at the top of page 1, saying what you would miss (for example *plate solving is skipped*). Nothing is wrong: you can still cull and stack. The banner has two buttons:");
 bullets([
   "**Set Up…** - opens the **Your Tools** window (also in **Settings › Your Tools (ASTAP, GraXpert, RC-Astro)…**).",
   "**Don't Remind Me** - hides the banner until something else changes. Use it if you have chosen not to use one of the programs.",

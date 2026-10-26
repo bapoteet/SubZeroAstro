@@ -1026,6 +1026,16 @@ def run(app, out_dir: Path) -> int:
                 _os.environ["FAKE_RC_UNLICENSED"] = _env
             _all = _tc.check(_paths)
             check(all(r["ok"] and not r["problem"] for r in _all), "all helper programs found and ready")
+            import shutil as _tsh
+            _nd = session.parent / "astap_no_database"
+            _nd.mkdir(parents=True, exist_ok=True)
+            _tsh.copy2(_fk / "fake_astap.py", _nd / "fake_astap.py")
+            _ast = next(r for r in _tc.check(dict(_paths, **{"prep/astap": str(_nd / "fake_astap.py")}))
+                        if r["key"] == "astap")
+            _ast_ok = next(r for r in _all if r["key"] == "astap")
+            check(_ast["problem"] == "no star database" and "D50" in _ast["detail"] and "D50" in _ast_ok["detail"],
+                  f"ASTAP without a star database is flagged (plate solving needs one); with one it says which "
+                  f"({_ast_ok['detail']})")
             bn.show_results(_all)
             check(bn.isHidden(), "no banner when every helper program is ready")
         _old = {k: w.settings.value(k, "") for k in _none}

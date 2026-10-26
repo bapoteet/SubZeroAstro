@@ -71,6 +71,22 @@ def check(paths: dict) -> list:
                 r["problem"], r["detail"] = "not working", f"found, but it did not answer: {e}"
             except Exception as e:  # noqa: BLE001
                 r["problem"], r["detail"] = "not working", f"found, but it did not answer ({type(e).__name__})"
+        elif key == "astap":
+            r["ok"] = True
+            try:
+                dbs = tools.astap_databases(r["path"])
+            except Exception:  # noqa: BLE001
+                dbs = None
+            if dbs == []:
+                # ASTAP can't solve without a star database (a separate download). It may live somewhere we
+                # don't look, so ASTAP stays usable - this is a reminder, not a block.
+                r["problem"] = "no star database"
+                r["detail"] = ("found, but no star database next to it - plate solving needs one: download D50 "
+                               "(or the smaller D05 / D20 for wide fields) from the ASTAP page and install it into "
+                               "ASTAP's folder. Already installed elsewhere? Then ignore this.")
+            else:
+                r["detail"] = f"ready - {Path(r['path']).name}" + (f" (star database: {', '.join(d.upper() for d in dbs)})"
+                                                                   if dbs else "")
         else:
             r["ok"] = True
             r["detail"] = f"ready - {Path(r['path']).name}"
