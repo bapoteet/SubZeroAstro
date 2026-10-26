@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.128 beta"
+APP_VERSION = "0.9.129 beta"
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -1250,6 +1250,9 @@ class MainWindow(QMainWindow):
                                     QStyle.SP_DirOpenIcon,
                                     "Already stacked? Pick your master lights and go straight to Astro Image "
                                     "Processing (page 2) - no restacking")
+        self.act_organize = act("Organize My Astro Files…", self.open_organizer, None, QStyle.SP_DirIcon,
+                                "Sort the FITS and XISF files in a folder, drive or NAS into Targets › night › "
+                                "LIGHT / FLAT, a darks library and masters folders - preview first, undo any time")
         self.act_start_over = act("Start Over – Load New Data…", self.start_over, "Ctrl+N",
                                   QStyle.SP_BrowserReload,
                                   "Clear this session and open a new folder (Ctrl+N)")
@@ -1325,6 +1328,8 @@ class MainWindow(QMainWindow):
         for a in (self.act_load, self.act_open_project, self.act_open_pi, self.act_open_masters, self.act_open, self.act_reopen, self.act_start_over, self.act_fresh,
                   self.act_reload, self.act_remeasure):
             m.addAction(a)
+        m.addSeparator()
+        m.addAction(self.act_organize)
         m.addSeparator()
         m.addAction(self.act_export)
         m.addAction(self.act_header_file)
@@ -1511,6 +1516,17 @@ class MainWindow(QMainWindow):
         import prepare_window
         return ui_header.open_page(self, "prep_win", tuple(str(f) for f in files),
                                    lambda: prepare_window.PrepareWindow(self, self.settings, files))
+
+    def open_organizer(self):
+        """File › Organize My Astro Files… (one window, kept while the app is open)."""
+        import organizer_window
+        w = getattr(self, "_organizer", None)
+        if w is None:
+            w = self._organizer = organizer_window.OrganizeDialog(self.settings, self)
+        w.show()
+        w.raise_()
+        w.activateWindow()
+        return w
 
     def open_pixinsight_project(self, folder=None):
         """A PixInsight project: its pictures are written as XISF files and opened on Astro Image Processing."""

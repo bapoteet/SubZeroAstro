@@ -3190,6 +3190,56 @@ def run(app, out_dir: Path) -> int:
               and Path(_kq2.resolve_sources(_kq2.manifest["sources"])[0]).exists(),
               f"keeping the masters also keeps the stacked master behind a page-3 one ({_kn2}), and a project "
               "saved on a PC finds its masters on a Mac (and the other way round)")
+        # Organize My Astro Files: a messy folder sorted by header, duplicates spotted, moved, then undone
+        import organizer as _og
+        _od = session.parent / "organize_test"
+        _ksh.rmtree(_od, ignore_errors=True)
+        (_od / "dump" / "sub").mkdir(parents=True)
+        _orng = np.random.default_rng(7)
+
+        def _ofits(name, typ, obj=None, flt=None, exp=60.0, t="2026-10-02T03:10:00", **extra):
+            hd = {"IMAGETYP": typ, "EXPTIME": exp, "DATE-OBS": t, "INSTRUME": "ZWO ASI2600MM Pro",
+                  "GAIN": 100, "CCD-TEMP": -10.0, "SITELONG": -84.5}
+            if obj:
+                hd["OBJECT"] = obj
+            if flt:
+                hd["FILTER"] = flt
+            hd.update(extra)
+            core.write_fits(_od / "dump" / name, (_orng.random((24, 32)) * 4000).astype(np.uint16), hd, bitpix=16)
+        _ofits("L1.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:10:00")
+        _ofits("L2.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:14:00")
+        _ofits("sub/L2 copy.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:14:00")
+        _ofits("F1.fits", "Flat Field", None, "Ha", 1.5, "2026-10-02T10:00:00")
+        _ofits("D1.fits", "Dark Frame", None, None, 180.0, "2026-09-01T12:00:00")
+        _ofits("B1.fits", "Bias Frame", None, None, 0.001, "2026-09-01T12:00:00")
+        (_od / "dump" / "notes.txt").write_text("not a picture")
+        _oitems = _og.plan(_og.classify(_og.scan(_od / "dump")), _od / "dump")
+        _odst = {i.src.name: str(i.dst.relative_to(_od / "dump")).replace("\\", "/") for i in _oitems
+                 if i.status == "move"}
+        _odup = [i.src.name for i in _oitems if i.status == "duplicate"]
+        _night = _odst.get("L1.fits", "").split("/")[2] if _odst.get("L1.fits", "").count("/") >= 3 else "?"
+        check(_odst.get("L1.fits", "").startswith("Targets/M31/") and "/LIGHT/Ha/" in _odst["L1.fits"]
+              and _odst.get("F1.fits", "").startswith(f"Targets/M31/{_night}/FLAT/Ha")
+              and _odst.get("D1.fits", "").startswith("Darks library/") and "/180s/" in _odst["D1.fits"]
+              and _odst.get("B1.fits", "").startswith("Bias library/") and _odup == ["L2 copy.fits"],
+              f"Organize My Astro Files sorts by header - lights and that night's flats under the target "
+              f"({_night}), darks by camera/gain/temperature/exposure, bias - and spots the duplicate ({_odup})")
+        _owin = w.open_organizer()
+        _owin.src.setText(str(_od / "dump"))
+        _owin.same.setChecked(True)
+        _owin.move.setChecked(True)
+        _owin.scan(wait=True)
+        _on = len([i for i in _owin.items if i.status == "move"])
+        _owin.go(ask=False, wait=True)
+        _omoved = sorted(str(p.relative_to(_od / "dump")).replace("\\", "/") for p in (_od / "dump").rglob("*.fits"))
+        _ogone = not (_od / "dump" / "L1.fits").exists() and (_od / "dump" / "sub" / "L2 copy.fits").exists()
+        _owin.undo_last(ask=False, wait=True)
+        _oback = sorted(p.name for p in (_od / "dump").glob("*.fits"))
+        check(_on == 5 and _ogone and len(_omoved) == 6 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits"]
+              and not (_od / "dump" / "Targets").exists(),
+              f"File › Organize My Astro Files… moves {_on} files into place (the duplicate stays put) and Undo "
+              f"Last Run puts every one back ({_oback})")
+        _owin.close()
         # End this Project and Start New Project: every page closes, page 1 is empty and shown
         import ui_header as _uh2
         check("Start New Project" in fw2.btn_new_project.text() and

@@ -678,6 +678,27 @@ table(["What", "Windows", "Mac"], [
   ["Settings", "Windows registry (SubZeroAstro settings)", "`~/Library/Preferences`"],
 ], [2200, 3600, 3560]);
 
+sec("13.3", "Organize My Astro Files", ["Organize My Astro Files", "Organize", "Library layout", "Darks library", "NAS", "Undo Last Run", "Duplicates"]);
+p("**File › Organize My Astro Files…** (page 1) sorts a folder full of FITS and XISF files - subs and masters, lights, flats, dark flats, darks and bias, from any number of nights and targets - into one tidy library. It reads each file's own header (IMAGETYP, OBJECT, FILTER, DATE-OBS, camera, gain, temperature), so the file names and the current mess don't matter. Pick the **folder to organize** (a whole drive or a **NAS** share works too - on Windows a mapped drive or `\\\\nas\\astro`, on a Mac the share as it appears under /Volumes) and where the organized files go (the same folder by default).");
+table(["Files", "Go to"], [
+  ["Lights", "`Targets/<target>/<night>/LIGHT/<filter>/` (rejected ones keep their `REJECTED` folder)"],
+  ["Flats and dark flats", "`Targets/<target>/<night>/FLAT/<filter>/` - with the target shot that night (same telescope); `Flats/<night>/…` if several targets could own them"],
+  ["Darks", "`Darks library/<camera>_G<gain>_<temp>C/<exposure>s/`"],
+  ["Bias", "`Bias library/<camera>_G<gain>_<temp>C/`"],
+  ["Master lights", "`Targets/<target>/Masters/` with their star images and stack logs"],
+  ["Calibration masters", "`Calibration masters/`"],
+  ["No header to go by", "`Unsorted/`"],
+], [2600, 6760]);
+bullets([
+  "**The night** is the evening date at your site (from the header's longitude), so a session that runs past midnight stays together.",
+  "**Look Through the Files** only reads - it shows how many files go where, and a list of each file, where it goes and why. Nothing changes until you press **Organize**.",
+  "**Copy** (the default) leaves the originals; **Move** moves them and removes the empty folders left behind. A copy is checked before a move removes the original.",
+  "**Duplicates** (the same capture twice, e.g. *L_001 copy.fits*) and files that can't be read are left where they are and listed, so you can check them and delete them yourself. SubZeroAstro never deletes a picture.",
+  "**Saved projects** (page 4) and files already in the right place are left alone, so running it again on the same library only tidies what is new.",
+  "**Undo Last Run** puts every moved file back (or removes the copies). Each run's log is kept in `_SubZeroAstro_organize` inside the library.",
+  "A big NAS takes a while - reading headers over the network is the slow part. Stop is safe: what was done is in the log and can be undone.",
+]);
+
 ch(14, "Privacy, licence and credits");
 sec("14.1", "Privacy", ["Privacy"]);
 p("SubZeroAstro does not send any information anywhere unless you ask it to. It reads and writes images only where you point it. **Share to AstroBin…** only opens AstroBin's page in your browser. Companion programs (ASTAP, GraXpert, RC-Astro) are separate programs with their own terms.");
@@ -836,6 +857,7 @@ const HIGHLIGHTS = [
     ["Windows and Apple-silicon Mac", "Both builds run a full self-test on real hardware before every release", "0.9.0"],
   ]],
   ["Page 1 – Quality & Cull", [
+    ["Organize My Astro Files", "Sorts a folder, drive or NAS of FITS/XISF subs and masters into Targets › night › LIGHT/FLAT, a darks library and masters folders - preview first, copy or move, undo", "0.9.129"],
     ["Star quality on every frame", "FWHM, eccentricity, SNR, star count and background, with a badge and a score against frames of the same camera and filter", "Stage 2"],
     ["Session chart", "One dot per frame in capture order, nights separated; click to jump, drag a range to flag or reject", "Stage 2"],
     ["Auto-cull presets", "Three strengths flag frames from FWHM, stars, SNR (catches thin cloud) and eccentricity; you review before rejecting, and it can be undone", "0.3.0"],
