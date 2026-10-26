@@ -2950,16 +2950,16 @@ def run(app, out_dir: Path) -> int:
         import updater as _up
         import zipfile as _uzf
         _an = _up.asset_name()
-        _rels = [{"tag_name": "v0.9.200-beta", "draft": True, "assets": [{"name": _an}]},
-                 {"tag_name": "v0.9.150-beta", "assets": [{"name": "SomethingElse.zip"}]},
-                 {"tag_name": "v0.9.130-beta", "name": "SubZeroAstro 0.9.130 beta", "body": "New: updates.",
-                  "html_url": "https://github.com/bapoteet/SubZeroAstro/releases/tag/v0.9.130-beta",
+        _rels = [{"tag_name": "v9.0.200-beta", "draft": True, "assets": [{"name": _an}]},
+                 {"tag_name": "v9.0.150-beta", "assets": [{"name": "SomethingElse.zip"}]},
+                 {"tag_name": "v9.0.130-beta", "name": "SubZeroAstro 9.0.130 beta", "body": "New: updates.",
+                  "html_url": "https://github.com/bapoteet/SubZeroAstro/releases/tag/v9.0.130-beta",
                   "assets": [{"name": _an, "browser_download_url": "https://example.invalid/a.zip", "size": 150e6}]},
-                 {"tag_name": "v0.9.125-beta", "assets": [{"name": _an}]},
+                 {"tag_name": "v9.0.125-beta", "assets": [{"name": _an}]},
                  {"tag_name": "v0.9.100-beta", "assets": [{"name": _an}]}]
         _nr = _up.newest_release(_rels, "0.9.120 beta")
-        check(_nr is not None and _nr["tag"] == "v0.9.130-beta" and _nr["version"] == "0.9.130"
-              and _up.newest_release(_rels, "0.9.130 beta") is None and _up.is_newer("v1.0", "0.9.130 beta")
+        check(_nr is not None and _nr["tag"] == "v9.0.130-beta" and _nr["version"] == "9.0.130"
+              and _up.newest_release(_rels, "9.0.130 beta") is None and _up.is_newer("v10.0", "9.0.130 beta")
               and not _up.is_newer("v0.9.119-beta", "0.9.119 beta") and _up.is_newer("v0.9.120-beta", fb.APP_VERSION) is False
               and _up.asset_name("win32") == "SubZeroAstro-Windows.zip"
               and _up.asset_name("darwin") == "SubZeroAstro-macOS-AppleSilicon.zip",
@@ -2970,11 +2970,11 @@ def run(app, out_dir: Path) -> int:
         _ub.start_check(manual=True, fetch=lambda: _rels)
         _ub.checker.wait(10000)
         QApplication.processEvents()
-        _shown = _ub.isVisibleTo(w) and "0.9.130" in _ub.label.text() and fb.APP_VERSION in _ub.label.text()
+        _shown = _ub.isVisibleTo(w) and "9.0.130" in _ub.label.text() and fb.APP_VERSION in _ub.label.text()
         _btn = _ub.b_update.text()
         _ub.skip()
         _ub.show_release(_nr)
-        _skipped = not _ub.isVisibleTo(w) and _ub.settings.value(_up.SKIP_KEY) == "v0.9.130-beta"
+        _skipped = not _ub.isVisibleTo(w) and _ub.settings.value(_up.SKIP_KEY) == "v9.0.130-beta"
         _ub.show_release(_nr, force=True)
         _forced = _ub.isVisibleTo(w)
         _ub.hide()
