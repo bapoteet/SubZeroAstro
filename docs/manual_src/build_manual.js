@@ -693,15 +693,16 @@ p("**File › Organize My Astro Files…** (page 1) sorts a folder full of FITS 
 table(["Files", "Go to"], [
   ["Lights", "`Targets/<target>/<night>/LIGHT/<filter>/` (rejected ones keep their `REJECTED` folder). A target shot with more than one telescope gets the rig in the night's name (`2026-10-15_SQA60`), so flats are never matched to the other scope's lights"],
   ["Flats and dark flats", "`Targets/<target>/<night>/FLAT/<filter>/` - with the target shot that night with the same telescope, including targets organized in an earlier run (so a folder of calibration frames only can be sorted on its own); otherwise `Flats/<scope>/<night>/<filter>/`. Files without IMAGETYP are recognised from folder names above them (*Flats*, *Darks*, *Bias*)"],
-  ["Darks", "`Darks library/<camera>_G<gain>_O<offset>_<temp>C/<exposure>s/`"],
-  ["Bias", "`Bias library/<camera>_G<gain>_O<offset>_<temp>C/`"],
+  ["Darks", "`Darks library/<rig>/<camera>_G<gain>_O<offset>_<temp>C/<exposure>s/` - one library per rig, because two cameras of the same model are still two different sensors (hot pixels, amp glow)"],
+  ["Bias", "`Bias library/<rig>/<camera>_G<gain>_O<offset>_<temp>C/`"],
   ["Master lights", "`Targets/<target>/Masters/` with their star images and stack logs"],
-  ["Calibration masters", "`Calibration masters/<camera>_G<gain>_O<offset>_<temp>C/` (master flats in a `Flats <night>/<filter>` folder below it) - reused across targets for months"],
+  ["Calibration masters", "`Calibration masters/<rig>/<camera>_G<gain>_O<offset>_<temp>C/` (master flats in a `Flats <night>/<filter>` folder below it) - reused across targets for months"],
   ["No header to go by", "`Unsorted/`"],
 ], [2600, 6760]);
 img("organize_routing.png", "Where each file goes: the header decides - per-target folders (purple) and shared libraries by camera settings (teal)", 480);
 img("organize_tree.png", "An organized library (example: M 31 shot with two telescopes)", 480);
 bullets([
+  "**The rig** is the name you gave it in Calibrate and Stack (e.g. *Poseidon*); otherwise the telescope in the header (a mount driver such as *EQMOD* or *AvalonStarGo.NET* doesn't count), else the focal length, else - for calibration frames sorted by hand into *<scope>/Darks/…* - the folder name above *Darks*, *Flats* or *Bias*. So nine ASI2600s on nine rigs keep nine separate dark libraries.",
   "**The night** is the evening date at your site (from the header's longitude), so a session that runs past midnight stays together.",
   "**Step 1 – Look Through the Files** only reads - it shows how many files go where, and a list of each file, where it goes and why. Nothing changes until you press **Step 3 – Organize** (greyed out until Step 1 has run). Do **Step 2 – Duplicates…** in between when Step 1 finds any.",
   "**Copy** (the default) leaves the originals; **Move** moves them and removes the empty folders left behind. A copy is checked before a move removes the original.",

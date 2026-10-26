@@ -75,12 +75,36 @@ def _cal_folder(info) -> str:
     return f"{cam}_G{_num_text(info.gain)}{off}_{_num_text(info.temp, '{:.0f}')}C"
 
 
-def _rig(info) -> str:
-    """Telescope name or focal length - added to a night's folder only when a target was shot with more
-    than one rig, so flats can never be matched to the other scope's lights."""
-    if info.telescope:
-        return _safe(re.sub(r"\s+", "", str(info.telescope)))[:24]
-    return f"{info.focal:.0f}mm" if info.focal else ""
+_RIGS = None          # SubZeroAstro's own rig names (Calibrate and Stack › rig names), set by classify()
+
+
+def _rig(info, path=None) -> str:
+    """Which rig (telescope + the camera that lives on it) a file comes from: the name you gave the rig in
+    SubZeroAstro, else the telescope in the header (not a mount driver such as EQMOD), else the focal length,
+    else - for calibration frames sorted by hand - the folder above the Darks / Flats / Bias folder."""
+    import stacking as st
+    try:
+        if _RIGS is not None:
+            named = _RIGS.lookup(info.camera, info.focal)
+            if named:
+                return _safe(re.sub(r"\s+", "", named))[:24]
+    except Exception:  # noqa: BLE001
+        pass
+    t = (info.telescope or "").strip()
+    if t and st.Rigs.suggestion(info) == st.safe_name(t):          # a telescope, not a mount driver
+        return _safe(re.sub(r"\s+", "", t))[:24]
+    if info.focal:
+        return f"{info.focal:.0f}mm"
+    if path is not None:
+        ps = list(Path(path).parents)
+        for k, anc in enumerate(ps[:5]):
+            if st.folder_kind(anc.name) and k + 1 < len(ps):
+                up = ps[k + 1].name
+                if up and not re.match(r"(?i)^(calibration|cal|calib|astro.*|incoming.*|data|frames?)$", up) \
+                        and not re.match(r"^[A-Za-z]:\\?$", up):
+                    return _safe(re.sub(r"\s+", "", up))[:24]
+                break
+    return ""
 
 
 def _is_project_dir(d: Path) -> bool:
@@ -130,9 +154,12 @@ def _companions(p: Path) -> list:
     return out
 
 
-def classify(paths, read_info=None, progress=None, stop=None, library=None) -> list:
-    """Read each header and decide where the file belongs (relative to the library). Returns [Item]."""
+def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None) -> list:
+    """Read each header and decide where the file belongs (relative to the library). Returns [Item].
+    rigs: SubZeroAstro's saved rig names (stacking.Rigs), so a rig you named keeps its name."""
     import stacking as st
+    global _RIGS
+    _RIGS = rigs
     read_info = read_info or st.read_info
     items, infos = [], []
     for i, p in enumerate(paths):
@@ -203,14 +230,18 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None) -> l
                             or re.search(r"(final|processed|stretched|integration|drizzle|stack(ed)?|_linear|"
                                          r"starless|_stars)", name, re.I))
         if info.date_obs:
-            it.key = (info.date_obs, info.exptime, flt, info.camera, it.size, typ, looks_master)
+            # rigs shooting at the same moment with the same camera model are not duplicates of each other
+            it.key = (info.date_obs, info.exptime, flt, info.camera, it.size, typ, looks_master,
+                      info.telescope, info.focal, str(it.src.parent.parent.parent.name) if not info.telescope
+                      and not info.focal else "")
         if typ in (None, "light") and looks_master and tgt:
             it.kind, it.dst = "master", Path("Targets") / tgt / "Masters" / name
             it.why = "master light"
             it.companions = _companions(it.src)
         elif typ in ("dark", "flat", "darkflat", "bias") and looks_master:
-            sub = (Path(_cal_folder(info)) if typ in ("dark", "bias") else
-                   Path(_cal_folder(info)) / f"Flats {night}" / flt)
+            # per rig: two cameras of the same model are still two different sensors (hot pixels, amp glow)
+            base = Path(_rig(info, it.src) or ".") / _cal_folder(info)
+            sub = base if typ in ("dark", "bias") else base / f"Flats {night}" / flt
             it.kind, it.dst = "calmaster", Path("Calibration masters") / sub / name
             it.why = f"master {typ}"
             it.companions = _companions(it.src)
@@ -226,7 +257,7 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None) -> l
         elif typ in ("flat", "darkflat"):
             folder = "FLAT" if typ == "flat" else "DARKFLAT"
             owners = sorted(lights_on.get(night, set()))
-            frig = _rig(info)
+            frig = _rig(info, it.src)
             same_scope = {t for t, r in owners if frig and r == frig}
             # a target shot that night with this scope - or with a scope we can't tell apart from it
             maybe = {t for t, r in owners if not frig or not r or r == frig}
@@ -251,11 +282,12 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None) -> l
                           f"{typ} - no lights from that night here yet, kept by scope and night")
         elif typ == "dark":
             it.kind = "dark"
-            it.dst = Path("Darks library") / _cal_folder(info) / f"{_num_text(info.exptime)}s" / name
-            it.why = "dark (library by camera, gain, offset, temperature, exposure)"
+            it.dst = Path("Darks library") / (_rig(info, it.src) or ".") / _cal_folder(info) / \
+                f"{_num_text(info.exptime)}s" / name
+            it.why = "dark (library by rig, then camera settings and exposure)"
         elif typ == "bias":
-            it.kind, it.dst = "bias", Path("Bias library") / _cal_folder(info) / name
-            it.why = "bias (library by camera, gain, offset, temperature)"
+            it.kind, it.dst = "bias", Path("Bias library") / (_rig(info, it.src) or ".") / _cal_folder(info) / name
+            it.why = "bias (library by rig, then camera settings)"
         else:
             it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "the header doesn't say what it is"
     if progress:

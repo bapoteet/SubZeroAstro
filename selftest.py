@@ -3237,12 +3237,12 @@ def run(app, out_dir: Path) -> int:
         check(_odst.get("L1.fits", "").startswith("Targets/M31/") and "/LIGHT/Ha/" in _odst["L1.fits"]
               and _odst.get("F1.fits", "").startswith(f"Targets/M31/{_night}/FLAT/Ha")
               and _odst.get("D1.fits", "").startswith("Darks library/") and "/180s/" in _odst["D1.fits"]
-              and _odst.get("B1.fits", "").startswith("Bias library/ASI2600MM_G100_O50_-10C/")
+              and _odst.get("B1.fits", "").startswith("Bias library/SQA60/ASI2600MM_G100_O50_-10C/")
               and _odst.get("L3.fits", "").startswith("Targets/M31/2026-10-08_RASA8/LIGHT/L")
               and _odst.get("M31_final.fits", "") == "Targets/M31/Masters/M31_final.fits"
-              and _odst.get("MasterDark_180s.fits", "").startswith("Calibration masters/ASI2600MM_G100_O50_-10C/") and sorted(_odup) == ["L1 (2).fits", "L2 copy.fits"],
+              and _odst.get("MasterDark_180s.fits", "").startswith("Calibration masters/SQA60/ASI2600MM_G100_O50_-10C/") and sorted(_odup) == ["L1 (2).fits", "L2 copy.fits"],
               f"Organize My Astro Files sorts by header - lights and that night's flats under the target "
-              f"({_night}), darks by camera/gain/offset/temperature/exposure, bias and calibration masters, the rig added when a target was shot with two - and spots the duplicate ({_odup})")
+              f"({_night}), darks, bias and calibration masters by rig and camera settings, the rig added when a target was shot with two - and spots the duplicate ({_odup})")
         # a folder of calibration frames only, sorted by scope (Flats/<filter>, Darks/<exposure>, Bias), some
         # without IMAGETYP: flats find the target already organized from that night (right scope), others are
         # kept by scope and night; darks and bias go to the libraries
@@ -3267,16 +3267,22 @@ def run(app, out_dir: Path) -> int:
                                             "DATE-OBS": "2026-09-02T10:00:00"})
         _cfits("RASA8/Bias/b1.fits", {"IMAGETYP": "Bias", "TELESCOP": "RASA8", "EXPTIME": 0.0,
                                       "DATE-OBS": "2026-09-02T10:00:00"})
+        _cfits("SQA60/Darks/300s/d2.fits", {"IMAGETYP": "Dark", "TELESCOP": "SQA60", "EXPTIME": 300.0,
+                                            "DATE-OBS": "2026-09-02T10:00:00"})
+        _cfits("Esprit100/Darks/300s/d3.fits", {"IMAGETYP": "Dark", "EXPTIME": 300.0, "DATE-OBS": "2026-09-02T10:00:00"})
         _cdst = {i.src.name: str(i.dst.relative_to(_oc)).replace("\\", "/")
                  for i in _og.plan(_og.classify(_og.scan(_oc / "Calibration"), library=_oc), _oc) if i.dst}
         check(_cdst.get("f1.fits") == "Targets/M31/2026-10-01_SQA60/FLAT/Ha/f1.fits"
               and _cdst.get("f2.fits") == "Targets/M31/2026-10-01_SQA60/FLAT/OIII/f2.fits"
               and _cdst.get("f3.fits") == "Flats/RASA8/2026-10-05/L/f3.fits"
-              and _cdst.get("d1.fits", "").startswith("Darks library/ASI2600MM_G100_O50_-10C/300s/")
-              and _cdst.get("b1.fits", "").startswith("Bias library/ASI2600MM_G100_O50_-10C/"),
+              and _cdst.get("d1.fits", "").startswith("Darks library/RASA8/ASI2600MM_G100_O50_-10C/300s/")
+              and _cdst.get("b1.fits", "").startswith("Bias library/RASA8/ASI2600MM_G100_O50_-10C/")
+              and _cdst.get("d2.fits", "").startswith("Darks library/SQA60/ASI2600MM_G100_O50_-10C/300s/")
+              and _cdst.get("d3.fits", "").startswith("Darks library/Esprit100/ASI2600MM_G100_O50_-10C/300s/"),
               f"Organize a calibration-only folder (by scope, some files without IMAGETYP): flats join the target "
               f"shot that night with that scope, the rest are kept by scope and night ({_cdst.get('f3.fits')}); "
-              "darks and bias go to the libraries")
+              "darks and bias go to each rig's own library - three ASI2600MMs on three rigs, shot at the same "
+              "second, stay three cameras")
         _owin = w.open_organizer()
         _owin.src.setText(str(_od / "dump"))
         _owin.same.setChecked(True)
