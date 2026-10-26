@@ -693,7 +693,7 @@ bullets([
   "**The night** is the evening date at your site (from the header's longitude), so a session that runs past midnight stays together.",
   "**Look Through the Files** only reads - it shows how many files go where, and a list of each file, where it goes and why. Nothing changes until you press **Organize**.",
   "**Copy** (the default) leaves the originals; **Move** moves them and removes the empty folders left behind. A copy is checked before a move removes the original.",
-  "**Duplicates** (the same capture twice, e.g. *L_001 copy.fits*) and files that can't be read are left where they are and listed, so you can check them and delete them yourself. SubZeroAstro never deletes a picture.",
+  "**Duplicates** (the same capture twice, e.g. *L_001 copy.fits*) are left where they are and flagged. Press **Duplicates…** to see each one next to the copy that is kept, tick the ones to deal with, then **Keep Them**, **Move to a Duplicates Folder** (set aside; Undo Last Run puts them back) or **Delete Ticked Duplicates…**. Delete compares every byte first and only deletes an exact copy - a file with the same capture time but different contents is kept for you to look at. Files that can't be read are left where they are and listed.",
   "**Saved projects** (page 4) and files already in the right place are left alone, so running it again on the same library only tidies what is new.",
   "**Undo Last Run** puts every moved file back (or removes the copies). Each run's log is kept in `_SubZeroAstro_organize` inside the library.",
   "A big NAS takes a while - reading headers over the network is the slow part. Stop is safe: what was done is in the log and can be undone.",
@@ -857,7 +857,7 @@ const HIGHLIGHTS = [
     ["Windows and Apple-silicon Mac", "Both builds run a full self-test on real hardware before every release", "0.9.0"],
   ]],
   ["Page 1 – Quality & Cull", [
-    ["Organize My Astro Files", "Sorts a folder, drive or NAS of FITS/XISF subs and masters into Targets › night › LIGHT/FLAT, a darks library and masters folders - preview first, copy or move, undo", "0.9.129"],
+    ["Organize My Astro Files", "Sorts a folder, drive or NAS of FITS/XISF subs and masters into Targets › night › LIGHT/FLAT, a darks library and masters folders - preview first, copy or move, undo; duplicates flagged and kept, set aside or deleted", "0.9.129 / 0.9.130"],
     ["Star quality on every frame", "FWHM, eccentricity, SNR, star count and background, with a badge and a score against frames of the same camera and filter", "Stage 2"],
     ["Session chart", "One dot per frame in capture order, nights separated; click to jump, drag a range to flag or reject", "Stage 2"],
     ["Auto-cull presets", "Three strengths flag frames from FWHM, stars, SNR (catches thin cloud) and eccentricity; you review before rejecting, and it can be undone", "0.3.0"],

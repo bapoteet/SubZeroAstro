@@ -91,12 +91,17 @@ class OrganizeDialog(QDialog):
         self.b_go = QPushButton("Organize")
         self.b_go.setEnabled(False)
         self.b_go.clicked.connect(lambda: self.go())
+        self.b_dups = QPushButton("Duplicates…")
+        self.b_dups.setEnabled(False)
+        self.b_dups.setToolTip("See the duplicates found, and keep them, move them to a Duplicates folder or "
+                               "delete them")
+        self.b_dups.clicked.connect(lambda: self.open_duplicates())
         self.b_undo = QPushButton("Undo Last Run…")
         self.b_undo.clicked.connect(lambda: self.undo_last())
         self.b_stop = QPushButton("Stop")
         self.b_stop.setVisible(False)
         self.b_stop.clicked.connect(lambda: setattr(self.job, "stop", True) if self.job else None)
-        for b in (self.b_scan, self.b_go, self.b_undo, self.b_stop):
+        for b in (self.b_scan, self.b_go, self.b_dups, self.b_undo, self.b_stop):
             h.addWidget(b)
         h.addStretch(1)
         lay.addLayout(h)
@@ -144,11 +149,12 @@ class OrganizeDialog(QDialog):
         return Path((self.src.text() if self.same.isChecked() else self.dst.text()).strip())
 
     def _busy(self, on):
-        for w in (self.b_scan, self.b_go, self.b_undo, self.src, self.dst, self.same, self.copy, self.move):
+        for w in (self.b_scan, self.b_go, self.b_dups, self.b_undo, self.src, self.dst, self.same, self.copy, self.move):
             w.setEnabled(not on)
         if not on:
             self.dst.setEnabled(not self.same.isChecked())
             self.b_go.setEnabled(bool([i for i in self.items if i.status == "move"]))
+            self.b_dups.setEnabled(bool(O.duplicates(self.items)))
         self.b_stop.setVisible(on)
         self.bar.setVisible(on)
 
@@ -202,7 +208,8 @@ class OrganizeDialog(QDialog):
         if sm.get("here"):
             parts.append(f"{sm['here']} already in the right place")
         if sm.get("duplicate"):
-            parts.append(f"{sm['duplicate']} duplicate(s) - left where they are, so you can check and delete them")
+            parts.append(f"{sm['duplicate']} duplicate(s) - left where they are; press <b>Duplicates…</b> to "
+                         "keep, set aside or delete them")
         if sm.get("error"):
             parts.append(f"{sm['error']} file(s) could not be read - left where they are")
         self.status.setText("<br>".join(parts) + ("<br>Check the list, then press <b>Organize</b>."
@@ -226,6 +233,7 @@ class OrganizeDialog(QDialog):
                     cell.setToolTip(str(it.src))
                 self.table.setItem(r, c, cell)
         self.b_go.setEnabled(sm["files"] > 0)
+        self.b_dups.setEnabled(bool(O.duplicates(items)))
 
     # ---------------------------------------------------------------- go / undo
     def go(self, ask=True, wait=False):
@@ -258,6 +266,7 @@ class OrganizeDialog(QDialog):
             self.items = []
             self.table.setRowCount(0)
             self.b_go.setEnabled(False)
+            self.b_dups.setEnabled(False)
         self._run(work, done, wait)
 
     def undo_last(self, ask=True, wait=False):
@@ -277,3 +286,103 @@ class OrganizeDialog(QDialog):
                                                       + (f", {r[1]} skipped (changed or missing since)"
                                                          if r[1] else "") + "."), wait)
         self.last_log = None
+
+    # ---------------------------------------------------------------- duplicates
+    def open_duplicates(self):
+        dups = O.duplicates(self.items)
+        if not dups:
+            return None
+        d = DuplicatesDialog(self, dups)
+        d.show()
+        return d
+
+    def handle_duplicates(self, dups, delete, wait=False):
+        lib = self.library()
+
+        def work(job):
+            return O.handle_duplicates(dups, lib, delete=delete, progress=lambda t, i, n: job.note.emit(t, i, n),
+                                       stop=lambda: job.stop)
+
+        def done(r):
+            n, kept_back, log = r
+            if not delete:
+                self.last_log = log
+            msg = (f"{n} duplicate(s) {'deleted' if delete else f'moved to the {O.DUP_DIR} folder (Undo Last Run puts them back)'}.")
+            if kept_back:
+                msg += f" {len(kept_back)} kept: " + "; ".join(f"{i.src.name} - {why}" for i, why in kept_back[:5]) \
+                       + (" …" if len(kept_back) > 5 else "")
+            self.status.setText(msg)
+            self.b_dups.setEnabled(bool(O.duplicates(self.items)))
+        self._run(work, done, wait)
+
+
+class DuplicatesDialog(QDialog):
+    """The duplicates found: tick the ones to deal with, then keep, set aside or delete them. Deleting only
+    removes a file that is byte for byte the same as the copy that is kept."""
+
+    def __init__(self, owner: OrganizeDialog, dups):
+        super().__init__(owner)
+        self.owner, self.dups = owner, dups
+        self.setWindowTitle("Duplicates")
+        lay = QVBoxLayout(self)
+        lab = QLabel(f"<b>{len(dups)} duplicate(s)</b> - the same frame saved twice. The copy in the <i>Kept</i> "
+                     "column stays (it is the one organized). Tick the duplicates to deal with. <b>Delete</b> "
+                     "checks every byte first and only deletes a file that is exactly the same as its kept copy; "
+                     "anything that differs is left for you to look at. Not sure? <b>Move to a Duplicates "
+                     "Folder</b> sets them aside (Undo puts them back) and you can delete that folder later.")
+        lab.setWordWrap(True)
+        lay.addWidget(lab)
+        self.table = QTableWidget(len(dups), 3)
+        self.table.setHorizontalHeaderLabels(["Duplicate", "Kept", "Size"])
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        for r, it in enumerate(dups):
+            c = QTableWidgetItem(it.src.name)
+            c.setFlags(c.flags() | Qt.ItemIsUserCheckable)
+            c.setCheckState(Qt.Checked)
+            c.setToolTip(str(it.src))
+            k = QTableWidgetItem(str(it.same_as.name))
+            k.setToolTip(str(it.same_as))
+            self.table.setItem(r, 0, c)
+            self.table.setItem(r, 1, k)
+            self.table.setItem(r, 2, QTableWidgetItem(cp.human(it.size)))
+        lay.addWidget(self.table, 1)
+        h = QHBoxLayout()
+        for text, slot in (("Tick All", lambda: self._tick(True)), ("Untick All", lambda: self._tick(False))):
+            b = QPushButton(text)
+            b.clicked.connect(slot)
+            h.addWidget(b)
+        h.addStretch(1)
+        self.b_keep = QPushButton("Keep Them")
+        self.b_keep.clicked.connect(self.close)
+        self.b_aside = QPushButton("Move to a Duplicates Folder")
+        self.b_aside.clicked.connect(lambda: self.act(False))
+        self.b_delete = QPushButton("Delete Ticked Duplicates…")
+        self.b_delete.clicked.connect(lambda: self.act(True))
+        for b in (self.b_keep, self.b_aside, self.b_delete):
+            h.addWidget(b)
+        lay.addLayout(h)
+        self.resize(820, 460)
+
+    def _tick(self, on):
+        for r in range(self.table.rowCount()):
+            self.table.item(r, 0).setCheckState(Qt.Checked if on else Qt.Unchecked)
+
+    def ticked(self):
+        return [it for r, it in enumerate(self.dups) if self.table.item(r, 0).checkState() == Qt.Checked]
+
+    def act(self, delete, ask=True, wait=False):
+        todo = self.ticked()
+        if not todo:
+            return
+        if delete and ask and QMessageBox.question(
+                self, "Delete Duplicates",
+                f"Delete {len(todo)} duplicate file(s) ({cp.human(sum(i.size for i in todo))})?\n\nEach one is "
+                "compared byte for byte with its kept copy first; only exact copies are deleted. This can't be "
+                "undone.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        self.close()
+        self.owner.handle_duplicates(todo, delete, wait)

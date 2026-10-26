@@ -3208,7 +3208,8 @@ def run(app, out_dir: Path) -> int:
             core.write_fits(_od / "dump" / name, (_orng.random((24, 32)) * 4000).astype(np.uint16), hd, bitpix=16)
         _ofits("L1.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:10:00")
         _ofits("L2.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:14:00")
-        _ofits("sub/L2 copy.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:14:00")
+        _ksh.copy2(_od / "dump" / "L2.fits", _od / "dump" / "sub" / "L2 copy.fits")          # a true duplicate
+        _ofits("sub/L1 (2).fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:10:00")  # same capture, other bytes
         _ofits("F1.fits", "Flat Field", None, "Ha", 1.5, "2026-10-02T10:00:00")
         _ofits("D1.fits", "Dark Frame", None, None, 180.0, "2026-09-01T12:00:00")
         _ofits("B1.fits", "Bias Frame", None, None, 0.001, "2026-09-01T12:00:00")
@@ -3221,7 +3222,7 @@ def run(app, out_dir: Path) -> int:
         check(_odst.get("L1.fits", "").startswith("Targets/M31/") and "/LIGHT/Ha/" in _odst["L1.fits"]
               and _odst.get("F1.fits", "").startswith(f"Targets/M31/{_night}/FLAT/Ha")
               and _odst.get("D1.fits", "").startswith("Darks library/") and "/180s/" in _odst["D1.fits"]
-              and _odst.get("B1.fits", "").startswith("Bias library/") and _odup == ["L2 copy.fits"],
+              and _odst.get("B1.fits", "").startswith("Bias library/") and sorted(_odup) == ["L1 (2).fits", "L2 copy.fits"],
               f"Organize My Astro Files sorts by header - lights and that night's flats under the target "
               f"({_night}), darks by camera/gain/temperature/exposure, bias - and spots the duplicate ({_odup})")
         _owin = w.open_organizer()
@@ -3230,9 +3231,16 @@ def run(app, out_dir: Path) -> int:
         _owin.move.setChecked(True)
         _owin.scan(wait=True)
         _on = len([i for i in _owin.items if i.status == "move"])
+        _odd = _owin.open_duplicates()
+        _odn = _odd.table.rowCount() if _odd else 0
+        _odd.act(True, ask=False, wait=True)
+        check(_odn == 2 and not (_od / "dump" / "sub" / "L2 copy.fits").exists()
+              and (_od / "dump" / "sub" / "L1 (2).fits").exists() and (_od / "dump" / "L2.fits").exists(),
+              f"Organize › Duplicates… lists {_odn} duplicates and deletes only the exact copy - the same capture "
+              f"with different bytes is kept for you to check ({_owin.status.text()[:90]})")
         _owin.go(ask=False, wait=True)
         _omoved = sorted(str(p.relative_to(_od / "dump")).replace("\\", "/") for p in (_od / "dump").rglob("*.fits"))
-        _ogone = not (_od / "dump" / "L1.fits").exists() and (_od / "dump" / "sub" / "L2 copy.fits").exists()
+        _ogone = not (_od / "dump" / "L1.fits").exists() and (_od / "dump" / "sub" / "L1 (2).fits").exists()
         _owin.undo_last(ask=False, wait=True)
         _oback = sorted(p.name for p in (_od / "dump").glob("*.fits"))
         check(_on == 5 and _ogone and len(_omoved) == 6 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits"]

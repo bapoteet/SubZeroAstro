@@ -48,6 +48,7 @@ class Item:
     size: int = 0
     companions: list = field(default_factory=list)
     key: tuple | None = None             # same capture (time, exposure, filter, camera, size) = the same frame
+    same_as: Path | None = None         # for a duplicate: the copy that is kept
 
 
 def _safe(s) -> str:
@@ -235,6 +236,7 @@ def plan(items, library) -> list:
             continue
         if it.key in seen:
             it.status, it.why = "duplicate", f"the same frame as {seen[it.key].name}"
+            it.same_as = seen[it.key]
         else:
             seen[it.key] = it.src
     for it in items:
@@ -250,12 +252,14 @@ def plan(items, library) -> list:
             key = str(cand).lower()
             if key in taken:
                 if taken[key] == it.size and _quick_hash(it.src) == _quick_hash(Path(taken[key + "#src"])):
-                    it.status = "duplicate"
+                    it.status, it.same_as = "duplicate", Path(taken[key + "#src"])
+                    it.why = f"the same file as {it.same_as.name}"
                     break
             elif cand.exists():
                 try:
                     if cand.stat().st_size == it.size and _quick_hash(cand) == _quick_hash(it.src):
-                        it.status = "duplicate"
+                        it.status, it.same_as = "duplicate", cand
+                        it.why = f"the same file as the one already in {cand.parent.name}"
                         break
                 except OSError:
                     pass
@@ -268,6 +272,75 @@ def plan(items, library) -> list:
             taken[str(cand).lower()] = it.size
             taken[str(cand).lower() + "#src"] = str(it.src)
     return items
+
+
+DUP_DIR = "Duplicates"
+
+
+def duplicates(items) -> list:
+    """The duplicates found by plan(): [Item] (each with .same_as = the copy that is kept)."""
+    return [i for i in items if i.status == "duplicate" and i.same_as is not None]
+
+
+def same_bytes(a, b) -> bool:
+    """True only if the two files are byte for byte identical (read in full)."""
+    import filecmp
+    try:
+        a, b = Path(a), Path(b)
+        return a.resolve() != b.resolve() and a.stat().st_size == b.stat().st_size and filecmp.cmp(a, b, shallow=False)
+    except OSError:
+        return False
+
+
+def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
+    """Deal with the duplicates the user ticked. delete=False moves them into <library>/Duplicates (undo with
+    Undo Last Run); delete=True deletes each one - but only when it is byte for byte the same as the copy that
+    is kept, which must still be there. Returns (done, kept_back, log_path); kept_back = [(Item, reason)]."""
+    library = Path(library)
+    logd = library / LOG_DIR
+    logd.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d_%H%M%S")
+    log_path = logd / f"organize_{stamp}_{'deleted' if delete else 'duplicates'}.json"
+    done, kept_back, failed = [], [], []
+    for i, it in enumerate(dups):
+        if stop and stop():
+            break
+        if progress:
+            progress(f"Checking {it.src.name}", i, len(dups))
+        if not it.src.exists():
+            kept_back.append((it, "it is no longer there"))
+            continue
+        if not (it.same_as and Path(it.same_as).exists()):
+            kept_back.append((it, "the copy to keep is no longer there"))
+            continue
+        if not same_bytes(it.src, it.same_as):
+            kept_back.append((it, "not byte for byte the same as the kept copy - check it yourself"))
+            continue
+        try:
+            if delete:
+                it.src.unlink()
+                done.append({"src": str(it.src), "same_as": str(it.same_as), "deleted": True})
+            else:
+                dst = library / DUP_DIR / it.src.name
+                n = 1
+                while dst.exists():
+                    n += 1
+                    dst = library / DUP_DIR / f"{it.src.stem}_{n}{it.src.suffix}"
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(it.src), str(dst))
+                done.append({"src": str(it.src), "dst": str(dst), "same_as": str(it.same_as)})
+            it.status = "handled"
+        except OSError as e:
+            failed.append({"src": str(it.src), "error": str(e)})
+            kept_back.append((it, str(e)))
+    log = {"app": "SubZeroAstro", "kind": "organize-duplicates", "move": True, "library": str(library),
+           "time": stamp, "done": [] if delete else done, "failed": failed}
+    if delete:
+        log["deleted"] = done                 # deleted files can't be put back; the log says what went
+    log_path.write_text(json.dumps(log, indent=1), encoding="utf-8")
+    if done:
+        _remove_empty_dirs({Path(d["src"]).parent for d in done}, stop_at=library)
+    return len(done), kept_back, log_path
 
 
 def summary(items) -> dict:
@@ -379,5 +452,6 @@ def last_log(library) -> Path | None:
     d = Path(library) / LOG_DIR
     if not d.is_dir():
         return None
-    logs = sorted(p for p in d.glob("organize_*.json") if not p.name.endswith(".undone.json"))
+    logs = sorted((p for p in d.glob("organize_*.json")
+                   if not p.name.endswith((".undone.json", "_deleted.json"))), key=lambda p: p.stat().st_mtime)
     return logs[-1] if logs else None
