@@ -699,6 +699,8 @@ table(["Files", "Go to"], [
   ["Calibration masters", "`Calibration masters/<camera>_G<gain>_O<offset>_<temp>C/` (master flats in a `Flats <night>/<filter>` folder below it) - reused across targets for months"],
   ["No header to go by", "`Unsorted/`"],
 ], [2600, 6760]);
+img("organize_routing.png", "Where each file goes: the header decides - per-target folders (purple) and shared libraries by camera settings (teal)", 480);
+img("organize_tree.png", "An organized library (example: M 31 shot with two telescopes)", 480);
 bullets([
   "**The night** is the evening date at your site (from the header's longitude), so a session that runs past midnight stays together.",
   "**Step 1 – Look Through the Files** only reads - it shows how many files go where, and a list of each file, where it goes and why. Nothing changes until you press **Step 2 – Organize** (greyed out until Step 1 has run).",
