@@ -3382,6 +3382,24 @@ def run(app, out_dir: Path) -> int:
         check(_e22ok is True and [p.name for p in _e22s] == ["a.fits"],
               f"Organize: a drive entry that answers 'Invalid argument' (Errno 22) is skipped, the look-through "
               f"carries on ({_e22ok})")
+        # PixInsight masters often carry no gain or temperature: the folder is named from what is known -
+        # never with a '?' (Windows refuses it: WinError 123) - and the exposure comes from the file name
+        _pm = session.parent / "organize_pi_masters"
+        _ksh.rmtree(_pm, ignore_errors=True)
+        (_pm / "SQA106FlatsMay28").mkdir(parents=True)
+        for _n in ("masterBias_BIN-1_6384x4258.fits", "masterDark_BIN-1_6384x4258_EXPOSURE-120.00s.fits",
+                   "Dark_EXPOSURE-300.00s.fits"):
+            core.write_fits(_pm / "SQA106FlatsMay28" / _n, np.zeros((6, 6), np.uint16),
+                            {"IMAGETYP": "Master Dark" if "ark" in _n else "Master Bias",
+                             "INSTRUME": "ZWO ASI6200MC Pro", "FOCALLEN": 530}, bitpix=16)
+        _pmi = _og.plan(_og.classify(_og.scan(_pm), library=_pm, root=_pm,
+                                     riglist=[{"name": "SQA106", "focals": [530]}]), _pm)
+        _pmd = sorted(str(i.dst.relative_to(_og.org_base(_pm))).replace("\\", "/") for i in _pmi)
+        check(len(_pmd) == 3 and not any(c in x for x in _pmd for c in '?*:<>|"')
+              and all(x.startswith("Calibration Frames/SQA106/Masters/ASI6200MC/") for x in _pmd)
+              and _og._exp_folder(type("I", (), {"exptime": None})(), "masterDark_EXPOSURE-120.00s.xisf") == "120s",
+              f"Organize: masters without gain or temperature in the header get a folder Windows accepts "
+              f"(no '?'), exposure read from the name ({_pmd[0] if _pmd else '-'})")
         _owin = w.open_organizer()
         _owin.edit_rigs(rows=[{"name": "SQA60", "focals": [360]}, {"name": "RASA8", "focals": [400]}], tol_pct=5)
         _owin.layout_box.setCurrentIndex(_owin.layout_box.findData("rig"))

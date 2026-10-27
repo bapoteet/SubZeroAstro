@@ -78,11 +78,36 @@ def _num_text(v, fmt="{:g}") -> str:
         return "?"
 
 
+def _known(v):
+    try:
+        return v is not None and v != "" and float(v) == float(v)
+    except (TypeError, ValueError):
+        return False
+
+
 def _cal_folder(info) -> str:
+    """ASI2600MM_G100_O50_-10C - only the parts the header gives (PixInsight masters often have no gain or
+    temperature), never a '?' (Windows can't name a folder with one)."""
     import stacking as st
     cam = st.short_camera(info.camera)
-    off = f"_O{_num_text(info.offset)}" if getattr(info, "offset", None) is not None else ""
-    return f"{cam}_G{_num_text(info.gain)}{off}_{_num_text(info.temp, '{:.0f}')}C"
+    parts = [cam]
+    if _known(info.gain):
+        parts.append(f"G{_num_text(info.gain)}")
+    if _known(getattr(info, "offset", None)):
+        parts.append(f"O{_num_text(info.offset)}")
+    if _known(info.temp):
+        parts.append(f"{_num_text(info.temp, '{:.0f}')}C")
+    return _safe("_".join(parts))
+
+
+def _exp_folder(info, name="") -> str:
+    """180s - from the header, or from a name such as masterDark_..._EXPOSURE-120.00s.xisf (PixInsight)."""
+    v = info.exptime if _known(info.exptime) else None
+    if v is None:
+        m = re.search(r"(?i)(?:exposure|exp)[-_ ]?(\d+(?:\.\d+)?)\s*s", name or "") or \
+            re.search(r"(?i)(?<![\d.])(\d+(?:\.\d+)?)\s*s(?:ec)?(?![a-z])", name or "")
+        v = float(m.group(1)) if m else None
+    return f"{_num_text(v)}s" if v is not None else "Unknown exposure"
 
 
 _RIGS = None          # SubZeroAstro's own rig names (Calibrate and Stack › rig names), set by classify()
@@ -413,7 +438,7 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
         elif typ == "dark":
             it.kind = "dark"
             it.dst = Path("Darks library") / (_rig(info, it.src) or ".") / _cal_folder(info) / \
-                f"{_num_text(info.exptime)}s" / name
+                _exp_folder(info, name) / name
             it.why = "dark (library by rig, then camera settings and exposure)"
         elif typ == "bias":
             it.kind, it.dst = "bias", Path("Bias library") / (_rig(info, it.src) or ".") / _cal_folder(info) / name
@@ -453,7 +478,7 @@ def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected):
         it.why = f"{'flat' if typ == 'flat' else 'dark flat'} of {night} ({rig})"
     elif typ == "dark":
         it.kind = "dark"
-        it.dst = cal / "Darks" / _cal_folder(info) / f"{_num_text(info.exptime)}s" / name
+        it.dst = cal / "Darks" / _cal_folder(info) / _exp_folder(info, name) / name
         it.why = f"dark ({rig}: camera settings, exposure)"
     elif typ == "bias":
         it.kind, it.dst, it.why = "bias", cal / "Bias" / _cal_folder(info) / name, f"bias ({rig}: camera settings)"
@@ -497,6 +522,8 @@ def plan(items, library) -> list:
     for it in items:
         if it.dst is None or it.status in ("error", "duplicate", "norig"):
             continue
+        it.dst = Path(*[_safe(x) if k < len(Path(it.dst).parts) - 1 else x
+                        for k, x in enumerate(Path(it.dst).parts)])     # no ? : * … in folder names (Windows)
         dst = org_base(library) / it.dst
         if _same_path(dst, it.src):
             it.status, it.dst = "here", dst
