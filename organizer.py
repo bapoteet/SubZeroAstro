@@ -54,6 +54,7 @@ class Item:
     key: tuple | None = None             # same capture (time, exposure, filter, camera, size) = the same frame
     same_as: Path | None = None         # for a duplicate: the copy that is kept
     info: object = field(default=None, repr=False, compare=False)   # the header read (kept for re-planning)
+    rig_issue: str = ""                  # why no rig could be matched: nofocal / nomatch / ambiguous: A, B
 
 
 def _safe(s) -> str:
@@ -80,11 +81,55 @@ _RIGS = None          # SubZeroAstro's own rig names (Calibrate and Stack › ri
 _GUESS = {}           # (camera, focal) -> rig name read from your folder names, set by classify()
 
 
+# ---------------------------------------------------------------- Your Rigs (name ↔ focal length)
+_RIGLIST = None       # [{"name", "focals": [mm], "camera": "", "folders": [paths]}] - when set, the only source
+_TOL = 0.05           # a rig's focal length in the headers drifts a few % night to night (focusing, solving)
+
+
+def _cam_norm(c):
+    import stacking as st
+    return re.sub(r"[\W_]", "", st.short_camera(c or "")).lower() if c else ""
+
+
+def match_rig(info, path, riglist, tol=0.05):
+    """(rig name or None, reason). A folder you assigned to a rig wins; otherwise the focal length in the header
+    within ±tol of one of a rig's focal lengths (and the camera, when the rig lists one). reason:
+    'folder' / 'focal' / 'nofocal' / 'nomatch' / 'ambiguous: A, B'."""
+    sp = str(path).replace("\\", "/").lower() if path is not None else ""
+    best = None
+    for r in riglist or []:
+        for f in r.get("folders") or []:
+            fp = str(f).replace("\\", "/").rstrip("/").lower() + "/"
+            if sp.startswith(fp) and (best is None or len(fp) > best[1]):
+                best = (r["name"], len(fp))
+    if best:
+        return best[0], "folder"
+    fl = getattr(info, "focal", None)
+    if not fl:
+        return None, "nofocal"
+    cam = _cam_norm(getattr(info, "camera", None))
+    hits = []
+    for r in riglist or []:
+        if r.get("camera") and cam and _cam_norm(r["camera"]) != cam:
+            continue
+        if any(f and abs(float(fl) - float(f)) <= tol * float(f) for f in r.get("focals") or []):
+            hits.append(r["name"])
+    hits = list(dict.fromkeys(hits))
+    if len(hits) == 1:
+        return hits[0], "focal"
+    if not hits:
+        return None, "nomatch"
+    return None, "ambiguous: " + ", ".join(hits)
+
+
 def _rig(info, path=None) -> str:
     """Which rig (telescope + the camera that lives on it) a file comes from: the name you gave the rig in
     SubZeroAstro, else the telescope in the header (not a mount driver such as EQMOD), else the focal length,
     else - for calibration frames sorted by hand - the folder above the Darks / Flats / Bias folder."""
     import stacking as st
+    if _RIGLIST is not None:                       # Your Rigs: the list you made, nothing guessed
+        name, _why = match_rig(info, path, _RIGLIST, _TOL)
+        return _safe(re.sub(r"\s+", "", name))[:24] if name else ""
     try:
         if _RIGS is not None:
             named = _RIGS.lookup(info.camera, info.focal)
@@ -164,12 +209,13 @@ LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration
 
 
 def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None, layout="rig",
-             root=None) -> list:
+             root=None, riglist=None, tol=0.05) -> list:
     """Read each header and decide where the file belongs (relative to the library). Returns [Item].
     rigs: SubZeroAstro's saved rig names (stacking.Rigs), so a rig you named keeps its name."""
     import stacking as st
-    global _RIGS
+    global _RIGS, _RIGLIST, _TOL
     _RIGS = rigs
+    _RIGLIST, _TOL = riglist, tol
     read_info = read_info or st.read_info
     items, infos = [], []
     for i, p in enumerate(paths):
@@ -203,8 +249,8 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     lights_on, rigs, existing = {}, {}, {}
     for it, info in zip(items, infos):
         if info is not None and info.type == "light" and not info.master and info.target and info.night:
-            lights_on.setdefault(info.night, set()).add((st.target_name(info.target), _rig(info)))
-            rigs.setdefault(st.target_name(info.target), set()).add(_rig(info))
+            lights_on.setdefault(info.night, set()).add((st.target_name(info.target), _rig(info, it.src)))
+            rigs.setdefault(st.target_name(info.target), set()).add(_rig(info, it.src))
     # nights already in the library (organized before): flats sorted on their own - a folder of calibration
     # frames only - still find the target that was shot that night
     if library is not None:
@@ -232,6 +278,15 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     for it, info in zip(items, infos):
         if info is None:
             continue
+        if _RIGLIST is not None:
+            rname, why = match_rig(info, it.src, _RIGLIST, _TOL)
+            if not rname:                        # not filed under a guess: it waits until you say which rig
+                fl = f"{info.focal:.0f} mm" if info.focal else "no focal length"
+                it.status, it.dst, it.rig_issue = "norig", None, why
+                it.why = {"nofocal": "no focal length in the header - which rig? (Which Rig…)",
+                          "nomatch": f"no rig in Your Rigs matches {fl} - add it (Your Rigs…)"}.get(
+                    why, f"{fl} fits more than one rig ({why.split(': ', 1)[-1]}) - which one? (Which Rig…)")
+                continue
         name = it.src.name
         rejected = it.src.parent.name.upper() == core.REJECTED_DIR
         typ = info.type
@@ -389,7 +444,7 @@ def plan(items, library) -> list:
         else:
             seen[it.key] = it.src
     for it in items:
-        if it.dst is None or it.status in ("error", "duplicate"):
+        if it.dst is None or it.status in ("error", "duplicate", "norig"):
             continue
         dst = library / it.dst
         if dst.resolve() == it.src.resolve():
@@ -727,3 +782,76 @@ def rig_candidates(items, rigs=None, root=None) -> list:
                     "suggest": named or guess or now})
     out.sort(key=lambda r: (-r["files"]))
     return out
+
+
+def rig_issues(items, root=None) -> list:
+    """Files no rig could be matched to, grouped: [{reason, camera, focal, files, folder, items, names}] -
+    folder is the deepest folder all of the group's files share (the one you can assign to a rig)."""
+    import os
+    import stacking as st
+    groups = {}
+    for it in items:
+        if it.status != "norig" or it.info is None:
+            continue
+        info = it.info
+        reason = it.rig_issue.split(":")[0]
+        fl = round(float(info.focal), 0) if info.focal else None
+        # one group per (reason, camera, focal) and the top folder under the scanned one
+        top = ""
+        try:
+            rel = Path(it.src).relative_to(root) if root else Path(it.src)
+            top = rel.parts[0] if len(rel.parts) > 1 else ""
+        except ValueError:
+            pass
+        k = (reason, st.short_camera(info.camera), fl, top)
+        g = groups.setdefault(k, {"reason": reason, "camera": info.camera or "", "focal": fl, "items": [],
+                                  "names": it.rig_issue.split(": ", 1)[-1] if reason == "ambiguous" else ""})
+        g["items"].append(it)
+    out = []
+    for g in groups.values():
+        dirs = [str(Path(i.src).parent) for i in g["items"]]
+        try:
+            g["folder"] = os.path.commonpath(dirs)
+        except ValueError:
+            g["folder"] = dirs[0]
+        g["files"] = len(g["items"])
+        out.append(g)
+    out.sort(key=lambda g: -g["files"])
+    return out
+
+
+def focal_clusters(infos_paths, tol=0.05) -> list:
+    """Group the focal lengths found in headers into rigs: [{camera, focal (median), lo, hi, files, paths}] -
+    readings within ±tol of each other are one rig (the same scope drifts a few % night to night)."""
+    import stacking as st
+    by_cam = {}
+    for info, p in infos_paths:
+        if info is not None and info.focal:
+            by_cam.setdefault(st.short_camera(info.camera), []).append((float(info.focal), p, info.camera or ""))
+    out = []
+    for cam, vals in by_cam.items():
+        vals.sort(key=lambda v: v[0])
+        cur = [vals[0]]
+        for v in vals[1:]:
+            med = sorted(x[0] for x in cur)[len(cur) // 2]
+            if abs(v[0] - med) <= tol * med:
+                cur.append(v)
+            else:
+                out.append(cur)
+                cur = [v]
+        out.append(cur)
+    res = []
+    for c in out:
+        fs = sorted(x[0] for x in c)
+        res.append({"camera": c[0][2], "focal": round(fs[len(fs) // 2]), "lo": fs[0], "hi": fs[-1],
+                    "files": len(c), "paths": [x[1] for x in c]})
+    res.sort(key=lambda r: -r["files"])
+    return res
+
+
+def suggest_rig_name(paths, root=None, others=()) -> str:
+    """A rig name from your own folders (the folder these files share that other rigs' files don't)."""
+    groups = {"me": {"paths": list(paths), "targets": set()}}
+    for i, o in enumerate(others):
+        groups[i] = {"paths": list(o), "targets": set()}
+    return _guess_names(groups, root).get("me", "")

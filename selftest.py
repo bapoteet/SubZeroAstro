@@ -3210,7 +3210,7 @@ def run(app, out_dir: Path) -> int:
         def _ofits(name, typ, obj=None, flt=None, exp=60.0, t="2026-10-02T03:10:00", **extra):
             hd = {"IMAGETYP": typ, "EXPTIME": exp, "DATE-OBS": t, "INSTRUME": "ZWO ASI2600MM Pro",
                   "GAIN": 100, "OFFSET": 50, "CCD-TEMP": -10.0, "SITELONG": -84.5,
-                  "TELESCOP": "SQA60"}
+                  "TELESCOP": "SQA60", "FOCALLEN": 360}
             if obj:
                 hd["OBJECT"] = obj
             if flt:
@@ -3221,7 +3221,7 @@ def run(app, out_dir: Path) -> int:
         _ofits("L2.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:14:00")
         _ksh.copy2(_od / "dump" / "L2.fits", _od / "dump" / "sub" / "L2 copy.fits")          # a true duplicate
         _ofits("sub/L1 (2).fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:10:00")  # same capture, other bytes
-        _ofits("L3.fits", "Light Frame", "M 31", "L", 120.0, "2026-10-09T03:10:00", TELESCOP="RASA8")
+        _ofits("L3.fits", "Light Frame", "M 31", "L", 120.0, "2026-10-09T03:10:00", TELESCOP="RASA8", FOCALLEN=400)
         _ofits("MD.fits", "Dark Frame", None, None, 180.0, "2026-09-01T12:00:00", NCOMBINE=30)
         (_od / "dump" / "MD.fits").rename(_od / "dump" / "MasterDark_180s.fits")
         _ofits("M31_final.fits", "Light Frame", "M 31", "Ha", 180.0, "2026-10-02T03:10:00", NCOMBINE=40)
@@ -3327,19 +3327,38 @@ def run(app, out_dir: Path) -> int:
               and _gd.get(("SQA60Pro", "Light_001.fits", "2026-09-01"), "").startswith("Light Frames/SQA60Pro/"),
               f"Organize: with no telescope in the headers, the rig is named from your folders "
               f"({_gd.get(('IncomingAstroData', 'Light_001.fits', '2026-09-01'))}), not the focal length")
-        check(fb.ORGANIZER_ENABLED or (not w.act_organize.isEnabled() and all(
-                  a is not w.act_organize for mm in w.menuBar().actions() if mm.menu() for a in mm.menu().actions())),
+        check(fb.ORGANIZER_ENABLED or all(
+                  a is not w.act_organize for mm in w.menuBar().actions() if mm.menu() for a in mm.menu().actions()),
               "Organize My Astro Files is switched off for now: not in the File menu (being reworked)")
+        # Your Rigs: name <-> focal length(s) within ±5 %, a second focal length for a reducer; nothing guessed -
+        # a focal length that fits no rig, or two, waits for you
+        _yl = [{"name": "SQA60", "focals": [360, 290]}, {"name": "RASA8", "focals": [400], "camera": "ASI2600MM"},
+               {"name": "Redcat", "focals": [410], "camera": "ASI2600MC"}]
+
+        class _Fi:
+            def __init__(self, f, c="ZWO ASI2600MM Pro"):
+                self.focal, self.camera = f, c
+        _ym = [_og.match_rig(_Fi(f, c), "/x/y.fits", _yl, 0.05)[0] or _og.match_rig(_Fi(f, c), "/x/y.fits", _yl, 0.05)[1]
+               for f, c in ((352, None), (371, None), (290, None), (400, "ZWO ASI2600MM Pro"),
+                            (405, "ZWO ASI2600MC Pro"), (530, None), (None, None))]
+        _yl2 = [dict(r) for r in _yl]
+        _yl2[2] = {"name": "Redcat", "focals": [410]}
+        _yamb = _og.match_rig(_Fi(400), "/data/x/y.fits", _yl2, 0.05)
+        _yl2[2]["folders"] = ["/data/Redcat"]
+        _yfold = _og.match_rig(_Fi(400), "/data/Redcat/M31/y.fits", _yl2, 0.05)
+        check(_ym == ["SQA60", "SQA60", "SQA60", "RASA8", "Redcat", "nomatch", "nofocal"]
+              and _yamb == (None, "ambiguous: RASA8, Redcat") and _yfold == ("Redcat", "folder"),
+              f"Your Rigs: 352 and 371 mm are the SQA60 (360 ±5 %), 290 mm its reducer, the camera splits two rigs "
+              f"of about the same focal length, 530 mm matches none, and a folder you assigned settles a tie ({_ym})")
+        _keep_rl = (w.settings.value("organize/riglist", "[]"), w.settings.value("organize/rig_tol", 5),
+                    w.settings.value("stack/rigs", "[]"))
         _owin = w.open_organizer()
+        _owin.edit_rigs(rows=[{"name": "SQA60", "focals": [360]}, {"name": "RASA8", "focals": [400]}], tol_pct=5)
         _owin.layout_box.setCurrentIndex(_owin.layout_box.findData("rig"))
         _owin.src.setText(str(_od / "dump"))
         _owin.same.setChecked(True)
         _owin.move.setChecked(True)
         _owin.scan(wait=True)
-        _rc = _og.rig_candidates(_owin.items, _owin._rigs(), root=_od / "dump")
-        _keep_rigs = _owin.settings.value("stack/rigs", "[]")
-        _owin.name_rigs(names=[c["suggest"] for c in _rc])        # Name Your Rigs, keeping the suggestions
-        _owin.settings.setValue("stack/rigs", _keep_rigs)
         _on = len([i for i in _owin.items if i.status == "move"])
         _odd = _owin.open_duplicates()
         _odn = _odd.table.rowCount() if _odd else 0
@@ -3357,6 +3376,20 @@ def run(app, out_dir: Path) -> int:
               and not (_od / "dump" / "Targets").exists(),
               f"File › Organize My Astro Files… moves {_on} files into place (the duplicate stays put) and Undo "
               f"Last Run puts every one back ({_oback})")
+        _owin.src.setText(str(_gr))
+        _owin.move.setChecked(False)
+        _owin.scan(wait=True)
+        _y1 = sorted({i.why.split(" - ")[0] for i in _owin.items if i.status == "norig"})
+        _owin.edit_rigs(rows=[{"name": "SQA60Pro", "focals": [361]}, {"name": "RedCat", "focals": [250]}], tol_pct=5)
+        _y2 = {i.src.parent.name: str(i.dst.relative_to(_gr)).replace("\\", "/") for i in _owin.items
+               if i.status == "move"}
+        check(any("250 mm" in x for x in _y1) and _y2.get("2026-09-03", "").startswith("Light Frames/RedCat/M31/")
+              and _y2.get("2026-09-01", "").startswith("Light Frames/SQA60Pro/VeilNebula/")
+              and not [i for i in _owin.items if i.status == "norig"],
+              f"Organize: a rig not in Your Rigs is held back ({_y1[:1]}); after Add New Rig the plan updates at "
+              f"once, without reading the files again ({_y2.get('2026-09-03')})")
+        for _k, _v in zip(("organize/riglist", "organize/rig_tol", "stack/rigs"), _keep_rl):
+            w.settings.setValue(_k, _v)
         _owin.close()
         # Tonight's Target Picker: the sky worked out here (no internet), N.I.N.A.'s objects, a list N.I.N.A. imports
         import datetime as _pdt

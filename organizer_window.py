@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressBar,
-                               QPushButton, QRadioButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
+                               QPushButton, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 import checkpoints as cp
 import organizer as O
@@ -105,12 +105,16 @@ class OrganizeDialog(QDialog):
         self.b_go.setEnabled(False)
         self.b_go.setToolTip("Lights up after Step 1, once you have seen the plan")
         self.b_go.clicked.connect(lambda: self.go())
-        self.b_rigs = QPushButton("Name Your Rigs…")
-        self.b_rigs.setEnabled(False)
-        self.b_rigs.setToolTip("The rigs found in your files (camera + focal length) and the folder name each gets - "
-                               "give each one its proper name (SQA60, RASA8, Poseidon …). Remembered for next time "
-                               "and used by Calibrate and Stack too.")
-        self.b_rigs.clicked.connect(lambda: self.name_rigs())
+        self.b_rigs = QPushButton("Your Rigs…")
+        self.b_rigs.setToolTip("Your telescopes and the focal length(s) each one writes in the FITS header - set "
+                               "up once; every file is matched to its rig by focal length (±5 %). Add New Rig when "
+                               "you get another one.")
+        self.b_rigs.clicked.connect(lambda: self.edit_rigs())
+        self.b_which = QPushButton("Which Rig?…")
+        self.b_which.setEnabled(False)
+        self.b_which.setToolTip("Files whose focal length fits more than one rig, or whose header has no focal "
+                                "length: you say which rig, by folder - remembered")
+        self.b_which.clicked.connect(lambda: self.which_rig())
         self.b_dups = QPushButton("Step 2 – Duplicates… (if any)")
         self.b_dups.setEnabled(False)
         self.b_dups.setToolTip("See the duplicates found, and keep them, move them to a Duplicates folder or "
@@ -121,11 +125,13 @@ class OrganizeDialog(QDialog):
         self.b_stop = QPushButton("Stop")
         self.b_stop.setVisible(False)
         self.b_stop.clicked.connect(lambda: setattr(self.job, "stop", True) if self.job else None)
-        for b in (self.b_scan, self.b_rigs, self.b_dups, self.b_go, self.b_undo, self.b_stop):
+        for b in (self.b_rigs, self.b_scan, self.b_which, self.b_dups, self.b_go, self.b_undo, self.b_stop):
             h.addWidget(b)
         h.addStretch(1)
         lay.addLayout(h)
-        self.status = QLabel("Pick a folder, then Step 1 – Look Through the Files. Step 2 deals with any duplicates it finds; Step 3 – Organize lights up once you have seen the plan.")
+        self.status = QLabel("Start with <b>Your Rigs…</b> (once): name each telescope and the focal length it writes "
+                             "in your files. Then pick a folder and Step 1 – Look Through the Files; Step 2 deals with "
+                             "any duplicates; Step 3 – Organize lights up once you have seen the plan.")
         self.status.setWordWrap(True)
         lay.addWidget(self.status)
         self.bar = QProgressBar()
@@ -169,7 +175,8 @@ class OrganizeDialog(QDialog):
         return Path((self.src.text() if self.same.isChecked() else self.dst.text()).strip())
 
     def _busy(self, on):
-        for w in (self.b_scan, self.b_rigs, self.b_go, self.b_dups, self.b_undo, self.src, self.dst, self.same,
+        for w in (self.b_scan, self.b_rigs, self.b_which, self.b_go, self.b_dups, self.b_undo, self.src, self.dst,
+                  self.same,
                   self.copy, self.move,
                   self.layout_box):
             w.setEnabled(not on)
@@ -177,7 +184,7 @@ class OrganizeDialog(QDialog):
             self.dst.setEnabled(not self.same.isChecked())
             self.b_go.setEnabled(bool([i for i in self.items if i.status == "move"]))
             self.b_dups.setEnabled(bool(O.duplicates(self.items)))
-            self.b_rigs.setEnabled(bool(self.items))
+            self.b_which.setEnabled(bool([g for g in O.rig_issues(self.items) if g["reason"] != "nomatch"]))
         self.b_stop.setVisible(on)
         self.bar.setVisible(on)
 
@@ -212,20 +219,21 @@ class OrganizeDialog(QDialog):
                      ("organize/layout", self.layout_box.currentData())):
             self.settings.setValue(k, v)
 
-        try:
-            import json as _json
-            import stacking as _st
-            rigs = _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
-        except Exception:  # noqa: BLE001
-            rigs = None
-
+        riglist, tol = self.riglist(), self.tol()
+        if not riglist:
+            QMessageBox.information(self, "Organize My Astro Files", "First tell SubZeroAstro about your rigs - "
+                                    "each telescope's name and the focal length it writes in your files. "
+                                    "Find My Rigs in My Files fills most of it in for you.")
+            if not self.edit_rigs():
+                return
+            riglist = self.riglist()
         layout = self.layout_box.currentData() or "rig"
         self._plan_args = (lib, layout, src)
 
         def work(job):
             paths = O.scan(src, progress=lambda t, n: job.note.emit(t, 0, 0), stop=lambda: job.stop)
             items = O.classify(paths, progress=lambda t, i: job.note.emit(t, i, len(paths)), stop=lambda: job.stop,
-                               library=lib, rigs=rigs, layout=layout, root=src)
+                               library=lib, layout=layout, root=src, riglist=riglist, tol=tol)
             job.note.emit("Checking for duplicates and name clashes…", 0, 0)
             return O.plan(items, lib)
         self._run(work, self._show_plan, wait)
@@ -250,16 +258,16 @@ class OrganizeDialog(QDialog):
         self.status.setText("<br>".join(parts) + ("<br>Check the list, deal with any duplicates (<b>Step 2</b>), then press <b>Step 3 – Organize</b>."
                                                   if sm["files"] else "<br>Nothing to do."))
         lib = self.library()
-        order = {"move": 0, "duplicate": 1, "error": 2, "here": 3}
+        order = {"move": 0, "norig": 1, "duplicate": 2, "error": 3, "here": 4}
         rows = sorted(items, key=lambda i: (order.get(i.status, 9), str(i.dst or "")))[:PREVIEW_ROWS]
         self.table.setRowCount(len(rows))
-        mark = {"move": "→", "duplicate": "≡", "error": "!", "here": "✓"}
+        mark = {"move": "→", "duplicate": "≡", "error": "!", "here": "✓", "norig": "?"}
         for r, it in enumerate(rows):
             try:
                 to = str(Path(it.dst).relative_to(lib)) if it.dst else ""
             except ValueError:
                 to = str(it.dst)
-            if it.status in ("duplicate", "error"):
+            if it.status in ("duplicate", "error", "norig"):
                 to = "(stays where it is)"
             vals = [mark.get(it.status, ""), it.src.name, to, it.why]
             for c, v in enumerate(vals):
@@ -269,15 +277,21 @@ class OrganizeDialog(QDialog):
                 self.table.setItem(r, c, cell)
         self.b_go.setEnabled(sm["files"] > 0)
         self.b_dups.setEnabled(bool(O.duplicates(items)))
-        self.b_rigs.setEnabled(bool(items))
-        unnamed = [r for r in O.rig_candidates(items, self._rigs(), root=(getattr(self, "_plan_args", None) or
-                                                                         (None, None, None))[2])
-                   if not r["named"] and not r["guess"] and (not r["now"] or re.match(r"^\d+mm$", r["now"]))]
-        if unnamed and (self._plan_args[1] if getattr(self, "_plan_args", None) else "rig") == "rig":
-            self.status.setText(self.status.text() + f"<br><b>{len(unnamed)} rig(s) have no name</b> - nothing in their "
-                                "headers or folders names the telescope, so they would be filed as "
-                                + ", ".join(sorted({r['now'] or 'Unknown rig' for r in unnamed})[:6])
-                                + ". Press <b>Name Your Rigs…</b> to give them their names.")
+        issues = O.rig_issues(items, (getattr(self, "_plan_args", None) or (None, None, None))[2])
+        self.b_which.setEnabled(bool([g for g in issues if g["reason"] != "nomatch"]))
+        if issues:
+            nm = [g for g in issues if g["reason"] == "nomatch"]
+            other = [g for g in issues if g["reason"] != "nomatch"]
+            msg = []
+            if nm:
+                fls = sorted({f"{g['focal']:.0f} mm" for g in nm if g["focal"]})
+                msg.append(f"<b>{sum(g['files'] for g in nm)} file(s) match none of your rigs</b> ("
+                           + ", ".join(fls[:6]) + ") - press <b>Your Rigs…</b> to add them")
+            if other:
+                msg.append(f"<b>{sum(g['files'] for g in other)} file(s) need you to say which rig</b> (a focal "
+                           "length that fits two rigs, or none in the header) - press <b>Which Rig?…</b>")
+            self.status.setText(self.status.text() + "<br>" + "<br>".join(msg)
+                                + "<br>Those files stay where they are until then.")
 
     # ---------------------------------------------------------------- go / undo
     def go(self, ask=True, wait=False):
@@ -360,38 +374,140 @@ class OrganizeDialog(QDialog):
         self._run(work, done, wait)
 
 
-    # ---------------------------------------------------------------- rig names
-    def _rigs(self):
+    # ---------------------------------------------------------------- Your Rigs
+    def riglist(self):
+        import json as _json
         try:
-            import json as _json
-            import stacking as _st
-            return _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
+            v = _json.loads(self.settings.value("organize/riglist", "[]") or "[]")
+            return [r for r in v if r.get("name") and (r.get("focals") or r.get("folders"))]
         except Exception:  # noqa: BLE001
-            return None
+            return []
 
-    def name_rigs(self, names=None):
-        """Name Your Rigs…: one row per rig found; the names are saved where Calibrate and Stack keeps its rig
-        names, and the plan is worked out again straight away (no headers are read twice)."""
-        rigs = self._rigs()
-        cands = O.rig_candidates(self.items, rigs, root=(getattr(self, "_plan_args", None) or (None, None, None))[2])
-        if not cands:
-            return None
-        if names is None:
-            d = RigNamesDialog(self, cands)
-            if not d.exec():
-                return None
-            names = d.names()
+    def tol(self):
+        try:
+            return float(self.settings.value("organize/rig_tol", 5)) / 100.0
+        except (TypeError, ValueError):
+            return 0.05
+
+    def save_riglist(self, riglist, tol_pct=None):
         import json as _json
         import stacking as _st
-        rigs = rigs or _st.Rigs()
-        changed = 0
-        for c, n in zip(cands, names):
-            n = (n or "").strip()
-            if n and n != (c["named"] or ""):
-                rigs.set(c["camera"], c["focal"], n)
-                changed += 1
-        self.settings.setValue("stack/rigs", _json.dumps(rigs.entries))
-        lib, layout, src = getattr(self, "_plan_args", (self.library(), "rig", None))
+        self.settings.setValue("organize/riglist", _json.dumps(riglist))
+        if tol_pct is not None:
+            self.settings.setValue("organize/rig_tol", tol_pct)
+        # the same names in Calibrate and Stack (by camera + focal length)
+        try:
+            rigs = _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
+            for r in riglist:
+                if r.get("camera"):
+                    for f in r.get("focals") or []:
+                        rigs.set(r["camera"], float(f), r["name"])
+            self.settings.setValue("stack/rigs", _json.dumps(rigs.entries))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _found(self):
+        """Rigs found in the files looked through (or a sample of the chosen folder) that none of yours matches."""
+        riglist, tol = self.riglist(), self.tol()
+        root = (getattr(self, "_plan_args", None) or (None, None, None))[2]
+        pairs = [(it.info, it.src) for it in self.items if it.info is not None]
+        if not pairs:
+            return []
+        clusters = O.focal_clusters(pairs, tol)
+        out = []
+        for c in clusters:
+            probe = type("I", (), {"focal": c["focal"], "camera": c["camera"]})()
+            name, why = O.match_rig(probe, None, riglist, tol)
+            if name:
+                continue
+            others = [o["paths"] for o in clusters if o is not c]
+            c["suggest"] = O.suggest_rig_name(c["paths"], root, others)
+            out.append(c)
+        return out
+
+    def find_in_files(self, folder=None, sample=600):
+        """Find My Rigs in My Files: read a spread-out sample of headers from the folder (fast even on a NAS)."""
+        import stacking as _st
+        folder = Path(folder or self.src.text().strip())
+        if not folder.is_dir():
+            return []
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            paths = O.scan(folder)
+            step = max(1, len(paths) // sample)
+            pick = paths[::step]
+            pairs = []
+            for k, p in enumerate(pick):
+                try:
+                    pairs.append((_st.read_info(p), p))
+                except Exception:  # noqa: BLE001
+                    pass
+                if k % 25 == 0:
+                    QApplication.processEvents()
+            clusters = O.focal_clusters(pairs, self.tol())
+            riglist = self.riglist()
+            out = []
+            for c in clusters:
+                probe = type("I", (), {"focal": c["focal"], "camera": c["camera"]})()
+                if O.match_rig(probe, None, riglist, self.tol())[0]:
+                    continue
+                c["suggest"] = O.suggest_rig_name(c["paths"], folder, [o["paths"] for o in clusters if o is not c])
+                c["files"] = round(c["files"] * step)
+                out.append(c)
+            return out
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def edit_rigs(self, rows=None, tol_pct=None):
+        """Your Rigs…: the table of rigs (name, focal lengths, camera). rows given = save those (self-test)."""
+        if rows is None:
+            d = YourRigsDialog(self, self.riglist(), round(self.tol() * 100), self._found())
+            if not d.exec():
+                return False
+            rows, tol_pct = d.result_rows(), d.tol.value()
+        old = {r["name"]: r for r in self.riglist()}
+        merged = {}
+        for r in rows:
+            m = merged.setdefault(r["name"], {"name": r["name"], "focals": [], "camera": r.get("camera", ""),
+                                              "folders": list((old.get(r["name"]) or {}).get("folders") or [])})
+            for f in r.get("focals") or []:
+                if f not in m["focals"]:
+                    m["focals"].append(f)
+            m["folders"] += [f for f in r.get("folders") or [] if f not in m["folders"]]
+        self.save_riglist(list(merged.values()), tol_pct)
+        self.replan()
+        return True
+
+    def which_rig(self, answers=None):
+        """Which Rig?…: the files a focal length can't place (fits two rigs, or none in the header) - you pick
+        the rig for each folder; remembered for that folder."""
+        root = (getattr(self, "_plan_args", None) or (None, None, None))[2]
+        groups = [g for g in O.rig_issues(self.items, root) if g["reason"] != "nomatch"]
+        if not groups:
+            return False
+        riglist = self.riglist()
+        if answers is None:
+            d = WhichRigDialog(self, groups, [r["name"] for r in riglist])
+            if not d.exec():
+                return False
+            answers = d.answers()
+        for g, name in zip(groups, answers):
+            if not name:
+                continue
+            for r in riglist:
+                if r["name"] == name:
+                    r.setdefault("folders", [])
+                    if g["folder"] not in r["folders"]:
+                        r["folders"].append(g["folder"])
+        self.save_riglist(riglist)
+        self.replan()
+        return True
+
+    def replan(self):
+        """Work the plan out again with the rigs as they are now - from the headers already read."""
+        if not self.items or not getattr(self, "_plan_args", None):
+            return
+        lib, layout, src = self._plan_args
         cache = {str(it.src): it.info for it in self.items}
 
         def cached(p):
@@ -399,10 +515,9 @@ class OrganizeDialog(QDialog):
             if v is None:
                 raise OSError("could not be read")
             return v
-        items = O.plan(O.classify([it.src for it in self.items], read_info=cached, library=lib, rigs=rigs,
-                                  layout=layout, root=src), lib)
+        items = O.plan(O.classify([it.src for it in self.items], read_info=cached, library=lib, layout=layout,
+                                  root=src, riglist=self.riglist(), tol=self.tol()), lib)
         self._show_plan(items)
-        return changed
 
 
 class DuplicatesDialog(QDialog):
@@ -476,37 +591,156 @@ class DuplicatesDialog(QDialog):
         self.close()
         self.owner.handle_duplicates(todo, delete, wait)
 
-class RigNamesDialog(QDialog):
-    def __init__(self, owner, cands):
+class YourRigsDialog(QDialog):
+    """Your rigs: one row per telescope - its short name, the focal length(s) it writes in your FITS headers
+    (several when you use a reducer: 360, 290) and, if two rigs share a focal length, the camera."""
+
+    def __init__(self, owner, riglist, tol_pct, found):
         super().__init__(owner)
-        self.setWindowTitle("Name Your Rigs")
+        self.owner = owner
+        self.setWindowTitle("Your Rigs")
         lay = QVBoxLayout(self)
-        lab = QLabel("One row per rig found in your files - a rig is a camera on a telescope, told apart by the "
-                     "camera and the focal length in each header. Type the name you want for its folders (e.g. "
-                     "<i>SQA60</i>, <i>RASA8</i>, <i>Poseidon</i>). The suggestion comes from your own folder names "
-                     "where they show it. Names are remembered, and Calibrate and Stack uses them too.")
+        lab = QLabel("Name each rig - a telescope with the camera that lives on it - and give the focal length it "
+                     "writes in your FITS headers. Files are matched to a rig by focal length, within the "
+                     "tolerance below (the header value drifts a few % from night to night). A scope with and "
+                     "without a reducer: one rig, two focal lengths (e.g. <i>360, 290</i>). Add the camera only "
+                     "when two rigs have about the same focal length. Set up once - remembered, and Calibrate "
+                     "and Stack uses the same names.")
         lab.setWordWrap(True)
         lay.addWidget(lab)
-        self.table = QTableWidget(len(cands), 6)
-        self.table.setHorizontalHeaderLabels(["Name", "Camera", "Focal length", "Header says", "Files",
-                                              "Example folder"])
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Rig name", "Focal length(s), mm", "Camera (optional)", "Found in your files"])
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(5, QHeaderView.Stretch)
-        for r, c in enumerate(cands):
-            vals = [c["suggest"] or "", c["camera"] or "?", f"{c['focal']:.0f} mm" if c["focal"] else "?",
-                    ", ".join(c["telescopes"]) or "-", str(c["files"]), c["examples"][0] if c["examples"] else ""]
-            for k, v in enumerate(vals):
+        hh.setSectionResizeMode(3, QHeaderView.Stretch)
+        lay.addWidget(self.table, 1)
+        for r in riglist:
+            self.add_row(r["name"], ", ".join(f"{f:g}" for f in r.get("focals") or []), r.get("camera", ""),
+                         "your rig" + (f" (+ {len(r.get('folders') or [])} folder(s) you assigned)"
+                                       if r.get("folders") else ""))
+        for c in found:
+            self.add_row(c.get("suggest", ""), f"{c['focal']:g}", "",
+                         f"found: {c['files']} file(s), {c['lo']:.0f}–{c['hi']:.0f} mm, {c['camera']} - "
+                         f"name it or remove the row", new=True)
+        h = QHBoxLayout()
+        b = QPushButton("Add New Rig")
+        b.clicked.connect(lambda: self.add_row("", "", "", "new", new=True, edit=True))
+        h.addWidget(b)
+        b = QPushButton("Remove Selected")
+        b.clicked.connect(self.remove_selected)
+        h.addWidget(b)
+        b = QPushButton("Find My Rigs in My Files…")
+        b.setToolTip("Reads a sample of headers from the folder to organize and adds a row for each focal length "
+                     "none of your rigs matches")
+        b.clicked.connect(self.find)
+        h.addWidget(b)
+        h.addStretch(1)
+        h.addWidget(QLabel("Match within ±"))
+        self.tol = QSpinBox()
+        self.tol.setRange(1, 15)
+        self.tol.setSuffix(" %")
+        self.tol.setValue(int(tol_pct))
+        h.addWidget(self.tol)
+        lay.addLayout(h)
+        self.err = QLabel("")
+        self.err.setStyleSheet("color: #d9534f")
+        lay.addWidget(self.err)
+        h = QHBoxLayout()
+        h.addStretch(1)
+        ok = QPushButton("Save My Rigs")
+        ok.setDefault(True)
+        ok.clicked.connect(self.save)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        h.addWidget(ok)
+        h.addWidget(cancel)
+        lay.addLayout(h)
+        self.resize(980, 460)
+
+    def add_row(self, name, focals, camera, note, new=False, edit=False):
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+        for k, v in enumerate((name, focals, camera, note)):
+            cell = QTableWidgetItem(v)
+            if k == 3:
+                cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
+            self.table.setItem(r, k, cell)
+        if edit:
+            self.table.setCurrentCell(r, 0)
+            self.table.editItem(self.table.item(r, 0))
+
+    def remove_selected(self):
+        for r in sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True):
+            self.table.removeRow(r)
+
+    def find(self):
+        have = {(self.table.item(r, 1).text() or "").strip() for r in range(self.table.rowCount())}
+        found = self.owner.find_in_files()
+        added = 0
+        for c in found:
+            if f"{c['focal']:g}" in have:
+                continue
+            self.add_row(c.get("suggest", ""), f"{c['focal']:g}", "",
+                         f"found: about {c['files']} file(s), {c['lo']:.0f}–{c['hi']:.0f} mm, {c['camera']}", new=True)
+            added += 1
+        self.err.setText("" if added else "Nothing new found - every focal length in the sample matches a rig.")
+
+    def result_rows(self):
+        rows = []
+        for r in range(self.table.rowCount()):
+            name = (self.table.item(r, 0).text() or "").strip()
+            fl = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", self.table.item(r, 1).text() or "")]
+            cam = (self.table.item(r, 2).text() or "").strip()
+            if name or fl:
+                rows.append({"name": name, "focals": fl, "camera": cam})
+        return rows
+
+    def save(self):
+        rows = self.result_rows()
+        bad = [r for r in rows if not r["name"] or not r["focals"]]
+        if bad:
+            self.err.setText("Every rig needs a name and at least one focal length (or remove that row).")
+            return
+        self.accept()
+
+
+class WhichRigDialog(QDialog):
+    """Files a focal length can't place: say which rig each folder belongs to (remembered for that folder)."""
+
+    def __init__(self, owner, groups, names):
+        super().__init__(owner)
+        self.setWindowTitle("Which Rig?")
+        lay = QVBoxLayout(self)
+        lab = QLabel("These files can't be placed by focal length alone - it fits more than one of your rigs, or the "
+                     "header has none. Pick the rig for each folder; SubZeroAstro remembers it for that folder.")
+        lab.setWordWrap(True)
+        lay.addWidget(lab)
+        self.table = QTableWidget(len(groups), 4)
+        self.table.setHorizontalHeaderLabels(["Rig", "Folder", "Files", "Why"])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        self.boxes = []
+        for r, g in enumerate(groups):
+            box = QComboBox()
+            box.addItem("- not now -", "")
+            choices = [n.strip() for n in g["names"].split(",")] if g.get("names") else names
+            for n in choices + [n for n in names if n not in choices]:
+                box.addItem(n, n)
+            if g.get("names"):
+                box.setCurrentIndex(0)
+            self.table.setCellWidget(r, 0, box)
+            self.boxes.append(box)
+            why = (f"{g['focal']:.0f} mm fits {g['names']}" if g["reason"] == "ambiguous" else
+                   "no focal length in the header")
+            for k, v in ((1, g["folder"]), (2, str(g["files"])), (3, f"{why} ({g['camera']})")):
                 cell = QTableWidgetItem(v)
-                if k:
-                    cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
-                if k == 5:
-                    cell.setToolTip("\n".join(c["examples"]))
+                cell.setFlags(cell.flags() & ~Qt.ItemIsEditable)
                 self.table.setItem(r, k, cell)
         lay.addWidget(self.table, 1)
         h = QHBoxLayout()
         h.addStretch(1)
-        ok = QPushButton("Use These Names")
+        ok = QPushButton("Use These Rigs")
         ok.setDefault(True)
         ok.clicked.connect(self.accept)
         cancel = QPushButton("Cancel")
@@ -514,7 +748,7 @@ class RigNamesDialog(QDialog):
         h.addWidget(ok)
         h.addWidget(cancel)
         lay.addLayout(h)
-        self.resize(1000, 420)
+        self.resize(980, 380)
 
-    def names(self):
-        return [self.table.item(r, 0).text() for r in range(self.table.rowCount())]
+    def answers(self):
+        return [b.currentData() for b in self.boxes]
