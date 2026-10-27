@@ -392,6 +392,8 @@ class OrganizeDialog(QDialog):
                 cell = QTableWidgetItem(v)
                 if c == 1:
                     cell.setToolTip(str(it.src))
+                if c >= 2:
+                    cell.setToolTip(v)                     # the full text when the column is too narrow
                 self.table.setItem(r, c, cell)
         self.b_go.setEnabled(sm["files"] > 0)
         self.b_dups.setEnabled(bool(O.duplicates(items)))
@@ -464,6 +466,8 @@ class OrganizeDialog(QDialog):
                     cell = QTableWidgetItem(v)
                     if c == 1:
                         cell.setToolTip(str(pth))
+                    if c >= 2:
+                        cell.setToolTip(v)                 # the full text when the column is too narrow
                     self.table.setItem(r, c, cell)
             self.b_go.setEnabled(False)
             self.b_dups.setEnabled(False)
@@ -572,6 +576,8 @@ class OrganizeDialog(QDialog):
                     cell = QTableWidgetItem(v)
                     if c == 1:
                         cell.setToolTip(str(pth))
+                    if c >= 2:
+                        cell.setToolTip(v)                 # the full text when the column is too narrow
                     self.table.setItem(k, c, cell)
         self._run(work, done, wait)
 
