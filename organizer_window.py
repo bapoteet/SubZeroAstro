@@ -77,7 +77,7 @@ class OrganizeDialog(QDialog):
         _h.addWidget(bf)
         self.dst, hd = row("Put the organized files in:", "organize/dst",
                            "Your astro library. Can be the same folder (organize in place).")
-        self.same = QCheckBox("Same folder (organize in place)")
+        self.same = QCheckBox("Same folder (organize in place) - untick to put the organized files somewhere else")
         self.same.setChecked(self.settings.value("organize/same", True, type=bool))
         self.same.toggled.connect(self._same_toggled)
         lay.addWidget(self.same)
@@ -231,7 +231,10 @@ class OrganizeDialog(QDialog):
             return
         d = QFileDialog.getExistingDirectory(self, "Choose a folder", str(start))
         if d:
-            ed.setText(d)
+            import os
+            ed.setText(os.path.normpath(d))
+            if ed is self.dst and self.same.isChecked():
+                self.same.setChecked(False)        # picking a destination means: not the same folder
 
     def _add_files(self):
         start = (self.sources() or [Path.home()])[0]
@@ -250,7 +253,8 @@ class OrganizeDialog(QDialog):
         for p in paths:
             if str(p) not in [str(q) for q in seen]:
                 seen.append(Path(p))
-        self.src.setText("; ".join(str(p) for p in seen))
+        import os
+        self.src.setText("; ".join(os.path.normpath(str(p)) for p in seen))
         if self.same.isChecked():
             self.dst.setText(str(self._common()))
 
@@ -270,7 +274,11 @@ class OrganizeDialog(QDialog):
     def _same_toggled(self, on):
         self.dst.setEnabled(not on)
         if on:
+            if self.dst.text().strip() and Path(self.dst.text().strip()) != self._common():
+                self._own_dst = self.dst.text()            # keep the folder you picked for when you untick
             self.dst.setText(str(self._common()))
+        elif getattr(self, "_own_dst", ""):
+            self.dst.setText(self._own_dst)
 
     def library(self) -> Path:
         return Path(str(self._common()) if self.same.isChecked() else self.dst.text().strip())
