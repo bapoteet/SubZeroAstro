@@ -3327,9 +3327,9 @@ def run(app, out_dir: Path) -> int:
               and _gd.get(("SQA60Pro", "Light_001.fits", "2026-09-01"), "").startswith("Light Frames/SQA60Pro/"),
               f"Organize: with no telescope in the headers, the rig is named from your folders "
               f"({_gd.get(('IncomingAstroData', 'Light_001.fits', '2026-09-01'))}), not the focal length")
-        check(fb.ORGANIZER_ENABLED or all(
-                  a is not w.act_organize for mm in w.menuBar().actions() if mm.menu() for a in mm.menu().actions()),
-              "Organize My Astro Files is switched off for now: not in the File menu (being reworked)")
+        check(any(a is w.act_organize for mm in w.menuBar().actions() if mm.menu() for a in mm.menu().actions()),
+              "File › Organize My Astro Files… is in the File menu")
+        w.settings.setValue("organize/intro_ok", True)       # the first-time note is a click-through dialog
         # Your Rigs: name <-> focal length(s) within ±5 %, a second focal length for a reducer; nothing guessed -
         # a focal length that fits no rig, or two, waits for you
         _yl = [{"name": "SQA60", "focals": [360, 290]}, {"name": "RASA8", "focals": [400], "camera": "ASI2600MM"},

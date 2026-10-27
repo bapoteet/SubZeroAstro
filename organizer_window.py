@@ -423,7 +423,11 @@ class OrganizeDialog(QDialog):
         lib = self.library()
         if ask:
             verb = "Move" if move else "Copy"
-            msg = (f"{verb} {len(todo)} file(s) into {lib}?\n\n"
+            first_move = move and not self.settings.value("organize/moved_before", False, type=bool)
+            msg = (("This is your first Move. Have you tried these folders with Copy first and checked the "
+                    "result in Organized Astro Files? If not, choose No, switch to Copy and try that first.\n\n"
+                    if first_move else "")
+                   + f"{verb} {len(todo)} file(s) into {lib}?\n\n"
                    + ("Moved files are no longer in their old place (empty folders left behind are removed). "
                       if move else "The originals stay where they are. ")
                    + "You can undo this with Undo Last Run.")
@@ -472,6 +476,8 @@ class OrganizeDialog(QDialog):
             self.b_go.setEnabled(False)
             self.b_dups.setEnabled(False)
             self._organized = True
+            if move:
+                self.settings.setValue("organize/moved_before", True)
             import time as _time
             srcs = self.sources()
             self.settings.setValue("organize/last_done",
@@ -528,6 +534,30 @@ class OrganizeDialog(QDialog):
             self._update_steps()
         self._run(work, done, wait)
 
+
+    # ---------------------------------------------------------------- first time
+    def show_intro(self):
+        """The first time: try it on a little, with Copy, before moving anything - must be clicked through."""
+        box = QMessageBox(self)
+        box.setWindowTitle("Organize My Astro Files - before you start")
+        box.setIcon(QMessageBox.Information)
+        box.setText("<b>Try it on a small piece first, with Copy.</b>")
+        box.setInformativeText(
+            "1. <b>Your Rigs…</b> - name each telescope and the focal length it writes in your files (once).<br>"
+            "2. Pick <b>one or two folders</b> (subfolders are included) and choose <b>Copy</b> - your originals "
+            "stay where they are.<br>"
+            "3. <b>Step 1</b>, check the plan, <b>Step 3</b>, then look through <b>Organized Astro Files</b>.<br>"
+            "4. Happy with it? <b>Undo Last Run</b> (it removes the copies), switch to <b>Move</b>, and run it "
+            "again.<br>"
+            "5. Before clearing out old folders, press <b>Safe to Delete?</b><br><br>"
+            "Every run can be undone; nothing is ever deleted unless you delete it.")
+        cb = QCheckBox("Don't show this again")
+        box.setCheckBox(cb)
+        box.addButton("I Understand", QMessageBox.AcceptRole)
+        box.exec()
+        if cb.isChecked():
+            self.settings.setValue("organize/intro_ok", True)
+        self.copy.setChecked(True)                 # start on Copy
 
     # ---------------------------------------------------------------- Safe to delete?
     def safe_to_delete(self, wait=False):

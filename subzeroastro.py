@@ -43,8 +43,8 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.143 beta"
-ORGANIZER_ENABLED = False      # File › Organize My Astro Files… is switched off while it is being reworked
+APP_VERSION = "0.9.144 beta"
+ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -1547,6 +1547,8 @@ class MainWindow(QMainWindow):
         w.show()
         w.raise_()
         w.activateWindow()
+        if not self.settings.value("organize/intro_ok", False, type=bool):
+            w.show_intro()
         return w
 
     def open_pixinsight_project(self, folder=None):
