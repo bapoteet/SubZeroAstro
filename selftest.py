@@ -233,6 +233,19 @@ def run(app, out_dir: Path) -> int:
                      and bool(np.allclose(_sback, np.clip(_sm.data, 0, _ssc), rtol=1e-3))))
     check(all(_sct), f"the RC-Astro / GraXpert hand-off works on any brightness scale: normal, 0..1 and past 65535 "
                      f"masters all reach the tool as a normal picture and come back unchanged ({_sct})")
+    # GraXpert correction 'Automatic': Subtraction for flat-calibrated and ready-made data, Division without flats
+    _gcm = []
+    for _gl, _glog in (({"PRECAL": "Telescope Live: PROC = True", "CALFLAT": "none"}, None), ({"CALFLAT": "24 flat subframes"}, None),
+                       ({}, None), ({"CALFLAT": "none"}, "Note: These lights are already calibrated (x)"),
+                       ({"CALFLAT": "none"}, None)):
+        _gm = type("M", (), {})()
+        _gm.look, _gm.path = _gl, _sfd / f"gc_{len(_gcm)}.fits"
+        if _glog:
+            (_sfd / f"gc_{len(_gcm)}_stacklog.txt").write_text(_glog, encoding="utf-8")
+        _gcm.append(_prp.gradient_correction_for(_gm)[0])
+    check(_gcm == ["Subtraction"] * 4 + ["Division"],
+          f"gradient removal 'Automatic': Subtraction for Telescope Live / flat-calibrated / unknown masters, Division "
+          f"only for a master stacked without flats ({_gcm})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)

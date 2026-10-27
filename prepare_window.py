@@ -735,10 +735,16 @@ class PrepareWindow(QMainWindow):
         self.gx_smooth.setSingleStep(0.05)
         self.gx_smooth.setValue(float(s.value("prep/gx_smoothing", 0.1)))
         self.gx_corr = QComboBox()
-        self.gx_corr.addItems(["Subtraction", "Division"])
-        self.gx_corr.setCurrentText(s.value("prep/gx_correction", "Subtraction"))
-        self.gx_corr.setToolTip("Subtraction for light pollution / moon gradients; Division for vignetting-like "
-                                "residuals")
+        self.gx_corr.addItems(["Automatic", "Subtraction", "Division"])
+        if not s.value("prep/gx_correction_auto_v1", False, type=bool):    # once: everyone starts on Automatic
+            s.setValue("prep/gx_correction", "Automatic")
+            s.setValue("prep/gx_correction_auto_v1", True)
+        self.gx_corr.setCurrentText(s.value("prep/gx_correction", "Automatic"))
+        self.gx_corr.setToolTip("Automatic (recommended): Subtraction when the lights were flat-calibrated - your "
+                                "flats, a SkyFlat, or ready-made data such as Telescope Live - and Division for a "
+                                "master stacked without any flats (vignetting left in it). The log says which "
+                                "was used.\nSubtraction: light pollution and moon glow.\nDivision: vignetting "
+                                "that flats did not take out.")
         gv.addRow("Method:", self.grad_tool)
         gv.addRow("GraXpert smoothing:", self.gx_smooth)
         gv.addRow("Correction:", self.gx_corr)

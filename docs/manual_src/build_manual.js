@@ -382,7 +382,7 @@ p("The yellow box on the preview is the crop. **Auto-crop** trims the ragged sta
 sec("8.3", "Plate solve", ["Plate solve", "Blind solve", "Search radius"]);
 p("ASTAP finds where the picture points in the sky, using the position and pixel scale recorded in the masters. If it fails, tick **Blind solve** (slower, searches the whole sky).");
 sec("8.4", "Remove gradients", ["Gradient removal", "GraXpert", "Light pollution"]);
-p("Removes light-pollution glow and uneven backgrounds. **GraXpert (AI)** is recommended; **Smoothing** 0.1 and **Correction: Subtraction** are good defaults. Without GraXpert a built-in model is used.");
+p("Removes light-pollution glow and uneven backgrounds. **GraXpert (AI)** is recommended; **Smoothing** 0.1 is a good default. **Correction: Automatic** picks for each master: *Subtraction* when the lights were flat-calibrated (your flats, a SkyFlat, or ready-made data such as Telescope Live) - light pollution and moon glow add to the picture - and *Division* only for a master stacked without any flats, where vignetting is still in it. The log says which was used. Without GraXpert a built-in model is used.");
 sec("8.5", "The XTerminators", ["BlurXTerminator", "NoiseXTerminator", "StarXTerminator", "Unscreen Stars"]);
 table(["Tool", "What it does", "Good starting settings"], [
   ["BlurXTerminator", "Sharpens stars and detail", "Sharpen Stars 0.50, Adjust Star Halos 0.40, Sharpen Nonstellar 0.50, Automatic PSF on"],

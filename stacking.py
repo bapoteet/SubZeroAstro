@@ -3235,6 +3235,7 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
               ("CALFLAT", (f"per-night flats ({len(plan.night_flats)} nights)" if plan.night_flats else
                            plan.flat.ref.path.name if plan.flat.master else f"{plan.flat.count} flat subframes")
                if plan.flat else "none", ""),
+              ("PRECAL", str(plan.precal)[:60] if plan.precal else None, "lights were already calibrated"),
               ("STACKREJ", f"sigma clip k={opts.kappa:g}", ""),
               ("STACKWGT", "noise" if opts.weighting else "equal", ""),
               ("SWCREATE", "SubZeroAstro", "")]

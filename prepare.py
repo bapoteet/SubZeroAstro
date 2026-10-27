@@ -347,6 +347,28 @@ def crop(m: Master, rect):
 # Temporary files for external tools (0..1 float FITS)
 # ==========================================================================
 
+def gradient_correction_for(m) -> tuple:
+    """GraXpert's correction for one master, and why.
+    Subtraction - the lights were flat-calibrated (your flats, a SkyFlat, or ready-made data such as Telescope
+    Live): what is left is light pollution or moon glow, which adds to the picture.
+    Division - the master was stacked without any flats: vignetting is still in it, and it multiplies."""
+    look = getattr(m, "look", None) or {}
+    if look.get("PRECAL"):
+        return "Subtraction", f"the lights were already calibrated ({look.get('PRECAL')})"
+    calflat = str(look.get("CALFLAT") or "").strip()
+    if calflat.lower() != "none":
+        return "Subtraction", ("the lights were flat-calibrated" if calflat else
+                               "light pollution and moon glow add to the picture")
+    # masters stacked before the PRECAL keyword existed: their stack log says so
+    try:
+        log = Path(m.path).with_name(Path(m.path).stem + "_stacklog.txt")
+        if log.is_file() and "already calibrated" in log.read_text(encoding="utf-8", errors="ignore"):
+            return "Subtraction", "the lights were already calibrated (ready-made data)"
+    except (OSError, TypeError, ValueError):
+        pass
+    return "Division", "stacked without flats, so vignetting is still in the picture"
+
+
 def _temp_scale(d) -> float:
     """What a picture is divided by before an outside tool gets it (they all work in 0..1).
     Normally 65535 (the app's ADU scale). A picture on another scale - a master saved as 0..1, or values
@@ -977,7 +999,7 @@ class PrepareOptions:
     gradient_tool: str = "graxpert"         # "graxpert" or "builtin"
     graxpert: str | None = None
     gx_smoothing: float = 0.1
-    gx_correction: str = "Subtraction"
+    gx_correction: str = "Automatic"     # Automatic: Subtraction, or Division for masters stacked without flats
     rcastro: str | None = None
     xt: dict = field(default_factory=dict)  # key -> {"enabled", "values", "mode"}
     device: str = "auto"
@@ -1113,8 +1135,12 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                     tmp = work / f"bge_{i}.fits"
                     sc = _write_temp(m, tmp)
                     try:
+                        corr = opts.gx_correction
+                        if corr not in ("Subtraction", "Division"):
+                            corr, why = gradient_correction_for(m)
+                            lg(f"    {m.name}: GraXpert correction {corr} — {why}")
                         res = tools.GraXpert(opts.graxpert).background_extraction(
-                            tmp, work / f"bge_{i}_out", smoothing=opts.gx_smoothing, correction=opts.gx_correction,
+                            tmp, work / f"bge_{i}_out", smoothing=opts.gx_smoothing, correction=corr,
                             cancel=can)
                         out = _read_result(res, m.data, sc, lg)
                         how = orientation_of(out, m.data)
@@ -1123,7 +1149,7 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                             lg(f"    GraXpert returned the picture {how} — turned it back")
                         m.data = out
                         m.steps.append(("gradient", f"Gradients removed with GraXpert "
-                                                    f"({opts.gx_correction.lower()}, smoothing {opts.gx_smoothing:g})"))
+                                                    f"({corr.lower()}, smoothing {opts.gx_smoothing:g})"))
                     except tools.ToolCancelled:
                         raise Cancelled()
                     except tools.ToolError as e:
