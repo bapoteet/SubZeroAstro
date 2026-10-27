@@ -43,7 +43,8 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.135 beta"
+APP_VERSION = "0.9.136 beta"
+ORGANIZER_ENABLED = False      # File › Organize My Astro Files… is switched off while it is being reworked
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
 APP_URL = "https://github.com/bapoteet/SubZeroAstro"
@@ -1333,7 +1334,10 @@ class MainWindow(QMainWindow):
                   self.act_reload, self.act_remeasure):
             m.addAction(a)
         m.addSeparator()
-        m.addAction(self.act_organize)
+        if ORGANIZER_ENABLED:
+            m.addAction(self.act_organize)
+        else:
+            self.act_organize.setEnabled(False)
         m.addAction(self.act_picker)
         m.addSeparator()
         m.addAction(self.act_export)
