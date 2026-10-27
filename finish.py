@@ -1811,7 +1811,7 @@ class StarColours(Tool):
            "single tint a narrowband palette paints them. Or makes them clean white.")
 
     def is_optional(self, s):
-        return s.kind not in NARROWBAND_KINDS
+        return False                # every colour picture: natural star colours (broadband too - LRGB, OSC)
 
     def why(self, s):
         if s.kind in NARROWBAND_KINDS:
@@ -1827,15 +1827,14 @@ class StarColours(Tool):
         return True, ""
 
     def variants(self, s):
-        nb = s.kind in NARROWBAND_KINDS
         return [Variant("Natural", {"mode": "natural", "sat": 0.85, "spread": 1.0},
-                        "Each star's colour estimated from your data", nb),
+                        "Each star's colour estimated from your data", True),
                 Variant("Natural, vivid", {"mode": "natural", "sat": 1.3, "spread": 1.4},
                         "Stronger star colours", False),
                 Variant("White", {"mode": "natural", "sat": 0.0, "spread": 1.0},
                         "Clean white stars - the classic narrowband look", False),
                 Variant("As they are", {"mode": "keep", "sat": 1.0, "spread": 1.0},
-                        "Leave the star colours unchanged", not nb)]
+                        "Leave the star colours unchanged", False)]
 
     def sliders(self, s, params):
         if params.get("mode") == "keep":
