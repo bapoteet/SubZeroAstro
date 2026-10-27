@@ -381,7 +381,9 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
                             or (getattr(info, "planes", 1) or 1) >= 3 or (info.ncombine or 0) > 1
                             or re.search(r"(final|processed|stretched|integration|drizzle|stack(ed)?|_linear|"
                                          r"starless|_stars)", name, re.I))
-        if info.date_obs:
+        if info.date_obs and not looks_master:
+            # (masters are only ever duplicates when byte for byte the same - two integrations of the same
+            #  flats share their capture date but are different files, and both are kept)
             # rigs shooting at the same moment with the same camera model are not duplicates of each other
             it.key = (info.date_obs, info.exptime, flt, info.camera, it.size, typ, looks_master,
                       info.telescope, info.focal, str(it.src.parent.parent.parent.name) if not info.telescope
