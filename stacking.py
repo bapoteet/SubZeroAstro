@@ -2378,7 +2378,7 @@ def dither_report(transforms, fwhms) -> dict:
     fw = [float(f) for f in fwhms if f]
     fwhm = float(np.median(fw)) if fw else None
     return {"dithered": n >= 10 and spread >= 2.0 and occ >= 0.5, "spread": spread, "phases": occ,
-            "fwhm": fwhm, "small_stars": fwhm is None or fwhm < 2.8, "frames": n}
+            "fwhm": fwhm, "small_stars": fwhm is None or fwhm < 2.2, "frames": n}   # 2.2 px: really undersampled
 
 
 def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=None, cancel=None,

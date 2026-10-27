@@ -262,6 +262,16 @@ def run(app, out_dir: Path) -> int:
             _tcp.append(f"error: {_te}")
     check(_tcp == ["Medium", "Strong"], f"Tame Bright Core suggests 'Strong' for a big burnt core, 'Medium' for a "
                                         f"small nucleus ({_tcp})")
+    # BlurXTerminator: ready-made data gets firmer star sharpening; backyard data and the user's own values stay
+    _bm_pro = type("M", (), {"look": {"PRECAL": "Telescope Live: PROC = True"}, "path": _sfd / "x.fits"})()
+    _bm_own = type("M", (), {"look": {"CALFLAT": "20 flat subframes"}, "path": _sfd / "y.fits"})()
+    _bv = [_prp.bxt_values_for([_bm_pro], {"ss": 0.40, "ash": 0.40, "sn": 0.03})[0],
+           _prp.bxt_values_for([_bm_own], {"ss": 0.40, "ash": 0.40, "sn": 0.03})[0],
+           _prp.bxt_values_for([_bm_pro], {"ss": 0.30, "ash": 0.40, "sn": 0.03})[0]]
+    check([(b["ss"], b["ash"]) for b in _bv] == [(0.55, 0.50), (0.40, 0.40), (0.30, 0.40)]
+          and _stk.dither_report([np.eye(2, 3)] * 3, [2.8] * 3)["small_stars"] is False,
+          f"ready-made data: BlurXTerminator Sharpen Stars 0.55 / Star Halos 0.50; backyard data and your own values "
+          f"unchanged; drizzle is only suggested for stars under 2.2 px ({_bv})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)

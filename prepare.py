@@ -347,25 +347,56 @@ def crop(m: Master, rect):
 # Temporary files for external tools (0..1 float FITS)
 # ==========================================================================
 
+def ready_made(m) -> str | None:
+    """Why this master's lights were already calibrated (Telescope Live and similar ready-made data), or None."""
+    look = getattr(m, "look", None) or {}
+    if look.get("PRECAL"):
+        return str(look.get("PRECAL"))
+    try:                         # masters stacked before the PRECAL keyword existed: their stack log says so
+        log = Path(m.path).with_name(Path(m.path).stem + "_stacklog.txt")
+        if log.is_file() and "already calibrated" in log.read_text(encoding="utf-8", errors="ignore"):
+            return "ready-made data"
+    except (OSError, TypeError, ValueError):
+        pass
+    return None
+
+
+# BlurXTerminator on ready-made data (dark sites, big apertures, many hours): its high signal-to-noise takes
+# firmer star sharpening than a backyard stack - tighter star edges without a cut-out look
+PRO_BXT = {"ss": 0.55, "ash": 0.50}
+
+
+def bxt_values_for(masters, values: dict) -> tuple:
+    """(values to use, note or ''): the usual backyard settings become PRO_BXT for ready-made data.
+    Values the user changed are kept as they are."""
+    v = dict(values or {})
+    try:
+        # the app's usual settings (0.50 / 0.40 from the start, 0.40 / 0.40 in older versions)
+        usual = abs(float(v.get("ash", -1)) - 0.40) < 1e-6 and \
+            any(abs(float(v.get("ss", -1)) - x) < 1e-6 for x in (0.40, 0.50))
+    except (TypeError, ValueError):
+        usual = False
+    if usual and masters and all(ready_made(m) for m in masters):
+        v.update(PRO_BXT)
+        return v, (f"ready-made data: BlurXTerminator Sharpen Stars {PRO_BXT['ss']:.2f}, Adjust Star Halos "
+                   f"{PRO_BXT['ash']:.2f} (instead of {float(values.get('ss')):.2f} / {float(values.get('ash')):.2f}) for "
+                   "tighter star edges")
+    return v, ""
+
+
 def gradient_correction_for(m) -> tuple:
     """GraXpert's correction for one master, and why.
     Subtraction - the lights were flat-calibrated (your flats, a SkyFlat, or ready-made data such as Telescope
     Live): what is left is light pollution or moon glow, which adds to the picture.
     Division - the master was stacked without any flats: vignetting is still in it, and it multiplies."""
     look = getattr(m, "look", None) or {}
-    if look.get("PRECAL"):
-        return "Subtraction", f"the lights were already calibrated ({look.get('PRECAL')})"
+    why = ready_made(m)
+    if why:
+        return "Subtraction", f"the lights were already calibrated ({why})"
     calflat = str(look.get("CALFLAT") or "").strip()
     if calflat.lower() != "none":
         return "Subtraction", ("the lights were flat-calibrated" if calflat else
                                "light pollution and moon glow add to the picture")
-    # masters stacked before the PRECAL keyword existed: their stack log says so
-    try:
-        log = Path(m.path).with_name(Path(m.path).stem + "_stacklog.txt")
-        if log.is_file() and "already calibrated" in log.read_text(encoding="utf-8", errors="ignore"):
-            return "Subtraction", "the lights were already calibrated (ready-made data)"
-    except (OSError, TypeError, ValueError):
-        pass
     return "Division", "stacked without flats, so vignetting is still in the picture"
 
 
@@ -955,7 +986,10 @@ def plan_steps(masters: list, opts) -> list:
             continue
         rc = rc or tools.RCAstro(opts.rcastro)
         spec = cfg.get("spec") or rc.spec(key)
-        args = spec.args(cfg.get("values", {}), cfg.get("mode"))
+        vals = cfg.get("values", {})
+        if key == "bxt":
+            vals, _note = bxt_values_for(masters, vals)
+        args = spec.args(vals, cfg.get("mode"))
         out.append((key, json.dumps([list(args), cfg.get("mode")], default=str), (spec, args)))
     return out
 
@@ -1059,6 +1093,10 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
     files = []
 
     plan = plan_steps(masters, opts)
+    if any(step == "bxt" for step, _s, _x in plan):
+        _v, _note = bxt_values_for(masters, (opts.xt.get("bxt") or {}).get("values", {}))
+        if _note:
+            lg(_note)
     cps = PrepareCheckpoints([m.path for m in masters], target) if opts.checkpoints else None
     stars_images = {}                      # master index -> stars-only image (StarXTerminator)
     start = 0
