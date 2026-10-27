@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo/subzeroastro-badge.svg" alt="SubZeroAstro logo" width="220"></p>
+
 # SubZeroAstro
 
 ***From subs to masters - zero hassle.***
