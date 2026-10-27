@@ -347,14 +347,31 @@ def crop(m: Master, rect):
 # Temporary files for external tools (0..1 float FITS)
 # ==========================================================================
 
-def _write_temp(m: Master, path: Path, data=None, mono=False):
+def _temp_scale(d) -> float:
+    """What a picture is divided by before an outside tool gets it (they all work in 0..1).
+    Normally 65535 (the app's ADU scale). A picture on another scale - a master saved as 0..1, or values
+    pushed past 65535 by a division (GraXpert 'Division') - is divided by its own maximum instead: sent as
+    65535ths it would reach the tool as almost pure black (or clipped flat white), and the AI tools then
+    invent a repeating texture in every tile."""
+    try:
+        top = float(np.nanmax(d))
+    except ValueError:
+        return 65535.0
+    if not np.isfinite(top) or top <= 0:
+        return 65535.0
+    return 65535.0 if 1000.0 <= top <= 65535.0 * 1.02 else top
+
+
+def _write_temp(m: Master, path: Path, data=None, mono=False) -> float:
     d = m.data if data is None else data
     if mono and d.shape[0] == 3:
         d = d.mean(axis=0, keepdims=True)
-    arr = np.clip(d / 65535.0, 0, 1).astype(np.float32)
+    scale = _temp_scale(d)
+    arr = np.clip(d / scale, 0, 1).astype(np.float32)
     arr = arr[0] if arr.shape[0] == 1 else arr
     hdr = [(k, v, c) for k, v, c in m.cards if k not in ("HISTORY", "COMMENT") and k not in STRUCTURAL]
     core.write_fits(path, arr, hdr, bitpix=-32)
+    return scale
 
 
 # Outside tools do not all agree on which way up a FITS file is (the ROWORDER keyword):
@@ -398,12 +415,34 @@ def turn_back(how, *arrays):
     return [None if a is None else np.ascontiguousarray(fn(a)) for a in arrays]
 
 
-def _read_result(path, like: np.ndarray) -> np.ndarray:
+def _level(a) -> float:
+    a = np.asarray(a, np.float32)
+    v = a[..., ::7, ::7] if a.ndim >= 2 else a
+    v = v[np.isfinite(v)]
+    return float(np.median(np.abs(v))) if v.size else 0.0
+
+
+def _read_result(path, like: np.ndarray, scale: float | None = None, log=None, check_level=True) -> np.ndarray:
+    """A tool's answer, back on the app's scale. With `scale` (what _write_temp divided by) the file is
+    taken as the 0..1 picture that was sent; without it, as before (0..1 is taken as 65535ths)."""
     d = st.ImageSource(path)
-    arr = d.read() if d.scale != 1.0 else d.read()
-    arr = np.asarray(arr, np.float32)
-    if float(np.nanmax(arr)) <= 1.5:          # tools write 0..1
+    if scale is not None:
+        d.scale = 1.0                         # the tool wrote what it was given: 0..1 of `scale`
+    arr = np.asarray(d.read(), np.float32)
+    if scale is not None:
+        arr = arr * np.float32(scale)
+    elif float(np.nanmax(arr)) <= 1.5:        # tools write 0..1
         arr = arr * np.float32(65535.0)
+    if check_level:
+        # a tool hands back the same picture, a little changed - never one hundreds of times brighter or
+        # darker. If it does, the answer came back on another scale: bring it to the level that was sent.
+        ref, got = _level(like), _level(arr)
+        if ref > 0 and got > 0 and not (1 / 30 < got / ref < 30):
+            f = np.float32(ref / got)
+            arr = arr * f
+            if log:
+                log(f"    {Path(path).name}: came back on another brightness scale (x{1 / float(f):.3g}) — "
+                    "brought back to the level that was sent")
     if arr.ndim == 2:
         arr = arr[None]
     if arr.shape != like.shape:
@@ -1072,12 +1111,12 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                 pr(f"Removing gradients: {m.name}", s0 + ds * i / n)
                 if extra == "graxpert":
                     tmp = work / f"bge_{i}.fits"
-                    _write_temp(m, tmp)
+                    sc = _write_temp(m, tmp)
                     try:
                         res = tools.GraXpert(opts.graxpert).background_extraction(
                             tmp, work / f"bge_{i}_out", smoothing=opts.gx_smoothing, correction=opts.gx_correction,
                             cancel=can)
-                        out = _read_result(res, m.data)
+                        out = _read_result(res, m.data, sc, lg)
                         how = orientation_of(out, m.data)
                         if how != "same":
                             out, = turn_back(how, out)
@@ -1102,7 +1141,7 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                 pr(f"{spec.name}: {m.name}", base)
                 tmp_in = work / f"{key}_{i}.fits"
                 tmp_out = work / f"{key}_{i}_out.fits"
-                _write_temp(m, tmp_in)
+                sc = _write_temp(m, tmp_in)
                 try:
                     written = rc.run(key, tmp_in, tmp_out, args, device=opts.device,
                                      progress=lambda f, t, b=base, mm=m: pr(f"{spec.name}: {mm.name} {t}",
@@ -1111,9 +1150,9 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                 except tools.ToolCancelled:
                     raise Cancelled()
                 main = next((w for w in written if "star" not in Path(w).stem.lower()), str(tmp_out))
-                out = _read_result(main, m.data)
+                out = _read_result(main, m.data, sc, lg)
                 extra_out = [w for w in written if "star" in Path(w).stem.lower()]
-                stars_out = _read_result(extra_out[0], m.data) if extra_out else None
+                stars_out = _read_result(extra_out[0], m.data, sc, check_level=False) if extra_out else None
                 if key == "sxt" and stars_out is None:
                     lg(f"    {spec.name} did not hand back a stars-only image — making it from the "
                        "difference")

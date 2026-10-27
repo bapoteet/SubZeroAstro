@@ -175,7 +175,7 @@ def make_star_runner(settings):
         main = next((w for w in written if "star" not in Path(w).stem.lower()), str(work / "out.fits"))
         starless = P._read_result(main, like) / 65535.0
         st_f = [w for w in written if "star" in Path(w).stem.lower()]
-        stars = (P._read_result(st_f[0], like) / 65535.0) if st_f else None
+        stars = (P._read_result(st_f[0], like, check_level=False) / 65535.0) if st_f else None
         # rc-astro may hand the picture back upside down: compare with what was sent and turn it back
         how = P.orientation_of(starless if stars is None else starless + stars, img)
         if how != "same":

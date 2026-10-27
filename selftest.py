@@ -217,6 +217,22 @@ def run(app, out_dir: Path) -> int:
     check(_tn == ["M78", "M78", "M78", "NGC7000", "Sh2-155", "IC1396", "M78_B"],
           f"a filter tacked onto the target name (Telescope Live: M78_B, M78_G …) is dropped, so the colours "
           f"are combined as one target ({_tn})")
+    # pictures on another brightness scale (a 0..1 master, or GraXpert 'Division' pushing values past 65535)
+    # must reach BlurXTerminator & co. as a normal 0..1 picture - not near-black, not clipped flat
+    import prepare as _prp
+    import fits_core as _fcs
+    _sct = []
+    for _sd in (_cimg[None] * 20, _cimg[None] * 20 / 65535, _cimg[None] * 20 * 1.8):
+        _sm = type("M", (), {})()
+        _sm.data, _sm.cards = _sd.astype(np.float32), [("IMAGETYP", "Master Light", "")]
+        _ssc = _prp._write_temp(_sm, _sfd / "scale_in.fits")
+        _ssent = _fcs.read_fits(_sfd / "scale_in.fits")[0]
+        _fcs.write_fits(_sfd / "scale_out.fits", _ssent, [("IMAGETYP", "Master Light", "")], bitpix=-32)
+        _sback = _prp._read_result(_sfd / "scale_out.fits", _sm.data, _ssc)
+        _sct.append((float(np.median(_ssent)) > 0.005 and float(_ssent.max()) <= 1.0
+                     and bool(np.allclose(_sback, np.clip(_sm.data, 0, _ssc), rtol=1e-3))))
+    check(all(_sct), f"the RC-Astro / GraXpert hand-off works on any brightness scale: normal, 0..1 and past 65535 "
+                     f"masters all reach the tool as a normal picture and come back unchanged ({_sct})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)
