@@ -246,6 +246,22 @@ def run(app, out_dir: Path) -> int:
     check(_gcm == ["Subtraction"] * 4 + ["Division"],
           f"gradient removal 'Automatic': Subtraction for Telescope Live / flat-calibrated / unknown masters, Division "
           f"only for a master stacked without flats ({_gcm})")
+    # Tame Bright Core: a big burnt area (a nebula's heart) gets 'Strong' by default, a small nucleus 'Medium'
+    import finish as _fnc
+    _tcp = []
+    for _tr in (15, 60):
+        _ts = _fnc.State.__new__(_fnc.State)
+        _tyy, _txx = np.mgrid[:1200, :1200]
+        _ts.rgb = np.full((3, 1200, 1200), 0.1, np.float32)
+        _ts.rgb[:, (_tyy - 600) ** 2 + (_txx - 600) ** 2 < _tr ** 2] = 0.97
+        _ts.linear, _ts.sat_core = False, False
+        _ts.target = "NGC 2068"
+        try:
+            _tcp.append(next(v.label for v in _fnc.TOOLS["core"].variants(_ts) if v.recommended))
+        except Exception as _te:  # noqa: BLE001
+            _tcp.append(f"error: {_te}")
+    check(_tcp == ["Medium", "Strong"], f"Tame Bright Core suggests 'Strong' for a big burnt core, 'Medium' for a "
+                                        f"small nucleus ({_tcp})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)

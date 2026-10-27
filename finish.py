@@ -3345,8 +3345,18 @@ def hot_core(s: "State") -> bool:
     """A white, featureless area bigger than a star after brightening."""
     if s.rgb is None or s.linear:
         return False
-    y = _lum(s.rgb)
-    return bool(_bright_blob(y, 0.90).sum() >= 12)
+    return bool(_bright_blob(_lum(s.rgb), 0.90).sum() >= 12)
+
+
+def burnt_area(s: "State") -> float:
+    """How much of the picture is a white, featureless area (stars not counted): 0..1."""
+    if s.rgb is None or s.linear:
+        return 0.0
+    b = _bright_blob(_lum(s.rgb), 0.90)
+    return float(b.sum()) / max(b.size, 1)
+
+
+BIG_CORE = 0.0025       # a burnt area bigger than this (about 30 x 30 px of a 600 px view): 'Strong' by default
 
 
 class TameCore(Tool):
@@ -3394,9 +3404,12 @@ class TameCore(Tool):
                     for i, (n, k) in enumerate((("Gentle", 0.85), ("Medium", 0.75), ("Strong", 0.65),
                                                 ("Maximum", 0.55)))]
         note = "core saturated in the masters: smooths rather than recovers" if s.sat_core else ""
+        # a big burnt area (the bright heart of a nebula, a large galaxy core) needs 'Strong' to show its
+        # detail; a small one (a galaxy nucleus) is fine with 'Medium'
+        pick = 2 if burnt_area(s) >= BIG_CORE else 1
         # stronger versions also take in more of the area around the core, so a peaked galaxy nucleus
         # fades smoothly into the tamed core instead of staying a small bright dot
-        return [Variant(n, {"amount": a, "size": sz, "detail": 30.0}, note, i == 1) for i, (n, a, sz) in
+        return [Variant(n, {"amount": a, "size": sz, "detail": 30.0}, note, i == pick) for i, (n, a, sz) in
                 enumerate((("Gentle", 0.45, 0.82), ("Medium", 0.7, 0.72), ("Strong", 0.9, 0.62),
                            ("Maximum", 1.0, 0.55)))]
 
