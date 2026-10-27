@@ -430,6 +430,7 @@ class PrepareWorker(QThread):
     progress = Signal(str, float)
     log = Signal(str)
     failed = Signal(str)
+    stepPreview = Signal(str, object)     # step title, rgb8: the picture after each step
 
     def __init__(self, jobs, opts_for):
         super().__init__()
@@ -447,7 +448,8 @@ class PrepareWorker(QThread):
                 res = P.run_prepare(masters, self.opts_for(i),
                                     progress=lambda t, f, i=i: self.progress.emit(t, (i + f) / n),
                                     log=self.log.emit, cancel=lambda: self.cancel_requested,
-                                    save_image=save_rgb8)
+                                    save_image=save_rgb8,
+                                    step_preview=lambda t, rgb: self.stepPreview.emit(t, rgb))
                 res["target"] = masters[0].target
                 res["masters"] = masters
                 self.results.append(res)
@@ -1095,6 +1097,15 @@ class PrepareWindow(QMainWindow):
         if rgb8 is not None:
             self.view.show_still(rgb8)
 
+    def _on_step_preview(self, title, rgb8):
+        """While the run goes on: show the picture after each finished step (as the Step history will)."""
+        self.step_previews_seen.append(title)
+        try:
+            self.view.show_still(rgb8)
+            self.log(f"    Preview: after {title}")
+        except Exception:  # noqa: BLE001 - a preview never stops the run
+            pass
+
     def _show_original(self):
         row = self.set_list.currentRow()
         if 0 <= row < len(self.sets):
@@ -1229,6 +1240,8 @@ class PrepareWindow(QMainWindow):
         self.worker = PrepareWorker(jobs, self.options_for)
         self.worker.progress.connect(lambda t, f: (self.progress.setValue(int(1000 * f)), self.progress.setFormat(t)))
         self.worker.log.connect(self.log)
+        self.step_previews_seen = []
+        self.worker.stepPreview.connect(self._on_step_preview)
         self.worker.failed.connect(lambda m: (self.log("ERROR: " + m),
                                               QMessageBox.critical(self, "Prepare", m[:800])))
         self.worker.finished.connect(self.on_finished)

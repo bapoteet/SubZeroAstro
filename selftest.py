@@ -1705,6 +1705,8 @@ def run(app, out_dir: Path) -> int:
               f"re-run resumed from saved progress ({res[0].get('resumed') if res else None} step kept)")
         expect = 5 if state["fake"] else 2
         check(pw.hist_combo.count() - 1 == expect, "history complete again after the redo")
+        _seen = getattr(pw, "step_previews_seen", [])
+        check(len(_seen) >= 1, f"page 3 shows the picture after each step while the run goes on ({_seen})")
         QTimer.singleShot(300, finish_stage)
 
     def finish_stage():

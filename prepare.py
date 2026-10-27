@@ -1036,7 +1036,7 @@ def target_out_dir(chosen, target: str) -> Path:
 
 
 def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, cancel=None,
-                save_image=None) -> dict:
+                save_image=None, step_preview=None) -> dict:
     """Prepare one set of masters (same target / grid). save_image(path, rgb8) writes
     JPG/PNG (the GUI supplies it). Returns {"files", "plan", "report"}."""
     t0 = time.time()
@@ -1195,11 +1195,20 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                 desc = " ".join(args) or "default settings"
                 m.steps.append((key, f"{spec.name} ({desc})"))
                 lg(f"{spec.name} done: {m.name}  [{desc}]")
+        rgb_step = None
+        if step_preview is not None or cps is not None:
+            try:
+                rgb_step = preview_rgb8(masters, opts.palette)
+            except Exception:  # noqa: BLE001 - a preview never stops the run
+                rgb_step = None
+        if step_preview is not None and rgb_step is not None:
+            step_preview(STEP_TITLES[step], rgb_step)      # the picture after each step, while the run goes on
         if cps is not None:
             pr(f"Saving progress ({STEP_TITLES[step]})", s0 + ds)
             detail = "; ".join(t for _k, t in masters[0].steps[before:]) or STEP_TITLES[step]
             try:
-                cps.save(step, sig, detail, masters, stars_images, preview_rgb8(masters, opts.palette))
+                cps.save(step, sig, detail, masters, stars_images,
+                         rgb_step if rgb_step is not None else preview_rgb8(masters, opts.palette))
             except OSError as e:            # e.g. disk full - keep going without checkpoints
                 lg(f"Could not save progress ({e}) — continuing without checkpoints")
                 cps.truncate(len(cps.steps))
