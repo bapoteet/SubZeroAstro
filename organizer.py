@@ -198,11 +198,28 @@ def _is_project_dir(d: Path) -> bool:
         return False
 
 
+SKIPPED = []          # [(folder, why)] - folders the last scan() did not look into (shown after a run)
+
+
+def _why_skipped(p: Path, n: str) -> str:
+    if n == LOG_DIR:
+        return ""
+    if n.startswith((".", "$")):
+        return "hidden / system folder"
+    if n.endswith((".szproj", ".saving")) or _is_project_dir(p):
+        return "a saved SubZeroAstro project"
+    if n.lower() in WORK_DIRS:
+        return "a work folder of PixInsight / Siril / APP (calibrated, registered … copies)"
+    return ""
+
+
 def scan(root, progress=None, stop=None) -> list:
     """Every FITS / XISF file under root (all subfolders), skipping saved projects, SubZeroAstro's own
     work folders and the organize logs. Returns [Path]."""
     root = Path(root)
     out = []
+    if not getattr(scan, "_keep_skipped", False):
+        SKIPPED.clear()
     for dirpath, dirnames, filenames in os.walk(root):
         d = Path(dirpath)
         keep = []
@@ -210,6 +227,9 @@ def scan(root, progress=None, stop=None) -> list:
             p = d / n
             if (n.startswith((".", "$")) or n == LOG_DIR or n.endswith((".szproj", ".saving"))
                     or n.lower() in WORK_DIRS or _is_project_dir(p)):
+                why = _why_skipped(p, n)
+                if why and n != ORG_ROOT:
+                    SKIPPED.append((p, why))
                 continue
             keep.append(n)
         dirnames[:] = keep
@@ -622,8 +642,8 @@ def execute(items, library, move=False, progress=None, stop=None) -> Path:
         pairs = [(it.src, it.dst)] + [(c, it.dst.parent / c.name) for c in it.companions]
         for src, dst in pairs:
             try:
-                if dst.exists():
-                    continue
+                if _exists(dst):
+                    raise OSError(f"a different file named {dst.name} is already there - left where it is")
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if move and _same_drive(src, dst.parent):
                     os.rename(src, dst)            # same drive: just a new folder entry, instant even for 20 TB
@@ -887,3 +907,19 @@ def suggest_rig_name(paths, root=None, others=()) -> str:
     for i, o in enumerate(others):
         groups[i] = {"paths": list(o), "targets": set()}
     return _guess_names(groups, root).get("me", "")
+
+
+def left_behind(items) -> dict:
+    """What a run leaves where it was, by reason: {reason: [Item]} (needs a rig, duplicate, unreadable)."""
+    out = {}
+    for it in items:
+        if it.status == "norig":
+            k = "needs a rig (Your Rigs… / Which Rig?…)"
+        elif it.status == "duplicate":
+            k = "duplicate of a file that was organized (Step 2 deletes it)"
+        elif it.status == "error":
+            k = "could not be read"
+        else:
+            continue
+        out.setdefault(k, []).append(it)
+    return out

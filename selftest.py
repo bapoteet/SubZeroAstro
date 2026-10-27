@@ -3398,14 +3398,15 @@ def run(app, out_dir: Path) -> int:
               f"Organize › Duplicates… lists {_odn} duplicates and deletes only the exact copy - the same capture "
               f"with different bytes is kept for you to check ({_owin.status.text()[:90]})")
         _owin.go(ask=False, wait=True)
+        _oleft = (_owin.table.rowCount(), "left where they are" in _owin.status.text())
         _omoved = sorted(str(p.relative_to(_od / "dump")).replace("\\", "/") for p in (_od / "dump").rglob("*.fits"))
         _ogone = not (_od / "dump" / "L1.fits").exists() and (_od / "dump" / "sub" / "L1 (2).fits").exists()
         _osteps = (_owin.b_go.text().startswith("✓"), _owin.b_rigs.text().startswith("✓"))
         _owin.undo_last(ask=False, wait=True)
         _oback = sorted(p.name for p in (_od / "dump").glob("*.fits"))
-        check(_on == 8 and all(_osteps) and _ogone and len(_omoved) == 9 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "M31_final.fits", "MasterDark_180s.fits"]
+        check(_on == 8 and all(_osteps) and _oleft == (1, True) and _ogone and len(_omoved) == 9 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "M31_final.fits", "MasterDark_180s.fits"]
               and not (_og.org_base(_od / "dump") / "Light Frames").exists(),
-              f"(steps ticked off: {_osteps}) "
+              f"(steps ticked off: {_osteps}; left behind and why: {_oleft}) "
               f"File › Organize My Astro Files… moves {_on} files into place (the duplicate stays put) and Undo "
               f"Last Run puts every one back ({_oback})")
         _owin.src.setText(str(_gr))

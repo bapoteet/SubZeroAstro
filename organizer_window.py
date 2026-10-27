@@ -331,11 +331,14 @@ class OrganizeDialog(QDialog):
 
         def work(job):
             paths = []
+            O.SKIPPED.clear()
+            O.scan._keep_skipped = True
             for sp in srcs:
                 if sp.is_dir():
                     paths += O.scan(sp, progress=lambda t, n: job.note.emit(t, 0, 0), stop=lambda: job.stop)
                 elif sp.suffix.lower() in O.EXTS:
                     paths.append(sp)
+            O.scan._keep_skipped = False
             paths = list(dict.fromkeys(paths))
             items = O.classify(paths, progress=lambda t, i: job.note.emit(t, i, len(paths)), stop=lambda: job.stop,
                                library=lib, layout=layout, root=src, riglist=riglist, tol=tol)
@@ -361,6 +364,9 @@ class OrganizeDialog(QDialog):
                          "keep, set aside or delete them")
         if sm.get("error"):
             parts.append(f"{sm['error']} file(s) could not be read - left where they are")
+        if O.SKIPPED:
+            parts.append(f"{len(O.SKIPPED)} folder(s) not looked into on purpose (saved projects, PixInsight/Siril "
+                         "work folders, hidden folders) - their files stay where they are")
         self.status.setText("<br>".join(parts) + ("<br>Check the list, deal with any duplicates (<b>Step 2</b>), then press <b>Step 3 – Organize</b>."
                                                   if sm["files"] else "<br>Nothing to do."))
         lib = self.library()
@@ -425,12 +431,34 @@ class OrganizeDialog(QDialog):
             import json
             self.last_log = log
             d = json.loads(Path(log).read_text(encoding="utf-8"))
-            self.status.setText(f"Done: {len(d['done'])} file(s) {'moved' if move else 'copied'} into "
-                                f"<b>{O.org_base(lib)}</b>"
-                                + (f"; {len(d['failed'])} could not be - see {log}" if d["failed"] else "")
-                                + ". Undo Last Run puts everything back.")
+            left = O.left_behind(self.items)
+            rows = []
+            for why, its in left.items():
+                rows += [(it.src, why + (f" - {it.why}" if it.status == "norig" else "")) for it in its]
+            rows += [(Path(f["src"]), f"could not be {'moved' if move else 'copied'}: {f.get('error', '')}")
+                     for f in d["failed"]]
+            nleft = len(rows)
+            msg = [f"<b>Done: {len(d['done'])} file(s) {'moved' if move else 'copied'}</b> into "
+                   f"<b>{O.org_base(lib)}</b>. Undo Last Run puts everything back."]
+            if nleft:
+                parts = [f"{len(v)} {k}" for k, v in left.items()]
+                if d["failed"]:
+                    parts.append(f"{len(d['failed'])} could not be {'moved' if move else 'copied'}")
+                msg.append(f"<b>{nleft} file(s) were left where they are</b> - listed below with the reason: "
+                           + "; ".join(parts) + ".")
+            if O.SKIPPED:
+                msg.append(f"{len(O.SKIPPED)} folder(s) were not looked into on purpose: "
+                           + "; ".join(f"{Path(p).name} ({w})" for p, w in O.SKIPPED[:4])
+                           + (" …" if len(O.SKIPPED) > 4 else ""))
+            self.status.setText("<br>".join(msg))
             self.items = []
-            self.table.setRowCount(0)
+            self.table.setRowCount(len(rows))
+            for r, (pth, why) in enumerate(rows[:PREVIEW_ROWS]):
+                for c, v in enumerate(("!", pth.name, f"(still in {pth.parent})", why)):
+                    cell = QTableWidgetItem(v)
+                    if c == 1:
+                        cell.setToolTip(str(pth))
+                    self.table.setItem(r, c, cell)
             self.b_go.setEnabled(False)
             self.b_dups.setEnabled(False)
             self._organized = True
