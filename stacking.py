@@ -247,8 +247,19 @@ def short_camera(cam: str | None) -> str:
     return safe_name(s.replace(" ", ""))
 
 
-def target_name(t: str | None) -> str:
-    return safe_name((t or "Unknown").replace(" ", "")) if t else "Unknown"
+def target_name(t: str | None, filt: str | None = None) -> str:
+    """The target's name as a folder-safe word. With the frame's filter, a filter tacked onto the name is
+    dropped: Telescope Live (and some sequencers) write OBJECT = 'M78_B' / 'M78_Ha' / 'NGC 7000 - Red', which
+    would otherwise make every filter a target of its own (so its colours were never combined)."""
+    if not t:
+        return "Unknown"
+    s = str(t).strip()
+    if filt:
+        f = core.normalize_filter(filt)
+        m = re.match(r"^(.*?[^\s_\-])[\s_\-]+([^\s_\-]+)$", s)
+        if m and f not in ("No filter", "") and core.normalize_filter(m.group(2)) == f and m.group(2) != m.group(1):
+            s = m.group(1)
+    return safe_name(s.replace(" ", ""))
 
 
 class Rigs:
@@ -338,7 +349,7 @@ class CalItem:
 
     def label(self) -> str:
         if self.sky:
-            n_t = len({target_name(i.target) for i in self.infos})
+            n_t = len({target_name(i.target, i.filter) for i in self.infos})
             return (f"SkyFlat (Mote Buster) · {self.filter}  (made from {len(self.infos)} light frames, "
                     f"{n_t} target{'s' if n_t != 1 else ''})")
         bits = [KIND_LABEL[self.kind]]
@@ -524,7 +535,7 @@ def group_lights(lights: list[LightFrame], rigs: Rigs) -> list[LightGroup]:
     groups = {}
     for lf in lights:
         i = lf.info
-        key = (target_name(i.target), i.filter, (i.camera or "").lower(), bool(i.bayer) or i.planes > 1,
+        key = (target_name(i.target, i.filter), i.filter, (i.camera or "").lower(), bool(i.bayer) or i.planes > 1,
                i.w, i.h, i.x0, i.y0, i.binning, rigs.name_for(i), bool(i.precal))
         groups.setdefault(key, []).append(lf)
     out = []
@@ -735,7 +746,7 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
                 p.flat_dark = p.dark
             else:
                 p.flat_bias = p.bias
-            targets = sorted({target_name(i.target) for i in sky})
+            targets = sorted({target_name(i.target, i.filter) for i in sky})
             p.notes.append(f"No flats for filter {L.filter} on {g.rig} - a SkyFlat (Mote Buster) will be made from {len(sky)} "
                            f"of your light frames ({len(targets)} target{'s' if len(targets) != 1 else ''}): "
                            "their stars are hidden and each frame's light-pollution tilt is taken out, leaving "
@@ -3203,7 +3214,7 @@ def save_master_light(res: StackResult, opts: StackOptions, multi_camera=False) 
     dates = sorted(i.date_obs for i in infos if i.date_obs)
     temps = [i.temp for i in infos if i.temp is not None]
     plan = g.plan or CalPlan()
-    header = [("IMAGETYP", "Master Light", ""), ("OBJECT", i0.target, ""), ("FILTER", g.filter, ""),
+    header = [("IMAGETYP", "Master Light", ""), ("OBJECT", g.target or i0.target, ""), ("FILTER", g.filter, ""),
               ("INSTRUME", g.camera, ""), ("TELESCOP", g.rig, "rig name"), ("FOCALLEN", i0.focal, "[mm]"),
               ("EXPTIME", i0.exptime, "[s] subframe exposure"),
               ("EXPTOTAL", round(sum(f.info.exposure_total for f in g.frames

@@ -166,7 +166,7 @@ def load_master(path) -> Master:
     except ValueError:
         ac = None
     return Master(Path(path), d, cards + [(k, c, "") for k, _v, c in hist], look,
-                  st.target_name(look.get("OBJECT")) if look.get("OBJECT") else "Unknown",
+                  st.target_name(look.get("OBJECT"), look.get("FILTER")) if look.get("OBJECT") else "Unknown",
                   core.normalize_filter(look.get("FILTER")) if look.get("FILTER") else
                   ("RGB" if d.shape[0] == 3 else "No filter"),
                   look.get("ALIGNREF"), ac, solved=bool(look.get("PLTSOLVD")) or bool(look.get("CTYPE1")))

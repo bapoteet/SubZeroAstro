@@ -316,7 +316,7 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     global _GUESS
     _GUESS = {}
     for it in items:
-        it.target = st.target_name(it.info.target) if (it.info is not None and it.info.target) else ""
+        it.target = st.target_name(it.info.target, it.info.filter) if (it.info is not None and it.info.target) else ""
     for c in rig_candidates(items, rigs, root=root if root is not None else library):
         if not c["named"] and c["guess"]:
             _GUESS[c["key"]] = c["guess"]
@@ -325,8 +325,8 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     lights_on, rigs, existing = {}, {}, {}
     for it, info in zip(items, infos):
         if info is not None and info.type == "light" and not info.master and info.target and info.night:
-            lights_on.setdefault(info.night, set()).add((st.target_name(info.target), _rig(info, it.src)))
-            rigs.setdefault(st.target_name(info.target), set()).add(_rig(info, it.src))
+            lights_on.setdefault(info.night, set()).add((st.target_name(info.target, info.filter), _rig(info, it.src)))
+            rigs.setdefault(st.target_name(info.target, info.filter), set()).add(_rig(info, it.src))
     # nights already in the library (organized before): flats sorted on their own - a folder of calibration
     # frames only - still find the target that was shot that night
     if library is not None:
@@ -373,7 +373,7 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
                     break
         flt = _safe(info.filter or "No filter")
         night = info.night or "Unknown date"
-        tgt = st.target_name(info.target) if info.target else ""
+        tgt = st.target_name(info.target, info.filter) if info.target else ""
         it.night, it.filter, it.target = night, flt, tgt
         # masters and processed results (a colour 3-plane image, several frames combined, or a name that says so)
         # go to the target's Masters folder - never into a night's LIGHT folder as if they were subs

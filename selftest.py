@@ -210,6 +210,13 @@ def run(app, out_dir: Path) -> int:
     check(_cn == 2 and _cfix[10, 10] < 120 and _cfix[90, 30] < 120 and abs(_cfix[41, 60] - _cimg[41, 60]) < 1e-3
           and _stk.StackOptions().cosmetic,
           "hot pixels are removed from each frame before stacking (cosmetic correction); stars are untouched")
+    # Telescope Live writes the filter into the target name (OBJECT = 'M78_B'): every filter must still be one target
+    _tn = [_stk.target_name(t, f) for t, f in (("M78_B", "Blue"), ("M78_L", "Luminance"), ("M78_Ha", "H-alpha"),
+                                                ("NGC 7000 - Red", "R"), ("Sh2-155", "SII"), ("IC 1396", "Ha"),
+                                                ("M78_B", "R"))]
+    check(_tn == ["M78", "M78", "M78", "NGC7000", "Sh2-155", "IC1396", "M78_B"],
+          f"a filter tacked onto the target name (Telescope Live: M78_B, M78_G …) is dropped, so the colours "
+          f"are combined as one target ({_tn})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)
