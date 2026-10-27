@@ -3352,6 +3352,31 @@ def run(app, out_dir: Path) -> int:
               f"of about the same focal length, 530 mm matches none, and a folder you assigned settles a tie ({_ym})")
         _keep_rl = (w.settings.value("organize/riglist", "[]"), w.settings.value("organize/rig_tol", 5),
                     w.settings.value("stack/rigs", "[]"))
+        # a drive that answers "Invalid argument" (Errno 22) when asked about an entry (seen on a Mac with an
+        # external volume): that folder or file is skipped, the scan carries on
+        _e22 = session.parent / "organize_errno22"
+        _ksh.rmtree(_e22, ignore_errors=True)
+        (_e22 / "FL132").mkdir(parents=True)
+        core.write_fits(_e22 / "FL132" / "a.fits", np.zeros((8, 8), np.uint16), {"IMAGETYP": "Light"}, bitpix=16)
+        (_e22 / "FL132" / "manifest.json").write_text("{}")
+        import pathlib as _pl
+        _keep_isfile, _keep_exists = _pl.Path.is_file, _pl.Path.exists
+
+        def _bad_isfile(self):
+            if self.name == "manifest.json":
+                raise OSError(22, "Invalid argument", str(self))
+            return _keep_isfile(self)
+        _pl.Path.is_file = _bad_isfile
+        try:
+            _e22s = _og.scan(_e22)
+            _e22ok = True
+        except OSError as _e:
+            _e22s, _e22ok = [], str(_e)
+        finally:
+            _pl.Path.is_file = _keep_isfile
+        check(_e22ok is True and [p.name for p in _e22s] == ["a.fits"],
+              f"Organize: a drive entry that answers 'Invalid argument' (Errno 22) is skipped, the look-through "
+              f"carries on ({_e22ok})")
         _owin = w.open_organizer()
         _owin.edit_rigs(rows=[{"name": "SQA60", "focals": [360]}, {"name": "RASA8", "focals": [400]}], tol_pct=5)
         _owin.layout_box.setCurrentIndex(_owin.layout_box.findData("rig"))

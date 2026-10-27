@@ -165,11 +165,26 @@ def _rig(info, path=None) -> str:
     return ""
 
 
+def _exists(p) -> bool:
+    """exists() that never raises: some drives answer 'Invalid argument' (Errno 22) for odd entries."""
+    try:
+        return Path(p).exists()
+    except OSError:
+        return False
+
+
+def _same_path(a, b) -> bool:
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except OSError:
+        return str(a) == str(b)
+
+
 def _is_project_dir(d: Path) -> bool:
     m = d / "manifest.json"
-    if not m.is_file():
-        return False
     try:
+        if not m.is_file():
+            return False
         return json.loads(m.read_text(encoding="utf-8")).get("kind") == "finish-project"
     except (OSError, ValueError):
         return False
@@ -205,7 +220,7 @@ def _companions(p: Path) -> list:
     out = []
     try:
         for sib in p.parent.glob(p.stem + "_*"):
-            if sib.is_file() and sib.suffix.lower() in COMPANION_EXTS:
+            if sib.suffix.lower() in COMPANION_EXTS and _exists(sib) and sib.is_file():
                 out.append(sib)
     except OSError:
         pass
@@ -440,7 +455,7 @@ def plan(items, library) -> list:
     # first one found - is kept, the others are left where they are and reported
     seen = {}
     def keep_first(x):
-        in_place = x.dst is not None and (library / x.dst).resolve() == x.src.resolve()
+        in_place = x.dst is not None and _same_path(org_base(library) / x.dst, x.src)
         copyish = bool(re.search(r"copy|\(\d+\)|_\d+$", x.src.stem, re.I))
         return (0 if in_place else 1, 1 if copyish else 0, core.natural_key(str(x.src)))
     for it in sorted(items, key=keep_first):
@@ -455,7 +470,7 @@ def plan(items, library) -> list:
         if it.dst is None or it.status in ("error", "duplicate", "norig"):
             continue
         dst = org_base(library) / it.dst
-        if dst.resolve() == it.src.resolve():
+        if _same_path(dst, it.src):
             it.status, it.dst = "here", dst
             continue
         n = 1
@@ -467,7 +482,7 @@ def plan(items, library) -> list:
                     it.status, it.same_as = "duplicate", Path(taken[key + "#src"])
                     it.why = f"the same file as {it.same_as.name}"
                     break
-            elif cand.exists():
+            elif _exists(cand):
                 try:
                     if cand.stat().st_size == it.size and _quick_hash(cand) == _quick_hash(it.src):
                         it.status, it.same_as = "duplicate", cand
@@ -519,10 +534,10 @@ def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
             break
         if progress:
             progress(f"Checking {it.src.name}", i, len(dups))
-        if not it.src.exists():
+        if not _exists(it.src):
             kept_back.append((it, "it is no longer there"))
             continue
-        if not (it.same_as and Path(it.same_as).exists()):
+        if not (it.same_as and _exists(it.same_as)):
             kept_back.append((it, "the copy to keep is no longer there"))
             continue
         if not same_bytes(it.src, it.same_as):
@@ -535,7 +550,7 @@ def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
             else:
                 dst = org_base(library) / DUP_DIR / it.src.name
                 n = 1
-                while dst.exists():
+                while _exists(dst):
                     n += 1
                     dst = org_base(library) / DUP_DIR / f"{it.src.stem}_{n}{it.src.suffix}"
                 dst.parent.mkdir(parents=True, exist_ok=True)
@@ -629,7 +644,7 @@ def _remove_empty_dirs(dirs, stop_at=None):
     """After a move, folders left completely empty are removed (never one that still has anything in it)."""
     for d in sorted(dirs, key=lambda p: -len(p.parts)):
         p = d
-        while p and p.exists() and (stop_at is None or p.resolve() != Path(stop_at).resolve()):
+        while p and _exists(p) and (stop_at is None or p.resolve() != Path(stop_at).resolve()):
             try:
                 if any(p.iterdir()):
                     break
@@ -675,7 +690,7 @@ def last_log(library) -> Path | None:
     """The newest run not yet undone - logs live in Organized Astro Files (older versions: the library itself)."""
     logs = []
     for d in {org_base(library) / LOG_DIR, Path(library) / LOG_DIR}:
-        if d.is_dir():
+        if _exists(d):
             logs += [p for p in d.glob("organize_*.json") if not p.name.endswith((".undone.json", "_deleted.json"))]
     logs.sort(key=lambda p: p.stat().st_mtime)
     return logs[-1] if logs else None
