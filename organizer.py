@@ -923,3 +923,82 @@ def left_behind(items) -> dict:
             continue
         out.setdefault(k, []).append(it)
     return out
+
+
+# ---------------------------------------------------------------- Safe to delete?
+def check_leftovers(sources, library, progress=None, stop=None) -> dict:
+    """After organizing: is it safe to delete what is left in the folders you organized? Reads only.
+    Every file still there is put in one group:
+      safe    - an astro file with a byte-for-byte identical copy in Organized Astro Files
+      keep    - an astro file that is NOT in Organized Astro Files (only copy) - don't delete
+      work    - in a PixInsight / Siril work folder (calibrated, registered … copies, can be made again)
+      project - in a saved SubZeroAstro project
+      other   - not an astro file (JPG, notes, logs, compressed FITS …) - the organizer never touches these
+    Returns {"safe": [...], "keep": [...], "work": [...], "project": [...], "other": [...], "folders": n,
+    "empty_folders": n} with (path, note) pairs."""
+    base = org_base(library)
+    out = {k: [] for k in ("safe", "keep", "work", "project", "other")}
+    out["folders"] = out["empty_folders"] = 0
+    # what is in Organized Astro Files, by size (so only files of the same size are ever compared)
+    by_size = {}
+    if _exists(base):
+        for dp, dns, fns in os.walk(base):
+            dns[:] = [d for d in dns if d != LOG_DIR]
+            for f in fns:
+                p = Path(dp) / f
+                try:
+                    by_size.setdefault(p.stat().st_size, []).append(p)
+                except OSError:
+                    pass
+            if stop and stop():
+                break
+    files = []
+    for src in sources:
+        src = Path(src)
+        if src.is_file():
+            files.append((src, src.parent))
+            continue
+        for dp, dns, fns in os.walk(src):
+            d = Path(dp)
+            if _same_path(d, base) or d.name == LOG_DIR:
+                dns[:] = []
+                continue
+            dns[:] = [n for n in dns if not _same_path(d / n, base) and n != LOG_DIR]
+            out["folders"] += 1
+            if not fns and not dns:
+                out["empty_folders"] += 1
+            for f in fns:
+                files.append((d / f, d))
+    files = list(dict((str(p), (p, d)) for p, d in files).values())     # folders picked inside each other
+    for k, (p, d) in enumerate(files):
+        if stop and stop():
+            break
+        if progress and k % 20 == 0:
+            progress(f"Checking {k + 1} of {len(files)}: {p.name}", k, len(files))
+        name = p.name
+        if name.startswith("._") or name in (".DS_Store", "Thumbs.db", "desktop.ini"):
+            continue                                       # system clutter, never data
+        parts = [x.lower() for x in p.parts]
+        if any(x.endswith((".szproj", ".saving")) for x in parts) or any(
+                _is_project_dir(Path(*p.parts[:i])) for i in range(len(p.parts) - 1, max(0, len(p.parts) - 4), -1)):
+            out["project"].append((p, "in a saved SubZeroAstro project - keep it"))
+            continue
+        if any(x in WORK_DIRS for x in parts[:-1]):
+            out["work"].append((p, "a PixInsight / Siril work copy (calibrated, registered …) - can be made again "
+                                   "from the subs"))
+            continue
+        if os.path.splitext(name)[1].lower() not in EXTS:
+            out["other"].append((p, "not an astro file - the organizer never touches it; check it yourself"))
+            continue
+        try:
+            size = p.stat().st_size
+        except OSError:
+            out["keep"].append((p, "could not be read - keep it"))
+            continue
+        cands = sorted(by_size.get(size, []), key=lambda c: (c.name != name, str(c)))
+        twin = next((c for c in cands if same_bytes(p, c)), None)
+        if twin is not None:
+            out["safe"].append((p, f"identical copy in {twin.parent}"))
+        else:
+            out["keep"].append((p, "NOT in Organized Astro Files - this is the only copy; run Step 1 to see why"))
+    return out

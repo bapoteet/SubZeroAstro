@@ -3399,6 +3399,13 @@ def run(app, out_dir: Path) -> int:
               f"with different bytes is kept for you to check ({_owin.status.text()[:90]})")
         _owin.go(ask=False, wait=True)
         _oleft = (_owin.table.rowCount(), "left where they are" in _owin.status.text())
+        _owin.safe_to_delete(wait=True)
+        _osr = getattr(_owin, "safe_result", None) or {}
+        _osafe = ([p.name for p, _ in _osr.get("keep", [])], [p.name for p, _ in _osr.get("other", [])],
+                  "Not yet" in _owin.status.text())
+        check(_osafe == (["L1 (2).fits"], ["notes.txt"], True),
+              f"Safe to Delete?: after a Move, the one astro file that exists only in the old folder is flagged "
+              f"(don't delete), the notes file is listed for you to check, and the verdict says 'Not yet' ({_osafe})")
         _omoved = sorted(str(p.relative_to(_od / "dump")).replace("\\", "/") for p in (_od / "dump").rglob("*.fits"))
         _ogone = not (_od / "dump" / "L1.fits").exists() and (_od / "dump" / "sub" / "L1 (2).fits").exists()
         _osteps = (_owin.b_go.text().startswith("✓"), _owin.b_rigs.text().startswith("✓"))

@@ -126,12 +126,17 @@ class OrganizeDialog(QDialog):
         self.b_dups.setToolTip("See the duplicates found, and keep them, move them to a Duplicates folder or "
                                "delete them")
         self.b_dups.clicked.connect(lambda: self.open_duplicates())
+        self.b_safe = QPushButton("Safe to Delete?…")
+        self.b_safe.setToolTip("After organizing: checks every file still in the folders you organized - is each one "
+                               "safely in Organized Astro Files (byte for byte)? Reads only, deletes nothing.")
+        self.b_safe.clicked.connect(lambda: self.safe_to_delete())
         self.b_undo = QPushButton("Undo Last Run…")
         self.b_undo.clicked.connect(lambda: self.undo_last())
         self.b_stop = QPushButton("Stop")
         self.b_stop.setVisible(False)
         self.b_stop.clicked.connect(lambda: setattr(self.job, "stop", True) if self.job else None)
-        for b in (self.b_rigs, self.b_scan, self.b_which, self.b_dups, self.b_go, self.b_undo, self.b_stop):
+        for b in (self.b_rigs, self.b_scan, self.b_which, self.b_dups, self.b_go, self.b_safe, self.b_undo,
+                  self.b_stop):
             h.addWidget(b)
         h.addStretch(1)
         lay.addLayout(h)
@@ -271,7 +276,8 @@ class OrganizeDialog(QDialog):
         return Path(str(self._common()) if self.same.isChecked() else self.dst.text().strip())
 
     def _busy(self, on):
-        for w in (self.b_scan, self.b_rigs, self.b_which, self.b_go, self.b_dups, self.b_undo, self.src, self.dst,
+        for w in (self.b_scan, self.b_rigs, self.b_which, self.b_go, self.b_dups, self.b_safe, self.b_undo, self.src,
+                  self.dst,
                   self.same,
                   self.copy, self.move,
                   self.layout_box):
@@ -518,6 +524,56 @@ class OrganizeDialog(QDialog):
             self._update_steps()
         self._run(work, done, wait)
 
+
+    # ---------------------------------------------------------------- Safe to delete?
+    def safe_to_delete(self, wait=False):
+        """Is it safe to delete what is left in the folders you organized? A verdict plus a list - reads only."""
+        srcs = [p for p in self.sources() if p.exists()]
+        lib = self.library()
+        if not srcs:
+            QMessageBox.information(self, "Safe to Delete?", "Pick the folders you organized first.")
+            return
+
+        def work(job):
+            return O.check_leftovers(srcs, lib, progress=lambda t, i, n: job.note.emit(t, i, n),
+                                     stop=lambda: job.stop)
+
+        def done(r):
+            self.safe_result = r
+            n_safe, n_keep, n_work = len(r["safe"]), len(r["keep"]), len(r["work"])
+            n_proj, n_other = len(r["project"]), len(r["other"])
+            where = ", ".join(str(p) for p in srcs[:3]) + (" …" if len(srcs) > 3 else "")
+            if n_keep == 0 and n_proj == 0 and n_other == 0 and n_work == 0:
+                verdict = (f"<b style='color:#3c9a5f'>✓ Safe to delete.</b> Every astro file left in {where} has an "
+                           f"identical copy in Organized Astro Files ({n_safe} file(s)); "
+                           f"{r['empty_folders']} folder(s) are empty.")
+            elif n_keep == 0:
+                verdict = (f"<b style='color:#3c9a5f'>✓ No astro data would be lost:</b> every astro file left in "
+                           f"{where} is safely in Organized Astro Files ({n_safe}).")
+            else:
+                verdict = (f"<b style='color:#d9534f'>✗ Not yet - {n_keep} astro file(s) exist only here.</b> "
+                           "Don't delete these folders: run Step 1 to see why those files were not organized.")
+            extra = []
+            if n_work:
+                extra.append(f"{n_work} PixInsight / Siril work copies (calibrated, registered …) - can be made again "
+                             "from the subs, delete them if you don't need them")
+            if n_proj:
+                extra.append(f"{n_proj} file(s) in saved SubZeroAstro projects - keep them")
+            if n_other:
+                extra.append(f"{n_other} other file(s) (JPG, notes, logs …) the organizer never touches - "
+                             "look through them before deleting")
+            self.status.setText(verdict + ("<br>" + "<br>".join(extra) if extra else ""))
+            rows = ([("⚠", p, n) for p, n in r["keep"]] + [("ⓘ", p, n) for p, n in r["project"]]
+                    + [("ⓘ", p, n) for p, n in r["other"]] + [("·", p, n) for p, n in r["work"]]
+                    + [("✓", p, n) for p, n in r["safe"]])
+            self.table.setRowCount(min(len(rows), PREVIEW_ROWS))
+            for k, (m, pth, note) in enumerate(rows[:PREVIEW_ROWS]):
+                for c, v in enumerate((m, pth.name, str(pth.parent), note)):
+                    cell = QTableWidgetItem(v)
+                    if c == 1:
+                        cell.setToolTip(str(pth))
+                    self.table.setItem(k, c, cell)
+        self._run(work, done, wait)
 
     # ---------------------------------------------------------------- Your Rigs
     def riglist(self):
