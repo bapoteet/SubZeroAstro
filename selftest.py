@@ -3343,13 +3343,18 @@ def run(app, out_dir: Path) -> int:
                             (405, "ZWO ASI2600MC Pro"), (530, None), (None, None))]
         _yl2 = [dict(r) for r in _yl]
         _yl2[2] = {"name": "Redcat", "focals": [410]}
-        _yamb = _og.match_rig(_Fi(400), "/data/x/y.fits", _yl2, 0.05)
+        _yamb = _og.match_rig(_Fi(405), "/data/x/y.fits", _yl2, 0.05)
         _yl2[2]["folders"] = ["/data/Redcat"]
-        _yfold = _og.match_rig(_Fi(400), "/data/Redcat/M31/y.fits", _yl2, 0.05)
+        _yfold = _og.match_rig(_Fi(405), "/data/Redcat/M31/y.fits", _yl2, 0.05)
         check(_ym == ["SQA60", "SQA60", "SQA60", "RASA8", "Redcat", "nomatch", "nofocal"]
               and _yamb == (None, "ambiguous: RASA8, Redcat") and _yfold == ("Redcat", "folder"),
               f"Your Rigs: 352 and 371 mm are the SQA60 (360 ±5 %), 290 mm its reducer, the camera splits two rigs "
               f"of about the same focal length, 530 mm matches none, and a folder you assigned settles a tie ({_ym})")
+        _cp = [{"name": "SQA105", "focals": [506]}, {"name": "Pleiades111", "focals": [530]}]
+        _cpm = [_og.match_rig(_Fi(f), "/x", _cp, 0.03)[0] for f in (495, 512, 518, 525, 545)]
+        check(_cpm == ["SQA105", "SQA105", None, "Pleiades111", "Pleiades111"],
+              f"Your Rigs, two scopes close in focal length (506 and 530 mm, ±3 %): the clearly nearer one wins, "
+              f"a reading right between them is asked about ({_cpm})")
         _keep_rl = (w.settings.value("organize/riglist", "[]"), w.settings.value("organize/rig_tol", 5),
                     w.settings.value("stack/rigs", "[]"))
         # a drive that answers "Invalid argument" (Errno 22) when asked about an entry (seen on a Mac with an
@@ -3380,8 +3385,8 @@ def run(app, out_dir: Path) -> int:
         _owin = w.open_organizer()
         _owin.edit_rigs(rows=[{"name": "SQA60", "focals": [360]}, {"name": "RASA8", "focals": [400]}], tol_pct=5)
         _owin.layout_box.setCurrentIndex(_owin.layout_box.findData("rig"))
-        _owin.src.setText(str(_od / "dump"))
         _owin.same.setChecked(True)
+        _owin.set_sources([_od / "dump" / "sub", _od / "dump"])        # several folders at once
         _owin.move.setChecked(True)
         _owin.scan(wait=True)
         _on = len([i for i in _owin.items if i.status == "move"])
@@ -3395,10 +3400,12 @@ def run(app, out_dir: Path) -> int:
         _owin.go(ask=False, wait=True)
         _omoved = sorted(str(p.relative_to(_od / "dump")).replace("\\", "/") for p in (_od / "dump").rglob("*.fits"))
         _ogone = not (_od / "dump" / "L1.fits").exists() and (_od / "dump" / "sub" / "L1 (2).fits").exists()
+        _osteps = (_owin.b_go.text().startswith("✓"), _owin.b_rigs.text().startswith("✓"))
         _owin.undo_last(ask=False, wait=True)
         _oback = sorted(p.name for p in (_od / "dump").glob("*.fits"))
-        check(_on == 8 and _ogone and len(_omoved) == 9 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "M31_final.fits", "MasterDark_180s.fits"]
+        check(_on == 8 and all(_osteps) and _ogone and len(_omoved) == 9 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "M31_final.fits", "MasterDark_180s.fits"]
               and not (_og.org_base(_od / "dump") / "Light Frames").exists(),
+              f"(steps ticked off: {_osteps}) "
               f"File › Organize My Astro Files… moves {_on} files into place (the duplicate stays put) and Undo "
               f"Last Run puts every one back ({_oback})")
         _owin.src.setText(str(_gr))

@@ -91,7 +91,7 @@ _GUESS = {}           # (camera, focal) -> rig name read from your folder names,
 
 # ---------------------------------------------------------------- Your Rigs (name ↔ focal length)
 _RIGLIST = None       # [{"name", "focals": [mm], "camera": "", "folders": [paths]}] - when set, the only source
-_TOL = 0.05           # a rig's focal length in the headers drifts a few % night to night (focusing, solving)
+_TOL = 0.03           # a rig's focal length in the headers drifts a few % night to night (focusing, solving)
 
 
 def _cam_norm(c):
@@ -99,7 +99,7 @@ def _cam_norm(c):
     return re.sub(r"[\W_]", "", st.short_camera(c or "")).lower() if c else ""
 
 
-def match_rig(info, path, riglist, tol=0.05):
+def match_rig(info, path, riglist, tol=0.03):
     """(rig name or None, reason). A folder you assigned to a rig wins; otherwise the focal length in the header
     within ±tol of one of a rig's focal lengths (and the camera, when the rig lists one). reason:
     'folder' / 'focal' / 'nofocal' / 'nomatch' / 'ambiguous: A, B'."""
@@ -116,15 +116,23 @@ def match_rig(info, path, riglist, tol=0.05):
     if not fl:
         return None, "nofocal"
     cam = _cam_norm(getattr(info, "camera", None))
-    hits = []
+    hits = {}
     for r in riglist or []:
         if r.get("camera") and cam and _cam_norm(r["camera"]) != cam:
             continue
-        if any(f and abs(float(fl) - float(f)) <= tol * float(f) for f in r.get("focals") or []):
-            hits.append(r["name"])
-    hits = list(dict.fromkeys(hits))
+        ds = [abs(float(fl) - float(f)) / float(f) for f in r.get("focals") or [] if f]
+        ds = [d for d in ds if d <= tol]
+        if ds:
+            hits[r["name"]] = min(hits.get(r["name"], 9), min(ds))
     if len(hits) == 1:
-        return hits[0], "focal"
+        return next(iter(hits)), "focal"
+    if len(hits) > 1:
+        # within reach of two rigs (e.g. 506 and 530 mm scopes): the clearly nearer one wins (at most half the
+        # distance of the next); a reading right between them is asked about
+        near = sorted(hits.items(), key=lambda kv: kv[1])
+        if near[0][1] <= 0.5 * near[1][1]:
+            return near[0][0], "focal"
+    hits = list(hits)
     if not hits:
         return None, "nomatch"
     return None, "ambiguous: " + ", ".join(hits)
@@ -232,7 +240,7 @@ LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration
 
 
 def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None, layout="rig",
-             root=None, riglist=None, tol=0.05) -> list:
+             root=None, riglist=None, tol=0.03) -> list:
     """Read each header and decide where the file belongs (relative to the library). Returns [Item].
     rigs: SubZeroAstro's saved rig names (stacking.Rigs), so a rig you named keeps its name."""
     import stacking as st
@@ -844,7 +852,7 @@ def rig_issues(items, root=None) -> list:
     return out
 
 
-def focal_clusters(infos_paths, tol=0.05) -> list:
+def focal_clusters(infos_paths, tol=0.03) -> list:
     """Group the focal lengths found in headers into rigs: [{camera, focal (median), lo, hi, files, paths}] -
     readings within ±tol of each other are one rig (the same scope drifts a few % night to night)."""
     import stacking as st

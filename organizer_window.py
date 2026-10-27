@@ -67,8 +67,14 @@ class OrganizeDialog(QDialog):
             h.addWidget(b)
             lay.addLayout(h)
             return ed, h
-        self.src, _h = row("Folder to organize:", "organize/src",
-                           "Every subfolder is included. A whole drive or a NAS share works.")
+        self.src, _h = row("Folders / files to organize:", "organize/src",
+                           "Browse… picks one or several folders (Shift-click for a run of them, Ctrl/⌘-click for "
+                           "separate ones); Add Files… picks single files. Every subfolder is included. A whole "
+                           "drive or a NAS share works too.")
+        bf = QPushButton("Add Files…")
+        bf.setToolTip("Pick individual FITS / XISF files (Shift-click for a run, Ctrl/⌘-click for separate ones)")
+        bf.clicked.connect(lambda: self._add_files())
+        _h.addWidget(bf)
         self.dst, hd = row("Put the organized files in:", "organize/dst",
                            "Your astro library. Can be the same folder (organize in place).")
         self.same = QCheckBox("Same folder (organize in place)")
@@ -107,7 +113,7 @@ class OrganizeDialog(QDialog):
         self.b_go.clicked.connect(lambda: self.go())
         self.b_rigs = QPushButton("Your Rigs…")
         self.b_rigs.setToolTip("Your telescopes and the focal length(s) each one writes in the FITS header - set "
-                               "up once; every file is matched to its rig by focal length (±5 %). Add New Rig when "
+                               "up once; every file is matched to its rig by focal length (±3 %). Add New Rig when "
                                "you get another one.")
         self.b_rigs.clicked.connect(lambda: self.edit_rigs())
         self.b_which = QPushButton("Which Rig?…")
@@ -157,22 +163,112 @@ class OrganizeDialog(QDialog):
         lay.addLayout(hb)
         self.resize(1100, 680)
         self._same_toggled(self.same.isChecked())
+        self._organized = False
+        self._labels = {b: b.text() for b in (self.b_rigs, self.b_scan, self.b_which, self.b_dups, self.b_go)}
+        last = self.settings.value("organize/last_done", "") or ""
+        if last:
+            self.status.setText(self.status.text() + f"<br><i>Last time: {last}</i>")
+        self._update_steps()
+
+    def _update_steps(self):
+        """Where you are: steps done get a ✓ and go grey, the next one is highlighted - also after a break."""
+        rigs_done = bool(self.riglist())
+        scanned = bool(self.items)
+        issues = [g for g in O.rig_issues(self.items) if g["reason"] != "nomatch"] if scanned else []
+        dups = bool(O.duplicates(self.items)) if scanned else False
+        tomove = bool([i for i in self.items if i.status == "move"]) if scanned else False
+        done = {self.b_rigs: rigs_done, self.b_scan: scanned or self._organized,
+                self.b_which: scanned and not issues, self.b_dups: scanned and not dups,
+                self.b_go: self._organized}
+        if not rigs_done:
+            nxt = self.b_rigs
+        elif not scanned:
+            nxt = self.b_scan
+        elif issues:
+            nxt = self.b_which
+        elif dups:
+            nxt = self.b_dups
+        elif tomove:
+            nxt = self.b_go
+        else:
+            nxt = None
+        for b, label in self._labels.items():
+            if b is nxt:
+                b.setText("▶ " + label)
+                b.setStyleSheet("QPushButton { font-weight: bold; border: 2px solid #3d8be0; border-radius: 4px; "
+                                "padding: 3px 10px; }")
+            elif done.get(b) and (b in (self.b_rigs, self.b_scan, self.b_go) or scanned):
+                b.setText("✓ " + label)
+                b.setStyleSheet("QPushButton { color: gray; }")
+            else:
+                b.setText(label)
+                b.setStyleSheet("")
 
     # ---------------------------------------------------------------- helpers
     def _browse(self, ed):
-        d = QFileDialog.getExistingDirectory(self, "Choose a folder", ed.text() or str(Path.home()))
+        start = (self.sources() or [Path.home()])[0] if ed is self.src else Path(ed.text() or Path.home())
+        if ed is self.src:
+            # several folders at once: Shift-click a run, Ctrl/⌘-click separate ones (Qt's own dialog allows it)
+            from PySide6.QtWidgets import QAbstractItemView as _AIV, QListView, QTreeView
+            dlg = QFileDialog(self, "Choose one or more folders", str(start if Path(start).is_dir() else
+                                                                     Path(start).parent))
+            dlg.setFileMode(QFileDialog.Directory)
+            dlg.setOption(QFileDialog.DontUseNativeDialog, True)
+            dlg.setOption(QFileDialog.ShowDirsOnly, True)
+            for v in dlg.findChildren(QListView) + dlg.findChildren(QTreeView):
+                v.setSelectionMode(_AIV.ExtendedSelection)
+            if not dlg.exec():
+                return
+            picks = [p for p in dlg.selectedFiles() if p]
+            if not picks:
+                return
+            self.set_sources(picks)
+            return
+        d = QFileDialog.getExistingDirectory(self, "Choose a folder", str(start))
         if d:
             ed.setText(d)
-            if ed is self.src and self.same.isChecked():
-                self.dst.setText(d)
+
+    def _add_files(self):
+        start = (self.sources() or [Path.home()])[0]
+        files, _ = QFileDialog.getOpenFileNames(self, "Choose files to organize",
+                                                str(start if Path(start).is_dir() else Path(start).parent),
+                                                "FITS / XISF (*.fits *.fit *.fts *.xisf)")
+        if files:
+            self.set_sources(self.sources() + [Path(f) for f in files] if self.sources() else files)
+
+    def sources(self) -> list:
+        """The folders and files picked (separated by ';' in the box)."""
+        return [Path(x.strip()) for x in (self.src.text() or "").split(";") if x.strip()]
+
+    def set_sources(self, paths):
+        seen = []
+        for p in paths:
+            if str(p) not in [str(q) for q in seen]:
+                seen.append(Path(p))
+        self.src.setText("; ".join(str(p) for p in seen))
+        if self.same.isChecked():
+            self.dst.setText(str(self._common()))
+
+    def _common(self) -> Path:
+        """The folder holding everything picked (a folder itself when only one folder is picked)."""
+        import os
+        srcs = self.sources()
+        if not srcs:
+            return Path("")
+        if len(srcs) == 1 and srcs[0].is_dir():
+            return srcs[0]
+        try:
+            return Path(os.path.commonpath([str(p if p.is_dir() else p.parent) for p in srcs]))
+        except ValueError:
+            return srcs[0].parent
 
     def _same_toggled(self, on):
         self.dst.setEnabled(not on)
         if on:
-            self.dst.setText(self.src.text())
+            self.dst.setText(str(self._common()))
 
     def library(self) -> Path:
-        return Path((self.src.text() if self.same.isChecked() else self.dst.text()).strip())
+        return Path(str(self._common()) if self.same.isChecked() else self.dst.text().strip())
 
     def _busy(self, on):
         for w in (self.b_scan, self.b_rigs, self.b_which, self.b_go, self.b_dups, self.b_undo, self.src, self.dst,
@@ -187,6 +283,8 @@ class OrganizeDialog(QDialog):
             self.b_which.setEnabled(bool([g for g in O.rig_issues(self.items) if g["reason"] != "nomatch"]))
         self.b_stop.setVisible(on)
         self.bar.setVisible(on)
+        if not on and hasattr(self, "_labels"):
+            self._update_steps()
 
     def _run(self, fn, done, wait=False):
         self._busy(True)
@@ -210,11 +308,12 @@ class OrganizeDialog(QDialog):
 
     # ---------------------------------------------------------------- scan
     def scan(self, wait=False):
-        src, lib = Path(self.src.text().strip()), self.library()
-        if not src.is_dir() or not str(lib):
-            QMessageBox.information(self, "Organize My Astro Files", "Pick the folder to organize first.")
+        srcs = [p for p in self.sources() if p.exists()]
+        src, lib = self._common(), self.library()
+        if not srcs or not str(lib) or str(lib) == ".":
+            QMessageBox.information(self, "Organize My Astro Files", "Pick the folders or files to organize first.")
             return
-        for k, v in (("organize/src", str(src)), ("organize/dst", self.dst.text()),
+        for k, v in (("organize/src", self.src.text()), ("organize/dst", self.dst.text()),
                      ("organize/same", self.same.isChecked()), ("organize/move", self.move.isChecked()),
                      ("organize/layout", self.layout_box.currentData())):
             self.settings.setValue(k, v)
@@ -231,7 +330,13 @@ class OrganizeDialog(QDialog):
         self._plan_args = (lib, layout, src)
 
         def work(job):
-            paths = O.scan(src, progress=lambda t, n: job.note.emit(t, 0, 0), stop=lambda: job.stop)
+            paths = []
+            for sp in srcs:
+                if sp.is_dir():
+                    paths += O.scan(sp, progress=lambda t, n: job.note.emit(t, 0, 0), stop=lambda: job.stop)
+                elif sp.suffix.lower() in O.EXTS:
+                    paths.append(sp)
+            paths = list(dict.fromkeys(paths))
             items = O.classify(paths, progress=lambda t, i: job.note.emit(t, i, len(paths)), stop=lambda: job.stop,
                                library=lib, layout=layout, root=src, riglist=riglist, tol=tol)
             job.note.emit("Checking for duplicates and name clashes…", 0, 0)
@@ -240,6 +345,7 @@ class OrganizeDialog(QDialog):
 
     def _show_plan(self, items):
         self.items = items
+        self._organized = False
         sm = O.summary(items)
         kinds = ", ".join(f"{n} {KIND_TEXT.get(k, k)}{'s' if n != 1 and not k.endswith('s') else ''}"
                           for k, n in sorted(sm["by_kind"].items(), key=lambda kv: -kv[1]))
@@ -292,6 +398,7 @@ class OrganizeDialog(QDialog):
                            "length that fits two rigs, or none in the header) - press <b>Which Rig?…</b>")
             self.status.setText(self.status.text() + "<br>" + "<br>".join(msg)
                                 + "<br>Those files stay where they are until then.")
+        self._update_steps()
 
     # ---------------------------------------------------------------- go / undo
     def go(self, ask=True, wait=False):
@@ -326,6 +433,14 @@ class OrganizeDialog(QDialog):
             self.table.setRowCount(0)
             self.b_go.setEnabled(False)
             self.b_dups.setEnabled(False)
+            self._organized = True
+            import time as _time
+            srcs = self.sources()
+            self.settings.setValue("organize/last_done",
+                                   f"{_time.strftime('%b %d %H:%M')} - {len(d['done'])} file(s) "
+                                   f"{'moved' if move else 'copied'} from {srcs[0] if len(srcs) == 1 else f'{len(srcs)} folders'}"
+                                   f" into {O.org_base(lib)}")
+            self._update_steps()
         self._run(work, done, wait)
 
     def undo_last(self, ask=True, wait=False):
@@ -372,6 +487,7 @@ class OrganizeDialog(QDialog):
                        + (" …" if len(kept_back) > 5 else "")
             self.status.setText(msg)
             self.b_dups.setEnabled(bool(O.duplicates(self.items)))
+            self._update_steps()
         self._run(work, done, wait)
 
 
@@ -386,9 +502,12 @@ class OrganizeDialog(QDialog):
 
     def tol(self):
         try:
-            return float(self.settings.value("organize/rig_tol", 5)) / 100.0
+            if not self.settings.value("organize/rig_tol_v3", False, type=bool):    # new default: ±3 %
+                self.settings.setValue("organize/rig_tol", 3)
+                self.settings.setValue("organize/rig_tol_v3", True)
+            return float(self.settings.value("organize/rig_tol", 3)) / 100.0
         except (TypeError, ValueError):
-            return 0.05
+            return 0.03
 
     def save_riglist(self, riglist, tol_pct=None):
         import json as _json
@@ -396,6 +515,7 @@ class OrganizeDialog(QDialog):
         self.settings.setValue("organize/riglist", _json.dumps(riglist))
         if tol_pct is not None:
             self.settings.setValue("organize/rig_tol", tol_pct)
+            self.settings.setValue("organize/rig_tol_v3", True)
         # the same names in Calibrate and Stack (by camera + focal length)
         try:
             rigs = _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
@@ -429,7 +549,7 @@ class OrganizeDialog(QDialog):
     def find_in_files(self, folder=None, sample=600):
         """Find My Rigs in My Files: read a spread-out sample of headers from the folder (fast even on a NAS)."""
         import stacking as _st
-        folder = Path(folder or self.src.text().strip())
+        folder = Path(folder or self._common())
         if not folder.is_dir():
             return []
         QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -477,6 +597,7 @@ class OrganizeDialog(QDialog):
             m["folders"] += [f for f in r.get("folders") or [] if f not in m["folders"]]
         self.save_riglist(list(merged.values()), tol_pct)
         self.replan()
+        self._update_steps()
         return True
 
     def which_rig(self, answers=None):
