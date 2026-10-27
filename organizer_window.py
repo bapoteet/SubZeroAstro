@@ -318,7 +318,8 @@ class OrganizeDialog(QDialog):
             import json
             self.last_log = log
             d = json.loads(Path(log).read_text(encoding="utf-8"))
-            self.status.setText(f"Done: {len(d['done'])} file(s) {'moved' if move else 'copied'}"
+            self.status.setText(f"Done: {len(d['done'])} file(s) {'moved' if move else 'copied'} into "
+                                f"<b>{O.org_base(lib)}</b>"
                                 + (f"; {len(d['failed'])} could not be - see {log}" if d["failed"] else "")
                                 + ". Undo Last Run puts everything back.")
             self.items = []

@@ -30,6 +30,14 @@ from pathlib import Path
 import fits_core as core
 
 LOG_DIR = "_SubZeroAstro_organize"
+ORG_ROOT = "Organized Astro Files"     # everything the organizer makes goes in here, so you can see where
+
+
+def org_base(library) -> Path:
+    """The folder the organized files go into: <library>/Organized Astro Files (or the library itself when you
+    picked that folder already)."""
+    library = Path(library)
+    return library if library.name == ORG_ROOT else library / ORG_ROOT
 TOP = ("Light Frames", "Calibration Frames", "Targets", "Darks library", "Bias library", "Calibration masters", "Flats", "Unsorted", LOG_DIR)
 EXTS = {e.lower() for e in core.LIGHT_EXTS}
 # in-between files of PixInsight WBPP / Siril / APP runs (calibrated, registered … copies of your subs) and
@@ -254,7 +262,7 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     # nights already in the library (organized before): flats sorted on their own - a folder of calibration
     # frames only - still find the target that was shot that night
     if library is not None:
-        tdir = Path(library) / "Targets"
+        tdir = org_base(library) / "Targets"
         try:
             for td in (tdir.iterdir() if tdir.is_dir() else []):
                 if not td.is_dir():
@@ -446,7 +454,7 @@ def plan(items, library) -> list:
     for it in items:
         if it.dst is None or it.status in ("error", "duplicate", "norig"):
             continue
-        dst = library / it.dst
+        dst = org_base(library) / it.dst
         if dst.resolve() == it.src.resolve():
             it.status, it.dst = "here", dst
             continue
@@ -501,7 +509,7 @@ def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
     Undo Last Run); delete=True deletes each one - but only when it is byte for byte the same as the copy that
     is kept, which must still be there. Returns (done, kept_back, log_path); kept_back = [(Item, reason)]."""
     library = Path(library)
-    logd = library / LOG_DIR
+    logd = org_base(library) / LOG_DIR
     logd.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y-%m-%d_%H%M%S")
     log_path = logd / f"organize_{stamp}_{'deleted' if delete else 'duplicates'}.json"
@@ -525,11 +533,11 @@ def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
                 it.src.unlink()
                 done.append({"src": str(it.src), "same_as": str(it.same_as), "deleted": True})
             else:
-                dst = library / DUP_DIR / it.src.name
+                dst = org_base(library) / DUP_DIR / it.src.name
                 n = 1
                 while dst.exists():
                     n += 1
-                    dst = library / DUP_DIR / f"{it.src.stem}_{n}{it.src.suffix}"
+                    dst = org_base(library) / DUP_DIR / f"{it.src.stem}_{n}{it.src.suffix}"
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(it.src), str(dst))
                 done.append({"src": str(it.src), "dst": str(dst), "same_as": str(it.same_as)})
@@ -572,7 +580,7 @@ def execute(items, library, move=False, progress=None, stop=None) -> Path:
     """Copy or move the planned files; returns the undo log. A copy is checked (size) before a move removes
     the original; a file that fails is skipped and noted, the rest carry on."""
     library = Path(library)
-    logd = library / LOG_DIR
+    logd = org_base(library) / LOG_DIR
     logd.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y-%m-%d_%H%M%S")
     log_path = logd / f"organize_{stamp}.json"
@@ -664,11 +672,12 @@ def undo(log_path, progress=None) -> tuple:
 
 
 def last_log(library) -> Path | None:
-    d = Path(library) / LOG_DIR
-    if not d.is_dir():
-        return None
-    logs = sorted((p for p in d.glob("organize_*.json")
-                   if not p.name.endswith((".undone.json", "_deleted.json"))), key=lambda p: p.stat().st_mtime)
+    """The newest run not yet undone - logs live in Organized Astro Files (older versions: the library itself)."""
+    logs = []
+    for d in {org_base(library) / LOG_DIR, Path(library) / LOG_DIR}:
+        if d.is_dir():
+            logs += [p for p in d.glob("organize_*.json") if not p.name.endswith((".undone.json", "_deleted.json"))]
+    logs.sort(key=lambda p: p.stat().st_mtime)
     return logs[-1] if logs else None
 
 

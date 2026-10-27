@@ -3230,7 +3230,7 @@ def run(app, out_dir: Path) -> int:
         _ofits("B1.fits", "Bias Frame", None, None, 0.001, "2026-09-01T12:00:00")
         (_od / "dump" / "notes.txt").write_text("not a picture")
         _oitems = _og.plan(_og.classify(_og.scan(_od / "dump"), layout="target"), _od / "dump")
-        _odst = {i.src.name: str(i.dst.relative_to(_od / "dump")).replace("\\", "/") for i in _oitems
+        _odst = {i.src.name: str(i.dst.relative_to(_og.org_base(_od / "dump"))).replace("\\", "/") for i in _oitems
                  if i.status == "move"}
         _odup = [i.src.name for i in _oitems if i.status == "duplicate"]
         _night = _odst.get("L1.fits", "").split("/")[2] if _odst.get("L1.fits", "").count("/") >= 3 else "?"
@@ -3248,8 +3248,8 @@ def run(app, out_dir: Path) -> int:
         # kept by scope and night; darks and bias go to the libraries
         _oc = session.parent / "organize_cal_test"
         _ksh.rmtree(_oc, ignore_errors=True)
-        (_oc / "Targets" / "M31" / "2026-10-01_SQA60" / "LIGHT" / "Ha").mkdir(parents=True)
-        (_oc / "Targets" / "M31" / "2026-10-08_RASA8" / "LIGHT" / "L").mkdir(parents=True)
+        (_og.org_base(_oc) / "Targets" / "M31" / "2026-10-01_SQA60" / "LIGHT" / "Ha").mkdir(parents=True)
+        (_og.org_base(_oc) / "Targets" / "M31" / "2026-10-08_RASA8" / "LIGHT" / "L").mkdir(parents=True)
 
         def _cfits(rel, hd):
             _p = _oc / "Calibration" / rel
@@ -3270,7 +3270,7 @@ def run(app, out_dir: Path) -> int:
         _cfits("SQA60/Darks/300s/d2.fits", {"IMAGETYP": "Dark", "TELESCOP": "SQA60", "EXPTIME": 300.0,
                                             "DATE-OBS": "2026-09-02T10:00:00"})
         _cfits("Esprit100/Darks/300s/d3.fits", {"IMAGETYP": "Dark", "EXPTIME": 300.0, "DATE-OBS": "2026-09-02T10:00:00"})
-        _cdst = {i.src.name: str(i.dst.relative_to(_oc)).replace("\\", "/")
+        _cdst = {i.src.name: str(i.dst.relative_to(_og.org_base(_oc))).replace("\\", "/")
                  for i in _og.plan(_og.classify(_og.scan(_oc / "Calibration"), library=_oc, layout="target"), _oc) if i.dst}
         check(_cdst.get("f1.fits") == "Targets/M31/2026-10-01_SQA60/FLAT/Ha/f1.fits"
               and _cdst.get("f2.fits") == "Targets/M31/2026-10-01_SQA60/FLAT/OIII/f2.fits"
@@ -3284,9 +3284,9 @@ def run(app, out_dir: Path) -> int:
               "darks and bias go to each rig's own library - three ASI2600MMs on three rigs, shot at the same "
               "second, stay three cameras")
         # the rig-first layout (the default): Lights / rig / target / night / filter and Calibration / rig / …
-        _rdst = {i.src.name: str(i.dst.relative_to(_oc)).replace("\\", "/")
+        _rdst = {i.src.name: str(i.dst.relative_to(_og.org_base(_oc))).replace("\\", "/")
                  for i in _og.plan(_og.classify(_og.scan(_oc / "Calibration"), library=_oc), _oc) if i.dst}
-        _rl = {i.src.name: str(i.dst.relative_to(_od / "dump")).replace("\\", "/")
+        _rl = {i.src.name: str(i.dst.relative_to(_og.org_base(_od / "dump"))).replace("\\", "/")
                for i in _og.plan(_og.classify(_og.scan(_od / "dump")), _od / "dump") if i.status == "move"}
         check(_rl.get("L1.fits", "").startswith("Light Frames/SQA60/M31/2026-10-01/Ha/")
               and _rl.get("L3.fits", "").startswith("Light Frames/RASA8/M31/2026-10-08/L/")
@@ -3320,7 +3320,7 @@ def run(app, out_dir: Path) -> int:
         _gd = {}
         for _groot in (_gr, _gr / "SQA60Pro"):
             for _gi in _og.plan(_og.classify(_og.scan(_groot), library=_groot, root=_groot), _groot):
-                _gd[(_groot.name, _gi.src.name, _gi.src.parent.name)] = str(_gi.dst.relative_to(_groot)).replace("\\", "/")
+                _gd[(_groot.name, _gi.src.name, _gi.src.parent.name)] = str(_gi.dst.relative_to(_og.org_base(_groot))).replace("\\", "/")
         check(_gd.get(("IncomingAstroData", "Light_001.fits", "2026-09-01"), "").startswith("Light Frames/SQA60Pro/VeilNebula/")
               and _gd.get(("IncomingAstroData", "Light_001.fits", "2026-09-03"), "").startswith("Light Frames/RedCat/M31/")
               and _gd.get(("IncomingAstroData", "Flat_001.fits", "FLAT"), "").startswith("Calibration Frames/SQA60Pro/Flats/")
@@ -3373,7 +3373,7 @@ def run(app, out_dir: Path) -> int:
         _owin.undo_last(ask=False, wait=True)
         _oback = sorted(p.name for p in (_od / "dump").glob("*.fits"))
         check(_on == 8 and _ogone and len(_omoved) == 9 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "M31_final.fits", "MasterDark_180s.fits"]
-              and not (_od / "dump" / "Targets").exists(),
+              and not (_og.org_base(_od / "dump") / "Light Frames").exists(),
               f"File › Organize My Astro Files… moves {_on} files into place (the duplicate stays put) and Undo "
               f"Last Run puts every one back ({_oback})")
         _owin.src.setText(str(_gr))
@@ -3381,7 +3381,7 @@ def run(app, out_dir: Path) -> int:
         _owin.scan(wait=True)
         _y1 = sorted({i.why.split(" - ")[0] for i in _owin.items if i.status == "norig"})
         _owin.edit_rigs(rows=[{"name": "SQA60Pro", "focals": [361]}, {"name": "RedCat", "focals": [250]}], tol_pct=5)
-        _y2 = {i.src.parent.name: str(i.dst.relative_to(_gr)).replace("\\", "/") for i in _owin.items
+        _y2 = {i.src.parent.name: str(i.dst.relative_to(_og.org_base(_gr))).replace("\\", "/") for i in _owin.items
                if i.status == "move"}
         check(any("250 mm" in x for x in _y1) and _y2.get("2026-09-03", "").startswith("Light Frames/RedCat/M31/")
               and _y2.get("2026-09-01", "").startswith("Light Frames/SQA60Pro/VeilNebula/")
