@@ -1457,16 +1457,15 @@ def find_star_leftovers(starless: np.ndarray, stars: np.ndarray, max_stars: int 
     return out, busy
 
 
-GLOW_KEEP = 0.7                     # how much of a cleaned star glow is kept (made round)
-
-
-def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0) -> np.ndarray:
-    """Clean one painted box and the square glow around it. Star removal leaves a big star's glow in the starless
-    picture cut square - a plate with straight edges and bright bars along them, and a grain-free box in the middle.
-    Patching only the box leaves the square plate showing once the picture is brightened. So, around the box, the
-    smooth part of the picture is rebuilt as background (filled in from well outside the glow) plus a ROUND glow made
-    from the glow's own average fall-off with distance from the star (a little fainter), and the grain-free box gets
-    the fine texture of an equal area right next to it (as PixInsight's CloneStamp would)."""
+def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0, keep=0.0) -> np.ndarray:
+    """Clean one painted box and what star removal left around it. StarXTerminator leaves a big star's glow in
+    the starless picture cut square: a plate with straight edges, bright bars along them, and a grain-free box
+    in the middle (sometimes with a leftover core). Around the box, the smooth part of the picture is split into
+    the surroundings, a round glow (G) and a square-cut part (P, one profile of the distance to each side); both
+    are fitted with ring medians, so the nebula's own structure stays out of them. P is taken away completely,
+    G down to `keep` of it (0 = no glow left), never making anything darker than its surroundings. The box itself
+    is filled smoothly from the corrected surroundings, with the fine texture of an equal area next to it (as
+    PixInsight's CloneStamp would)."""
     c, h, w = img.shape
     x0, y0, x1, y1 = int(x0), int(y0), int(x1), int(y1)
     if x1 - x0 < 3 or y1 - y0 < 3:
@@ -1474,7 +1473,7 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0) -> np.ndarray:
     rng = np.random.default_rng(seed)
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     half = max(x1 - x0, y1 - y0) / 2
-    q = max(1, int(round(half / 24)))                     # the glow is smooth: worked on a smaller copy
+    q = max(1, int(round(half / 24)))
     Rmax = 5.0 * half
     Rw = int(Rmax * 1.2)
     wx0, wy0 = max(0, int(cx - Rw)), max(0, int(cy - Rw))
@@ -1484,16 +1483,19 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0) -> np.ndarray:
     if Hs < 8 or Ws < 8:
         return img
     yy, xx = np.mgrid[:Hs, :Ws]
-    r = np.hypot((yy + 0.5) * q + wy0 - cy, (xx + 0.5) * q + wx0 - cx) / q
-    border = np.zeros((Hs, Ws), bool)
-    border[[0, -1], :] = True
-    border[:, [0, -1]] = True
+    dy_, dx_ = (yy + 0.5) * q + wy0 - cy, (xx + 0.5) * q + wx0 - cx
+    r = np.hypot(dy_, dx_) / q
+    th = np.arctan2(dy_, dx_)
+    border = np.zeros((Hs, Ws), bool); border[[0, -1], :] = True; border[:, [0, -1]] = True
     hq = half / q
-    # the donor area for the box's texture (the same for every colour)
     bw, bh = x1 - x0, y1 - y0
     gx, gy = int(bw * grow) + 2, int(bh * grow) + 2
     px0, px1, py0, py1 = max(0, x0 - gx), min(w, x1 + gx), max(0, y0 - gy), min(h, y1 + gy)
     pw, ph = px1 - px0, py1 - py0
+    # the grown box on the small grid (painted: refilled from its corrected surroundings)
+    sy0, sy1 = (py0 - wy0) / q, (py1 - wy0) / q
+    sx0, sx1 = (px0 - wx0) / q, (px1 - wx0) / q
+    boxm = (yy + 1 > sy0) & (yy < sy1) & (xx + 1 > sx0) & (xx < sx1)
     cands = [(px0 - pw, py0), (px1, py0), (px0, py0 - ph), (px0, py1)]
     cands = [(dx, dy) for dx, dy in cands if 0 <= dx and dx + pw <= w and 0 <= dy and dy + ph <= h]
     donor = cands[int(rng.integers(0, len(cands)))] if cands else None
@@ -1515,50 +1517,98 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0) -> np.ndarray:
             ri = np.minimum(r.astype(int), nb - 1)
             prof = np.zeros(nb)
             for i in range(nb):
-                v = E[(ri == i) & m]
+                v = E[(ri == i) & m & ~boxm]
                 prof[i] = np.median(v) if v.size else (prof[i - 1] if i else 0.0)
-            return Bg, prof
-
-        if Rh is None:                                   # how far the glow reaches (found once, on the first colour)
-            _bg, prof = solve(Rmax / q)
-            pk = prof[:int(hq * 1.2) + 1].max()
+            return Bg, E, prof
+        if Rh is None:
+            _bg, _e, prof = solve(Rmax / q)
+            pk = prof[:int(hq * 1.6) + 1].max()
             cut = Rmax / q
             for i in range(int(hq * 1.5), len(prof)):
                 if prof[i] < 0.06 * pk:
-                    cut = i
-                    break
+                    cut = i; break
             Rh = float(np.clip(cut * 1.25, hq * 2.2, Rmax / q))
-        Bg, prof = solve(Rh)
+        Bg, E, prof = solve(Rh)
         prof = np.convolve(np.pad(prof, 2, mode="edge"), np.ones(5) / 5, "valid")
-        i_in = min(len(prof) - 1, int(np.ceil(hq * 1.45)))   # inside the box (to its corners) is painted, and
-        prof[:i_in] = prof[i_in]                               # may hold a leftover core: not taken as the glow
-        prof = np.minimum.accumulate(prof)               # a real glow only fades outwards ...
-        sg = max(1.0, 0.5 * hq)
-        kk = np.arange(-int(3 * sg), int(3 * sg) + 1)
-        ker = np.exp(-0.5 * (kk / sg) ** 2)
-        prof = np.convolve(np.pad(prof, len(kk) // 2, mode="edge"), ker / ker.sum(), "valid")   # ... softly
-        prof = np.clip(prof - prof[min(int(Rh), len(prof) - 1)], 0, None)          # down to the surroundings
+        i_in = min(len(prof) - 1, int(np.ceil(hq * 1.45)))
+        prof[:i_in] = prof[i_in]
+        prof = np.minimum.accumulate(prof)
+        prof = np.clip(prof - prof[min(int(Rh), len(prof) - 1)], 0, None)
         ri = np.clip(r, 0, len(prof) - 1.001)
-        i0 = ri.astype(int)
-        fr = ri - i0
+        i0 = ri.astype(int); fr = ri - i0
         E0 = prof[i0] * (1 - fr) + prof[np.minimum(i0 + 1, len(prof) - 1)] * fr
-        t = np.clip((Rh - r) / (0.12 * Rh), 0, 1)
-        t = t * t * (3 - 2 * t)
-        fade = np.clip(1 - (r / Rh) ** 2, 0, 1)
-        newLs = Ls + t * ((Bg + GLOW_KEEP * E0 * (0.5 + 0.5 * fade)) - Ls)
+        # what star removal left is round (the glow, G) plus square-cut (the plate and the bars along its edges,
+        # P: a profile of the distance to the box's side, one per side). Both are fitted by turns with ring
+        # medians, so nebula structure (not ring-shaped) stays out of them
+        ax, ay = np.abs(dx_) / q, np.abs(dy_) / q
+        dsq = np.maximum(ax, ay)
+        side = np.where(ay >= ax, np.where(dy_ < 0, 0, 1), np.where(dx_ < 0, 2, 3))
+        nd = int(Rh) + 2
+        di = np.minimum(dsq.astype(int), nd - 1)
+        fitm = (r < Rh) & ~boxm
+        G = E0.copy()
+        P = np.zeros_like(E)
+        def ringmed(vals, idx, mask, n):
+            o = np.zeros(n)
+            order = np.argsort(idx[mask], kind="stable")
+            iv, vv = idx[mask][order], vals[mask][order]
+            cuts = np.searchsorted(iv, np.arange(n + 1))
+            for i in range(n):
+                seg = vv[cuts[i]:cuts[i + 1]]
+                o[i] = np.median(seg) if seg.size >= 3 else np.nan
+            ok = ~np.isnan(o)
+            if ok.any():
+                o = np.interp(np.arange(n), np.nonzero(ok)[0], o[ok])
+            else:
+                o[:] = 0
+            return o
+        diag = np.abs(ay - ax) / np.maximum(dsq, 1e-6)          # 0 on the diagonals, 1 on the axes
+        wv = np.clip(0.5 + (ay - ax) / np.maximum(dsq, 1e-6) / 0.4, 0, 1)
+        wv = wv * wv * (3 - 2 * wv)                              # top/bottom sides' share, blended near diagonals
+        for _it in range(3):
+            prof4 = []
+            for sd_ in range(4):
+                m_ = fitm & (side == sd_) & (diag > 0.2)
+                ps = ringmed(E - G, di, m_, nd)
+                ps = np.convolve(np.pad(ps, 2, mode="edge"), np.ones(5) / 5, "valid")
+                prof4.append(ps - ps[min(int(Rh / 1.15), nd - 1)])
+            tb = np.where(dy_ < 0, prof4[0][di], prof4[1][di])
+            lr = np.where(dx_ < 0, prof4[2][di], prof4[3][di])
+            P = wv * tb + (1 - wv) * lr
+            ri_ = np.minimum(r.astype(int), nd - 1)
+            P = P - ringmed(P, ri_, fitm, nd)[ri_]             # P is only what is not round
+            g = ringmed(E - P, np.minimum(r.astype(int), nd - 1), fitm, nd)
+            g = np.convolve(np.pad(g, 2, mode="edge"), np.ones(5) / 5, "valid")
+            g[:i_in] = g[i_in]
+            g = np.clip(np.minimum.accumulate(g) - g[min(int(Rh), nd - 1)], 0, None)
+            ri2 = np.clip(r, 0, nd - 1.001); j0 = ri2.astype(int); f2 = ri2 - j0
+            G = g[j0] * (1 - f2) + g[np.minimum(j0 + 1, nd - 1)] * f2
+        E0 = G
+        H4 = P
+        t = np.clip((Rh - r) / (0.25 * Rh), 0, 1); t = t * t * (3 - 2 * t)
+        Cr = (1 - keep) * E0 + H4
+        Cr = np.where(Cr > 0, np.minimum(Cr, np.maximum(E, 0)), Cr)   # never darker than the surroundings
+        newLs = Ls - t * Cr
+        # the painted box: filled smoothly from its corrected surroundings
+        fill = newLs.copy()
+        bm = boxm & ~border
+        edge = (SpotFix._minmax(bm.astype(np.float32), 3, np.max) > 0) & ~bm
+        fill[bm] = np.median(newLs[edge]) if edge.any() else np.median(newLs)
+        fill = SpotFix._harmonic(fill, bm, 300)
+        # keep the kept glow inside the box too (it is flat there in E0)
+        newLs = np.where(boxm, fill, newLs)
         W = W + _resize((newLs - Ls).astype(np.float32), W.shape[0], W.shape[1]).astype(np.float64)
         smooth_new = _resize(newLs.astype(np.float32), W.shape[0], W.shape[1]).astype(np.float64)
-        # the grain-free box (grown to take in the bars along its edges): texture from right next to it
         fy0, fy1, fx0, fx1 = py0 - wy0, py1 - wy0, px0 - wx0, px1 - wx0
         if donor is not None and fy0 >= 0 and fx0 >= 0 and fy1 <= W.shape[0] and fx1 <= W.shape[1]:
             dx, dy = donor
-            mg = 12                                                      # filtered with a margin: no edge lines
+            mg = 12
             ex0, ey0, ex1, ey1 = max(0, dx - mg), max(0, dy - mg), min(w, dx + pw + mg), min(h, dy + ph + mg)
             big = img[k, ey0:ey1, ex0:ex1].astype(np.float32)
             tex = (big - _blur(big, sig))[dy - ey0:dy - ey0 + ph, dx - ex0:dx - ex0 + pw].astype(np.float64)
             sd = 1.4826 * float(np.median(np.abs(tex - np.median(tex)))) + 1e-12
-            tex = np.where(np.abs(tex) > 3.5 * sd, 0.0, tex)                 # no stars or specks copied along
-            As = smooth_new[fy0:fy1, fx0:fx1]          # the rebuilt smooth level: nothing of a leftover core
+            tex = np.where(np.abs(tex) > 3.5 * sd, 0.0, tex)
+            As = smooth_new[fy0:fy1, fx0:fx1]
             y2, x2 = np.mgrid[:ph, :pw]
             dist = np.minimum.reduce([y2, ph - 1 - y2, x2, pw - 1 - x2]).astype(np.float64)
             soft = np.clip(dist / max(4.0, 0.08 * min(pw, ph)), 0, 1)
@@ -1573,8 +1623,9 @@ class CleanStarLeftovers(Tool):
     tip = ("Star removal (StarXTerminator) paints a smooth, grain-free square over each big star. Once the nebula "
            "and the stars are brightened differently, those squares show - often with bright bars along their "
            "edges, and sometimes with a leftover dot where a close double star was. This finds the painted squares "
-           "by their missing grain, patches each with the surroundings' own texture, and turns the square glow "
-           "around it into a soft round one, as a real star's glow is. Squares inside bright, structured nebula are "
+           "by their missing grain and patches each with the surroundings' own texture; the square glow and "
+           "bars around it are taken away (keeping the nebula's own detail), with a choice of how much round "
+           "glow to leave. Squares inside bright, structured nebula are "
            "left alone (patching would smooth the nebula) - use Spot "
            "Fix on those if they show. (PixInsight: CloneStamp)")
     pick = True
@@ -1617,8 +1668,15 @@ class CleanStarLeftovers(Tool):
         if not boxes:
             return [Variant("Nothing to clean - next step", {"boxes": []},
                             "no painted squares found around the bright stars" + (f"; {note}" if note else ""), True)]
-        return [Variant(f"Clean the squares ({len(boxes)})", {"boxes": [list(b) for b in boxes]},
-                        "each patched, and its square glow made round" + (f"; {note}" if note else ""), True),
+        bx = [list(b) for b in boxes]
+        tail = f"; {note}" if note else ""
+        return [Variant(f"Clean, no glow ({len(boxes)})", {"boxes": bx, "keep": 0.0},
+                        "squares and the glow star removal left are taken away; the star's own glow comes back "
+                        "with the stars" + tail, True),
+                Variant("Clean, faint glow", {"boxes": bx, "keep": 0.25},
+                        "squares taken away; a quarter of the leftover glow kept, made round" + tail, False),
+                Variant("Clean, soft glow", {"boxes": bx, "keep": 0.5},
+                        "squares taken away; half of the leftover glow kept, made round" + tail, False),
                 Variant("Don't clean", {"boxes": []}, "leave the picture as it is", False)]
 
     def apply(self, s, params):
@@ -1629,7 +1687,8 @@ class CleanStarLeftovers(Tool):
             if len(b) != 4:
                 continue
             fx0, fy0, fx1, fy1 = b
-            img = heal_box(img, int(fx0 * w), int(fy0 * h), int(np.ceil(fx1 * w)), int(np.ceil(fy1 * h)), seed=i)
+            img = heal_box(img, int(fx0 * w), int(fy0 * h), int(np.ceil(fx1 * w)), int(np.ceil(fy1 * h)), seed=i,
+                           keep=float(params.get("keep", 0.0)))
         s.rgb = img.astype(np.float32)
         s.done.append(self.key)
         return s

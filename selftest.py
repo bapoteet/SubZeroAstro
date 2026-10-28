@@ -420,7 +420,7 @@ def run(app, out_dir: Path) -> int:
         return float(np.mean(a[_gband & (_gang > 0.9)]) - np.mean(a[_gband & (_gang < 0.3)]))
     _gq0, _gq1 = _gsquare(_gsq), _gsquare(_gso)
     check(len(_gsb) == 1 and abs(_gq1) < 0.25 * abs(_gq0),
-          f"Clean Bright-Star Leftovers: the square glow around a painted box is made round (corners vs sides "
+          f"Clean Bright-Star Leftovers: the square glow around a painted box is taken away (corners vs sides "
           f"{_gq0:.4f} -> {_gq1:.4f})")
     # ... and a big leftover core in one colour (the blue dot in the Shark's eye) is removed, not spread into a disc
     _cr = np.random.default_rng(1)
@@ -433,6 +433,24 @@ def run(app, out_dir: Path) -> int:
     _cex = [float(_fnc._blur(_cout[k] - _cbase[k], 3)[300:500, 300:500].max()) for k in range(3)]
     check(max(_cex) < 0.002, f"Clean Bright-Star Leftovers: a big blue leftover core in a box is removed, not spread "
                              f"into a blue disc (left {max(_cex):.4f}, was 0.08)")
+    # ... and the nebula's own structure around the box is kept (no smooth 'painted' disc), with no glow left by
+    # default and a quarter of it with 'Clean, faint glow'
+    _ny, _nx = np.mgrid[:800, :800].astype(np.float32)
+    _ntex = 0.004 * np.sin(_nx / 9) * np.sin(_ny / 11)
+    _ntrue = (0.05 + _ntex + np.random.default_rng(2).normal(0, 0.001, (800, 800))).astype(np.float32)
+    _nr = np.hypot(_nx - 400, _ny - 400)
+    _nglow = 0.01 * np.exp(-_nr ** 2 / (2 * 75 ** 2))
+    _nimg = _ntrue + _nglow + 0.006 * ((np.abs(_nx - 400) < 110) & (np.abs(_ny - 400) < 110))
+    _nimg[(np.abs(_nx - 400) < 50) & (np.abs(_ny - 400) < 50)] = 0.06
+    _nout0 = _fnc.heal_box(_nimg[None].astype(np.float32), 350, 350, 450, 450, seed=0, keep=0.0)[0]
+    _nout1 = _fnc.heal_box(_nimg[None].astype(np.float32), 350, 350, 450, 450, seed=0, keep=0.25)[0]
+    _nann = (_nr > 120) & (_nr < 280)
+    _nc = float(np.corrcoef((_nout0 - _fnc._blur(_nout0, 30))[_nann], _ntex[_nann])[0, 1])
+    _nres = float(np.mean((_nout0 - _ntrue)[_nann]))
+    _nkept = float(np.mean((_nout1 - _nout0)[_nr < 120]))
+    check(_nc > 0.8 and abs(_nres) < 0.0015 and 0.0003 < _nkept < 0.004,
+          f"Clean Bright-Star Leftovers: the nebula's own detail around the box is kept (match {_nc:.2f}), the "
+          f"glow is taken away (left {_nres:.4f} of 0.01), 'faint glow' keeps a little ({_nkept:.4f})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
