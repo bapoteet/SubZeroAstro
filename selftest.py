@@ -401,6 +401,22 @@ def run(app, out_dir: Path) -> int:
           f"Clean Bright-Star Leftovers: square glows and a leftover dot around bright stars are found and patched "
           f"({len(_gfound)} found, left {[round(r, 4) for r in _gres]} of 0.012); a clean picture and round "
           f"reflection nebulae around bright stars are left alone")
+    # Star Colours: a big star whose red sits a few pixels off its green and blue gets ONE colour, not half orange
+    _cyy, _cxx = np.mgrid[:400, :400].astype(np.float32)
+    _cst = np.zeros((3, 400, 400), np.float32)
+
+    def _cstar(x, y, f, sig, col, dx=0.0):
+        for _c in range(3):
+            _cst[_c] += col[_c] * f * np.exp(-((_cxx - x - (dx if _c == 0 else 0)) ** 2 + (_cyy - y) ** 2) / (2 * sig ** 2))
+    _cstar(200, 200, 0.9, 12, (1.0, 0.85, 0.7), dx=4)
+    _crng = np.random.default_rng(2)
+    for _ in range(80):
+        _cstar(_crng.uniform(10, 390), _crng.uniform(10, 390), _crng.uniform(0.05, 0.3), 1.5,
+               ((0.8, 0.9, 1.0), (1, 0.8, 0.6))[int(_crng.integers(0, 2))])
+    _cx, _ = _fnc.star_colour_map(_cst)
+    _cl, _cr = float(_cx[200, 188]), float(_cx[200, 212])
+    check(abs(_cl - _cr) < 0.05, f"Star Colours: a big star with its red a few pixels off gets one colour, not two "
+                                 f"halves (left {_cl:.2f}, right {_cr:.2f})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)

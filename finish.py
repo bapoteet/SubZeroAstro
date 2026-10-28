@@ -1928,10 +1928,54 @@ def star_colour_map(stars: np.ndarray, spread=1.0):
         new = ~filled & (c2 > 1e-3)
         out = np.where(new, e2 / np.maximum(c2, 1e-6), out)
         filled |= new
+    # one colour per star: a big star gets the colour of its WHOLE light (red total against green + blue total).
+    # Measured pixel by pixel, a star whose red sits a pixel or two off its green and blue (colour masters not
+    # perfectly on top of each other) came out half orange, half blue-white.
+    try:
+        out = _one_colour_per_star(out, st_, lum, ok, thr, med, mad, spread)
+    except Exception:  # noqa: BLE001 - keep the per-pixel colours
+        pass
     # the overexposed core itself: white, fading into the rim's colour (as a real overexposed star looks)
     core_w = np.clip((lum - 0.85) / 0.15, 0, 1)
     out = out * (1.0 - 0.7 * _blur(core_w, 1.5))
     return np.clip(out, -1, 1).astype(np.float32), lum
+
+
+def _one_colour_per_star(x, st_, lum, ok, thr, med, mad, spread, side=2000, min_area=6):
+    """Give every big star (at least min_area pixels of a working copy at most `side` wide) one colour: the
+    ratio of its total red light to its total green + blue light, on the same scale as the per-pixel estimate."""
+    h, w = lum.shape
+    F = max(1, int(np.ceil(max(h, w) / side)))
+    hs, ws = h // F, w // F
+    if hs < 8 or ws < 8:
+        return x
+
+    def small(a):
+        return a[:hs * F, :ws * F].reshape(hs, F, ws, F).mean(axis=(1, 3))
+    m = small(lum) > thr
+    if not m.any():
+        return x
+    lab = np.where(m, np.arange(1, hs * ws + 1, dtype=np.int64).reshape(hs, ws), 0)
+    for _ in range(400):                                     # connected stars: spread the biggest label over each
+        grown = SpotFix._minmax(lab.astype(np.float64), 3, np.max).astype(np.int64) * m
+        if np.array_equal(grown, lab):
+            break
+        lab = grown
+    ids, inv = np.unique(lab, return_inverse=True)
+    inv = inv.reshape(lab.shape)
+    area = np.bincount(inv.ravel())
+    rs = np.bincount(inv.ravel(), weights=small(st_[0] * ok).ravel())
+    gbs = np.bincount(inv.ravel(), weights=small(0.5 * (st_[1] + st_[2]) * ok).ravel())
+    ratio = np.log((rs + 1e-4 * area) / (gbs + 1e-4 * area))
+    xl = np.clip((ratio - med) / (2.2 * mad / max(spread, 0.1)), -1, 1)
+    big = (ids > 0) & (area >= min_area) & ((rs + gbs) > 0)
+    if not big.any():
+        return x
+    table = np.where(big, xl, np.nan).astype(np.float32)
+    yi = np.minimum(np.arange(h) // F, hs - 1)
+    xi = np.minimum(np.arange(w) // F, ws - 1)
+    full = table[inv[yi][:, xi]]
+    return np.where(np.isfinite(full), full, x).astype(np.float32)
 
 
 def _star_ramp(x):
