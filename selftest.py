@@ -3258,6 +3258,32 @@ def run(app, out_dir: Path) -> int:
               == Path("C:/Apps/SubZeroAstro") and _up.install_target(frozen=False) is None,
               "updates: Update Now downloads and unpacks the new version and writes the helper that swaps it in "
               "after SubZeroAstro closes, then restarts it (Windows and Mac)")
+        # Update Now from start to the hand-over: the download thread has ended before SubZeroAstro quits (a
+        # thread still running at the quit made macOS report 'SubZeroAstro quit unexpectedly')
+        _qs = {}
+        _keep = (_up.prepare_handover, _up.launch, _up.staging_dir, _up.why_not, _up.QApplication)
+        try:
+            _ust = _uz / "ustage"
+            _ust.mkdir(exist_ok=True)
+            _up.staging_dir = lambda: _ust
+            _up.why_not = lambda platform=None: ""
+            _up.prepare_handover = lambda zp, st: ["true"]
+            _up.launch = lambda cmd: None
+            class _FakeApp:
+                closeAllWindows = staticmethod(lambda: None)
+                quit = staticmethod(lambda: _qs.setdefault(
+                    "finished", _ub.downloader is not None and _ub.downloader.isFinished()))
+            _up.QApplication = _FakeApp
+            _ub.release = {"url": _zip.as_uri(), "version": "9.9.9", "tag": "v9.9.9-beta"}
+            _ub.update_now(ask=False)
+            _t0 = time.time()
+            while "finished" not in _qs and time.time() - _t0 < 20:
+                QApplication.processEvents()
+                time.sleep(0.02)
+        finally:
+            _up.prepare_handover, _up.launch, _up.staging_dir, _up.why_not, _up.QApplication = _keep
+        check(_qs.get("finished") is True, f"updates: Update Now waits for the download to end before closing "
+                                            f"SubZeroAstro (no 'quit unexpectedly' on the Mac) ({_qs})")
         # Zip My Logs: every open page's log plus a note about this computer, in one zip
         import zip_logs as _zl
         import zipfile as _zf

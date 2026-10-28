@@ -441,6 +441,10 @@ class UpdateBanner(QFrame):
 
     def _downloaded(self, path, error):
         self.dlg.close()
+        # the download thread is still returning when this runs: let it end before anything quits the app, or
+        # macOS kills SubZeroAstro on the way out ("quit unexpectedly", triggered by DownloadThread)
+        if self.downloader is not None:
+            self.downloader.wait(15000)
         if not path:
             shutil.rmtree(self.stage, ignore_errors=True)
             if "cancelled" not in error:
@@ -453,6 +457,9 @@ class UpdateBanner(QFrame):
         except Exception as e:  # noqa: BLE001
             self._info("Update SubZeroAstro", f"The update couldn't be installed:\n\n{e}")
             return
+        for th in (self.checker, self.downloader):
+            if th is not None:
+                th.wait(5000)
         QApplication.closeAllWindows()
         QApplication.quit()
 
