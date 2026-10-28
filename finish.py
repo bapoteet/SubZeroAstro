@@ -1375,6 +1375,133 @@ class TakeStarsOut(Tool):
         return s
 
 
+def find_star_leftovers(starless: np.ndarray, stars: np.ndarray, max_stars: int = 40) -> list:
+    """What star removal left behind around the brightest stars - a square glow (microlens diffraction of
+    many Sony sensors, or a star removal tile edge), a leftover core (a close double star): a glow that
+    stands clearly above the sky around it, centred on a bright star. Returns [(fx, fy, fr, strength)] -
+    centre and radius as fractions of the picture's width, so the same list fits any copy of the picture."""
+    L, f = _small_plane(_lum(starless).astype(np.float32), 1600)
+    S, _ = _small_plane(_lum(stars).astype(np.float32), 1600)
+    h, w = L.shape
+    if min(h, w) < 64:
+        return []
+    # bright stars: the highest peaks of the stars image (local maxima, well above the faint ones)
+    pk = S >= SpotFix._minmax(S, 9, np.max) - 1e-12
+    vals = S[pk]
+    if vals.size == 0 or float(S.max()) <= 0:
+        return []
+    top = float(S.max())
+    ys, xs = np.nonzero(pk & (S >= 0.15 * top))
+    order = np.argsort(-S[ys, xs])[:max_stars]
+    Lb = _blur(L, 1.0)
+    grain = SpotFix._grain(L, np.ones_like(L, bool)) + 1e-9
+    out = []
+    for i in order:
+        cy, cx = int(ys[i]), int(xs[i])
+        # the star's own size: where its profile in the stars image falls below 3% of its peak
+        rs = 2
+        while rs < 40 and cy - rs > 0 and cx - rs > 0 and cy + rs < h - 1 and cx + rs < w - 1 and \
+                S[cy - rs:cy + rs + 1, cx - rs:cx + rs + 1].min() > 0.03 * S[cy, cx]:
+            rs += 1
+        rmax = int(min(max(14 * rs, 24), 160, cy, cx, h - 1 - cy, w - 1 - cx))
+        if rmax < 8:
+            continue
+        y0, y1, x0, x1 = cy - rmax, cy + rmax + 1, cx - rmax, cx + rmax + 1
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        d = np.maximum(np.abs(yy - cy), np.abs(xx - cx))       # square rings: squares are what is left
+        patch = Lb[y0:y1, x0:x1]
+        ring = d >= int(rmax * 0.8)
+        sky = float(np.median(patch[ring]))
+        var = float(np.std(patch[ring])) + grain
+        # leftover size: the largest square ring whose mean still stands clearly above the sky
+        left = 0
+        for r in range(1, int(rmax * 0.8)):
+            sel = d == r
+            if float(np.mean(patch[sel])) - sky > 2.5 * var / np.sqrt(max(sel.sum() / 8.0, 1.0)) + 1.5 * grain:
+                left = r
+            elif r > left + max(3, rs):
+                break
+        if left < 2:
+            continue
+        inside = float(np.mean(patch[d <= left])) - sky
+        compact = left <= 2 * rs + 2                           # a leftover dot or core the size of the star
+        if not compact:
+            # only square leftovers: their corners are as bright as their sides, and they end in a sharp edge.
+            # A real nebula around a star (a reflection nebula) fades out smoothly and roundly - it is kept.
+            e = np.hypot(yy - cy, xx - cx)
+            corners = (d <= left * 0.95) & (e > left * 1.05)
+            sides = (d <= left * 0.95) & (d > left * 0.6) & (e <= left * 0.95)
+            if corners.sum() < 4 or sides.sum() < 4:
+                continue
+            c_ex = float(np.mean(patch[corners])) - sky
+            s_ex = float(np.mean(patch[sides])) - sky
+            edge_in = float(np.mean(patch[(d > left * 0.75) & (d <= left)])) - sky
+            edge_out = float(np.mean(patch[(d > left + 1) & (d <= left * 1.25 + 2)])) - sky
+            if s_ex <= 0 or c_ex < 0.6 * s_ex or edge_out > 0.5 * edge_in:
+                continue
+        if inside > 1.5 * var:                                 # clearly brighter than the sky's own ups and downs
+            fr = (left * 1.45 + 2) * f / (w * f)               # cover a square's corners too
+            out.append(((cx + 0.5) * f / (w * f), (cy + 0.5) * f / (h * f), fr, inside / var))
+    return out
+
+
+class CleanStarLeftovers(Tool):
+    key = "leftovers"
+    title = "Clean Bright-Star Leftovers"
+    tip = ("Star removal can leave something behind around the brightest stars: a square glow (many Sony "
+           "camera sensors throw one off - microlens diffraction - or a star removal tile edge), or a "
+           "leftover dot where a close double star was. This finds them and patches each from its "
+           "surroundings, before the picture is brightened. Nothing else is touched. (PixInsight: CloneStamp)")
+    pick = True
+
+    def possible(self, s):
+        return s.stars_out or s.stars_hidden or TOOLS["stars_out"].possible(s)
+
+    def applicable(self, s):
+        if not s.stars_out or s.stars is None or s.stars_hidden or s.rgb is None:
+            return False, "Take the stars out first"
+        if s.stars.shape[1:] != s.rgb.shape[1:]:
+            return False, "The stars image does not match the picture"
+        return True, ""
+
+    def _found(self, s):
+        key = (id(s.rgb), id(s.stars))
+        if getattr(self, "_cache_key", None) != key:
+            try:
+                self._cache = find_star_leftovers(s.rgb, s.stars)
+            except Exception:  # noqa: BLE001 - nothing found is the safe answer
+                self._cache = []
+            self._cache_key = key
+        return self._cache
+
+    def is_optional(self, s):
+        return not self._found(s)
+
+    def why(self, s):
+        n = len(self._found(s))
+        if n:
+            return (f"{n} bright star(s) left something behind when the stars were taken out (a square glow or a "
+                    "leftover dot). Clean them now, before brightening makes them stand out.")
+        return self.tip
+
+    def variants(self, s):
+        spots = [list(x[:3]) for x in self._found(s)]
+        n = len(spots)
+        return [Variant(f"Clean them ({n} found)" if n else "Nothing found", {"spots": spots},
+                        "each patched from its surroundings", bool(n)),
+                Variant("Leave as they are", {"spots": []}, "", not n)]
+
+    def apply(self, s, params):
+        s = s.copy()
+        img = s.rgb
+        h, w = img.shape[1:]
+        for i, (fx, fy, fr) in enumerate(params.get("spots", [])):
+            img = SpotFix.heal(img, fx * w, fy * h, max(2.0, fr * w), seed=i, keep_stars=False)
+        s.rgb = img.astype(np.float32)
+        s.done.append(self.key)
+        return s
+
+
 def _round_star_mask(R: np.ndarray, noise: float, limit: int = 4000) -> np.ndarray:
     """Where the round, compact stars are in R (the detail left after the smooth glow is taken away): 1 on and
     just around each star, 0 elsewhere. Streaks and spikes - long, not round - are left out."""
@@ -3867,7 +3994,8 @@ class CometTail(_CometTool):
         return s
 
 
-TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(), Brighten(),
+TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(),
+                            CleanStarLeftovers(), Brighten(),
                             TameCore(), Curves(), Saturation(), AdjustColours(), LocalContrast(), BrightenStars(), ShrinkStars(),
                             StarColours(), PutStarsBack(), CometTail(), CometJets(),
                             DustDonuts(), DarkenSky(), FinalNoise(), FlipPicture(), FinalCrop(), SpotFix(), SignPicture())}
@@ -3917,14 +4045,14 @@ def busiest_spot(s: State, size=420):
 _POLISH = ["core", "curves", "saturation", "colours", "local"]
 _STARS = ["star_stretch", "shrink", "star_color", "stars_back"]
 WORKFLOWS = {
-    "osc": ["balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
-    "osc_dual": ["palette", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
-    "osc_sho": ["combine", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
-    "smart": ["balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
-    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
-    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
-    "mono_nb": ["combine", "dust", "stars_out", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
-    "mono": ["dust", "stars_out", "stretch", "core", "curves", "local"] + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "osc": ["balance", "scnr", "dust", "stars_out", "leftovers", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "osc_dual": ["palette", "dust", "stars_out", "leftovers", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "osc_sho": ["combine", "dust", "stars_out", "leftovers", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "smart": ["balance", "scnr", "dust", "stars_out", "leftovers", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "mono_rgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "leftovers", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "mono_lrgb": ["ha_glow", "combine", "balance", "scnr", "dust", "stars_out", "leftovers", "stretch"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "mono_nb": ["combine", "dust", "stars_out", "leftovers", "stretch", "scnr"] + _POLISH + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
+    "mono": ["dust", "stars_out", "leftovers", "stretch", "core", "curves", "local"] + _STARS + ["sky", "denoise", "flip", "final_crop", "spotfix", "signature"],
 }
 
 WHY = {
@@ -4388,6 +4516,7 @@ PI_EQUIVALENT = {
     "local": "LocalHistogramEqualization",
     "ha_glow": "Continuum subtraction (PixelMath: Ha - k*R) then NBRGBCombination or PixelMath into R",
     "spotfix": "CloneStamp",
+    "leftovers": "CloneStamp on what star removal left around bright stars",
     "core": "HDRMultiscaleTransform through a luminance (range) mask on the core",
     "star_color": "PixelMath on the stars image (colour from the R/(G+B) ratio), or Narrowband Normalization's star options",
         "stars_back": "PixelMath screen blend:  ~((~starless)*(~stars))",

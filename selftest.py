@@ -367,6 +367,40 @@ def run(app, out_dir: Path) -> int:
             _dk.append(f"error: {_de}")
     check(_dk == ["Much darker", "Darker"], f"Darken the Sky Background suggests 'Much darker', or 'Darker' when the "
                                            f"sky is already dark ({_dk})")
+    # Clean Bright-Star Leftovers: square glows and a leftover dot around bright stars are found and patched;
+    # a clean picture and real round reflection nebulae around bright stars are left alone
+    _gr = np.random.default_rng(5)
+    _gH, _gW = 600, 900
+    _gy, _gx = np.mgrid[:_gH, :_gW].astype(np.float32)
+    _gneb = 0.05 + 0.03 * np.exp(-((_gx - 450) ** 2 + (_gy - 300) ** 2) / (2 * 150 ** 2))
+    _gclean = np.repeat((_gneb + _gr.normal(0, 0.002, (_gH, _gW)))[None], 3, 0).astype(np.float32)
+    _gst = np.zeros((3, _gH, _gW), np.float32)
+    _gb = [(150, 150), (700, 450), (450, 120)]
+    for _x, _y in _gb:
+        _gst += (np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * 3 ** 2)))[None]
+    for _ in range(150):
+        _x, _y, _f = _gr.uniform(10, _gW - 10), _gr.uniform(10, _gH - 10), _gr.uniform(0.01, 0.1)
+        _gst += (_f * np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * 1.3 ** 2)))[None]
+    _gghost = _gclean.copy()
+    for (_x, _y), _hs in zip(_gb[:2], (40, 30)):
+        _gghost[:, (np.abs(_gx - _x) < _hs) & (np.abs(_gy - _y) < _hs)] += 0.012
+    _gghost[:, (_gx - 450) ** 2 + (_gy - 120) ** 2 < 4 ** 2] += 0.08
+    _grefl = _gclean.copy()
+    for _x, _y in _gb[:2]:
+        _grefl += (0.03 * np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * 28 ** 2)))[None]
+    _gfound = _fnc.find_star_leftovers(_gghost, _gst)
+    _gs = _fnc.State.__new__(_fnc.State)
+    _gs.rgb, _gs.stars, _gs.stars_out, _gs.stars_hidden, _gs.done, _gs.linear = _gghost, _gst, True, False, [], True
+    _gs.copy = lambda: _gs
+    _gv = next(v for v in _fnc.TOOLS["leftovers"].variants(_gs) if v.recommended)
+    _gout = _fnc.TOOLS["leftovers"].apply(_gs, _gv.params).rgb
+    _gres = [float(np.mean((_gout - _gclean)[0, _y - _hs + 4:_y + _hs - 4, _x - _hs + 4:_x + _hs - 4]))
+             for (_x, _y), _hs in zip(_gb[:2], (40, 30))]
+    check(len(_gfound) == 3 and max(abs(r) for r in _gres) < 0.002
+          and not _fnc.find_star_leftovers(_gclean, _gst) and not _fnc.find_star_leftovers(_grefl, _gst),
+          f"Clean Bright-Star Leftovers: square glows and a leftover dot around bright stars are found and patched "
+          f"({len(_gfound)} found, left {[round(r, 4) for r in _gres]} of 0.012); a clean picture and round "
+          f"reflection nebulae around bright stars are left alone")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)

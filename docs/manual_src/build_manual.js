@@ -440,6 +440,7 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Remove Green Cast", "Removes the green tint (or turns Hubble colours gold and blue)", "SCNR"],
   ["Mote Buster ◇", "Fix Dust Donuts: finds the round shadows of dust and divides them out with a synthetic flat - the detail underneath comes back", "A new flat, or DBE with division"],
   ["Take Stars Out", "Hides the stars so the nebula can be brightened strongly (instant if page 3 already separated them)", "StarXTerminator"],
+  ["Clean Bright-Star Leftovers", "Recommended only when something is found: what star removal left around the brightest stars - a square glow (microlens diffraction of many Sony camera sensors, or a star removal tile edge) or a leftover dot where a close double star was - is patched from its surroundings. Round, real nebulae around stars (reflection nebulae) are left alone; anything it misses can be clicked away with Spot Fix", "CloneStamp"],
   ["Brighten the Image (Stretch)", "The stretch - five strengths, three methods", "STF / HistogramTransformation / GHS"],
   ["Bring Out the Tail ◇ (comets)", "Takes away part of the round glow of the comet's head (the coma), measured all the way round the nucleus, so the tail and ion streamers stand out", "1/rho or azimuthal-median coma model + PixelMath"],
   ["Reveal Comet Jets ◇ (comets)", "Brings out jets and shells near the nucleus by comparing the picture with copies of itself turned a little around the nucleus (Larson-Sekanina); *Jets map only* gives the grey study picture. Best with the stars out", "LarsonSekanina"],
