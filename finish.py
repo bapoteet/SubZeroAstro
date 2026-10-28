@@ -1530,6 +1530,8 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0) -> np.ndarray:
             Rh = float(np.clip(cut * 1.25, hq * 2.2, Rmax / q))
         Bg, prof = solve(Rh)
         prof = np.convolve(np.pad(prof, 2, mode="edge"), np.ones(5) / 5, "valid")
+        i_in = min(len(prof) - 1, int(np.ceil(hq * 1.45)))   # inside the box (to its corners) is painted, and
+        prof[:i_in] = prof[i_in]                               # may hold a leftover core: not taken as the glow
         prof = np.minimum.accumulate(prof)               # a real glow only fades outwards ...
         sg = max(1.0, 0.5 * hq)
         kk = np.arange(-int(3 * sg), int(3 * sg) + 1)
@@ -1545,6 +1547,7 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0) -> np.ndarray:
         fade = np.clip(1 - (r / Rh) ** 2, 0, 1)
         newLs = Ls + t * ((Bg + GLOW_KEEP * E0 * (0.5 + 0.5 * fade)) - Ls)
         W = W + _resize((newLs - Ls).astype(np.float32), W.shape[0], W.shape[1]).astype(np.float64)
+        smooth_new = _resize(newLs.astype(np.float32), W.shape[0], W.shape[1]).astype(np.float64)
         # the grain-free box (grown to take in the bars along its edges): texture from right next to it
         fy0, fy1, fx0, fx1 = py0 - wy0, py1 - wy0, px0 - wx0, px1 - wx0
         if donor is not None and fy0 >= 0 and fx0 >= 0 and fy1 <= W.shape[0] and fx1 <= W.shape[1]:
@@ -1555,10 +1558,7 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0) -> np.ndarray:
             tex = (big - _blur(big, sig))[dy - ey0:dy - ey0 + ph, dx - ex0:dx - ex0 + pw].astype(np.float64)
             sd = 1.4826 * float(np.median(np.abs(tex - np.median(tex)))) + 1e-12
             tex = np.where(np.abs(tex) > 3.5 * sd, 0.0, tex)                 # no stars or specks copied along
-            mg2 = int(3 * sig) + 2
-            a0, a1 = max(0, fy0 - mg2), min(W.shape[0], fy1 + mg2)
-            b0, b1 = max(0, fx0 - mg2), min(W.shape[1], fx1 + mg2)
-            As = _blur(W[a0:a1, b0:b1].astype(np.float32), sig).astype(np.float64)[fy0 - a0:fy1 - a0, fx0 - b0:fx1 - b0]
+            As = smooth_new[fy0:fy1, fx0:fx1]          # the rebuilt smooth level: nothing of a leftover core
             y2, x2 = np.mgrid[:ph, :pw]
             dist = np.minimum.reduce([y2, ph - 1 - y2, x2, pw - 1 - x2]).astype(np.float64)
             soft = np.clip(dist / max(4.0, 0.08 * min(pw, ph)), 0, 1)

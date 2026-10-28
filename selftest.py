@@ -422,6 +422,17 @@ def run(app, out_dir: Path) -> int:
     check(len(_gsb) == 1 and abs(_gq1) < 0.25 * abs(_gq0),
           f"Clean Bright-Star Leftovers: the square glow around a painted box is made round (corners vs sides "
           f"{_gq0:.4f} -> {_gq1:.4f})")
+    # ... and a big leftover core in one colour (the blue dot in the Shark's eye) is removed, not spread into a disc
+    _cr = np.random.default_rng(1)
+    _cy, _cx = np.mgrid[:800, :800].astype(np.float32)
+    _cbase = (0.05 + _cr.normal(0, 0.002, (3, 800, 800))).astype(np.float32)
+    _cimg2 = _cbase.copy()
+    _cimg2[:, (np.abs(_cx - 400) < 60) & (np.abs(_cy - 400) < 60)] = 0.05
+    _cimg2[2][(_cx - 415) ** 2 + (_cy - 400) ** 2 < 14 ** 2] += 0.08
+    _cout = _fnc.heal_box(_cimg2, 340, 340, 460, 460, seed=0)
+    _cex = [float(_fnc._blur(_cout[k] - _cbase[k], 3)[300:500, 300:500].max()) for k in range(3)]
+    check(max(_cex) < 0.002, f"Clean Bright-Star Leftovers: a big blue leftover core in a box is removed, not spread "
+                             f"into a blue disc (left {max(_cex):.4f}, was 0.08)")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
