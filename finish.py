@@ -2033,9 +2033,11 @@ class DarkenSky(Tool):
         def note(a):
             return f"sky {sky * 100:.0f}% -> about {max(sky * (1 - a), 0.01) * 100:.0f}%"
         calm = 0.6 if s.kind in NARROWBAND_KINDS else 0.5
+        # 'Much darker' unless that would take the sky below about 3% (black, faint dust lost): then 'Darker'
+        much = not crushed and sky * (1 - 0.7) >= 0.03
         return [Variant("Slightly darker", {"amount": 0.3, "calm": calm}, note(0.3), False),
-                Variant("Darker", {"amount": 0.5, "calm": calm}, note(0.5), not crushed),
-                Variant("Much darker", {"amount": 0.7, "calm": calm}, note(0.7), False),
+                Variant("Darker", {"amount": 0.5, "calm": calm}, note(0.5), not crushed and not much),
+                Variant("Much darker", {"amount": 0.7, "calm": calm}, note(0.7), much),
                 Variant("Lighter", {"amount": -0.3, "calm": calm},
                         note(-0.3) + (" - the sky looks crushed to black" if crushed else ""), crushed)]
 

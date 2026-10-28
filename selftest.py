@@ -343,6 +343,20 @@ def run(app, out_dir: Path) -> int:
           f"big stars (FWHM {(_hfw or 0):.1f} px): StarXTerminator on a half-size copy leaves no squares or stars "
           f"behind ({float(_herr.max()):.0f} of {float(_hst.max()):.0f}), keeps the fine detail, and starless + "
           f"stars = the original")
+    # Darken the Sky Background: 'Much darker' by default, 'Darker' when that would take the sky below about 3%
+    _dk = []
+    for _dsky in (0.15, 0.07):
+        _ds = _fnc.State.__new__(_fnc.State)
+        _ds.kind = "mono_lrgb"
+        _drng = np.random.default_rng(3)
+        _ds.rgb = np.clip(_dsky + _drng.normal(0, 0.005, (3, 300, 300)), 0, 1).astype(np.float32)
+        _ds.linear = False
+        try:
+            _dk.append(next(v.label for v in _fnc.TOOLS["sky"].variants(_ds) if v.recommended))
+        except Exception as _de:  # noqa: BLE001
+            _dk.append(f"error: {_de}")
+    check(_dk == ["Much darker", "Darker"], f"Darken the Sky Background suggests 'Much darker', or 'Darker' when the "
+                                           f"sky is already dark ({_dk})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)
