@@ -1081,6 +1081,15 @@ class FinishWindow(QMainWindow):
                           "this picture.</i>")
         if nxt:
             self.card_text.setText(f"<b>Recommended next: {nxt.title}</b><br>{F.why_next(s, nxt)}" + again_note)
+            if nxt.key == "leftovers" and getattr(self, "_leftovers_logged", None) != id(s.rgb):
+                self._leftovers_logged = id(s.rgb)
+                try:
+                    _n = len(nxt._found(s)[0])
+                except Exception:  # noqa: BLE001 - only a note
+                    _n = 0
+                if _n:
+                    self.log(f"Found {_n} painted square(s) around bright stars - cleaning them "
+                             "(Clean Bright-Star Leftovers) is recommended next.")
         else:
             self.card_text.setText("<b>Your picture is finished.</b><br>Save it with <i>Save the Picture…</i>, "
                                    "or continue polishing in PixInsight (curves, local contrast, a final noise "

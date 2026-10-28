@@ -1605,8 +1605,9 @@ class CleanStarLeftovers(Tool):
     def why(self, s):
         boxes, busy = self._found(s)
         if boxes:
-            return (f"Star removal left {len(boxes)} painted square(s) around bright stars - they show once the "
-                    "picture is brightened. Clean them now." + (f" ({busy} inside bright nebula are left for Spot "
+            return (f"<b>Cleaning is recommended for this picture.</b> Star removal left {len(boxes)} painted "
+                    "square(s) around bright stars - they show once the picture is brightened. Press <b>Do It</b> "
+                    "to clean them now, before brightening." + (f" ({busy} inside bright nebula are left for Spot "
                                                                   "Fix, if they show.)" if busy else ""))
         return self.tip
 
