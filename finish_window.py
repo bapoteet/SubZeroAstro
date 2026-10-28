@@ -874,6 +874,11 @@ class FinishWindow(QMainWindow):
 
     def log(self, t):
         self.log_view.appendPlainText(t)
+        try:
+            import session_log
+            session_log.write("page 4", t)
+        except Exception:  # noqa: BLE001
+            pass
 
     # ------------------------------------------------------------ jobs
     def run_job(self, fn, done, busy_text="Working…"):

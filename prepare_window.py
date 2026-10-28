@@ -884,6 +884,11 @@ class PrepareWindow(QMainWindow):
 
     def log(self, t):
         self.log_view.appendPlainText(t)
+        try:
+            import session_log
+            session_log.write("page 3", t)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _xt_cfg(self, key):
         try:

@@ -2,7 +2,8 @@
 zip_logs.py - "Zip My Logs": everything needed to report a problem, in one zip.
 
 Collects the log of every open page, the stack logs of the masters just made, page 3's
-processing report, and a short note about this computer (SubZeroAstro version, system,
+processing report, the session logs on disk (this session and the last ones before it - also after a
+crash), and a short note about this computer (SubZeroAstro version, system,
 screen, which helper programs were found). Saved to the Desktop and shown in the folder.
 No pictures are included - only text.
 """
@@ -32,6 +33,11 @@ def system_note() -> str:
         lines.append(f"App: {sys.executable}")
         reason = updater.why_not()
         lines.append("Update Now: " + ("can install updates by itself" if not reason else f"opens the web page ({reason})"))
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import session_log
+        lines.append(f"Memory: {session_log.memory_text()}")
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -94,6 +100,18 @@ def collect(windows) -> dict:
             if isinstance(r, dict) and r.get("out_dir"):
                 for p in Path(r["out_dir"]).glob("*_PixInsight_next_steps.txt"):
                     out[f"files/{p.name}"] = p
+    # the session logs on disk: this one, and the last ones before it - after a crash or a frozen
+    # computer, the session that ended badly is the one that matters
+    try:
+        import session_log
+        cur = session_log.current()
+        if cur is not None and cur.exists():
+            out[f"sessions/this_session_{cur.name}"] = cur
+        for p in session_log.previous(2):
+            tag = "ENDED_BADLY_" if session_log.ended_badly(p) else ""
+            out[f"sessions/previous_{tag}{p.name}"] = p
+    except Exception:  # noqa: BLE001
+        pass
     return out
 
 

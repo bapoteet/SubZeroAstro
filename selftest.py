@@ -272,6 +272,28 @@ def run(app, out_dir: Path) -> int:
           and _stk.dither_report([np.eye(2, 3)] * 3, [2.8] * 3)["small_stars"] is False,
           f"ready-made data: BlurXTerminator Sharpen Stars 0.55 / Star Halos 0.50; backyard data and your own values "
           f"unchanged; drizzle is only suggested for stars under 2.2 px ({_bv})")
+    # session log on disk: page log lines and memory notes land in a file; one without 'closed normally'
+    # (a crash, a frozen computer) is flagged when the logs are zipped
+    import session_log as _slg
+    _sl_dir = _sfd / "session_logs"
+    _sl_old = _slg.logs_dir
+    _slg.logs_dir = lambda: _sl_dir
+    try:
+        _sl_dir.mkdir(exist_ok=True)
+        (_sl_dir / "session_2000-01-01_000000.log").write_text("00:00:00 [page 3] BlurXTerminator ...\n")
+        _slp = _slg.start("selftest")
+        _slg.write("page 3", "a line from page 3")
+        _sl_ok = (_slp is not None and "a line from page 3" in _slp.read_text(encoding="utf-8")
+                  and "memory" in _slp.read_text(encoding="utf-8")
+                  and [p.name for p in _slg.previous()] == ["session_2000-01-01_000000.log"]
+                  and _slg.ended_badly(_sl_dir / "session_2000-01-01_000000.log"))
+        _slg.stop()
+        _sl_ok = _sl_ok and not _slg.ended_badly(_slp)
+    finally:
+        _slg.logs_dir = _sl_old
+        _slg._path = None
+    check(_sl_ok, f"every session writes a log on disk (page lines, memory); a session that ended badly is "
+                  f"flagged for Zip My Logs ({_slg.memory_text()})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)

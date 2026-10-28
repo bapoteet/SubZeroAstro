@@ -552,6 +552,11 @@ class StackWindow(QMainWindow):
     # ------------------------------------------------------------ helpers
     def log(self, text):
         self.log_view.appendPlainText(text)
+        try:
+            import session_log
+            session_log.write("page 2", text)
+        except Exception:  # noqa: BLE001
+            pass
 
     def options(self) -> st.StackOptions:
         fmts = tuple(f for f, cb in (("fits", self.fmt_fits), ("xisf", self.fmt_xisf)) if cb.isChecked()) or ("fits",)

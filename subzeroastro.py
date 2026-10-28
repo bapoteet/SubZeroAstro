@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.152 beta"
+APP_VERSION = "0.9.153 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -3166,8 +3166,14 @@ def main():
         out = Path(sys.argv[i + 1]) if len(sys.argv) > i + 1 else Path("selftest_output")
         sys.exit(selftest.run(app, out))
 
+    import session_log
+    session_log.start(APP_VERSION)
+    session_log.heartbeat(30)
+    app.aboutToQuit.connect(session_log.stop)
+
     def excepthook(etype, value, tb):
         msg = "".join(traceback.format_exception(etype, value, tb))
+        session_log.write("error", msg)
         try:
             sys.__stderr__.write(msg)
         except Exception:  # noqa: BLE001 - pythonw has no console
