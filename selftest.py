@@ -343,6 +343,16 @@ def run(app, out_dir: Path) -> int:
           f"big stars (FWHM {(_hfw or 0):.1f} px): StarXTerminator on a half-size copy leaves no squares or stars "
           f"behind ({float(_herr.max()):.0f} of {float(_hst.max()):.0f}), keeps the fine detail, and starless + "
           f"stars = the original")
+    # a big picture (drizzled master) also goes half size for StarXTerminator, a normal one with small stars does not
+    _bhalf_keep = _prp.SXT_HALF_PIXELS
+    try:
+        _bsmall = _prp.sxt_half(_hfull * 0 + _hneb[None].astype(np.float32) + _prp._half2(_hfull)[:, :1, :1].mean())[0]
+        _prp.SXT_HALF_PIXELS = _hH * _hW - 1
+        _bbig = _prp.sxt_half(_hfull)[0]
+    finally:
+        _prp.SXT_HALF_PIXELS = _bhalf_keep
+    check(_bbig and not _bsmall, f"StarXTerminator goes half size for big (drizzled) pictures, not for a normal one "
+                                 f"({_bbig}, {_bsmall})")
     # Darken the Sky Background: 'Much darker' by default, 'Darker' when that would take the sky below about 3%
     _dk = []
     for _dsky in (0.15, 0.07):

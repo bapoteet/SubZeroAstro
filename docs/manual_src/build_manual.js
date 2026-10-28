@@ -387,7 +387,7 @@ sec("8.5", "The XTerminators", ["BlurXTerminator", "NoiseXTerminator", "StarXTer
 table(["Tool", "What it does", "Good starting settings"], [
   ["BlurXTerminator", "Sharpens stars and detail", "Sharpen Stars 0.50, Adjust Star Halos 0.40, Sharpen Nonstellar 0.50, Automatic PSF on (ready-made data such as Telescope Live: Sharpen Stars 0.55, Adjust Star Halos 0.50 - its clean signal takes firmer sharpening; the log says so)"],
   ["NoiseXTerminator", "Reduces noise (a light pass on unstretched data)", "Denoise 0.6"],
-  ["StarXTerminator", "Separates a **starless** and a **stars-only** image", "Generate Star Image on; **Unscreen Stars off**. When the stars are large (about 5 px or more, e.g. after drizzle) it works on a half-size copy, so the glow of a bright star fits its tiles and leaves no squares; the starless picture keeps its full detail (the log says so)"],
+  ["StarXTerminator", "Separates a **starless** and a **stars-only** image", "Generate Star Image on; **Unscreen Stars off**. When the picture is big (over about 40 megapixels, e.g. after drizzle) or the stars are large (about 5 px or more) it works on a half-size copy with the most tile overlap, so the glow of a bright star fits its tiles and leaves no squares; the starless picture keeps its full detail (the log says so)"],
 ], [2000, 3900, 3460]);
 p("Hover over any setting for a plain-language explanation. **Unscreen Stars** should stay **off** here: the stars image is then simply *original minus starless* and is added back later (what Finishing Touches expects). Turn it on only if you will recombine stretched images with a screen blend in PixInsight.");
 sec("8.6", "Saving the results", ["Save final images", "Output folder", "Quick-look image", "Preview palette"]);

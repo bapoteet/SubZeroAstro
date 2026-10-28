@@ -403,19 +403,41 @@ def gradient_correction_for(m) -> tuple:
 SXT_HALF_FWHM = 5.0        # stars at least this big (px): StarXTerminator works on a half-size copy
 
 
+SXT_HALF_PIXELS = 40e6     # pictures bigger than this (e.g. drizzled masters): StarXTerminator on a half-size copy
+
+
 def star_size(data) -> float | None:
-    """Median star size (FWHM, px) in the middle of a master, or None."""
+    """Median star size (FWHM, px) of a master, from five patches (the middle may be a dark nebula), or None."""
     try:
         import metrics
         lum = data.mean(axis=0) if data.ndim == 3 and data.shape[0] > 1 else (data[0] if data.ndim == 3 else data)
         h, w = lum.shape
-        c = min(2048, h, w)
-        y0, x0 = (h - c) // 2, (w - c) // 2
-        r = metrics.measure(np.asarray(lum[y0:y0 + c, x0:x0 + c], np.float32))
-        f = r.get("fwhm") if isinstance(r, dict) else None
-        return float(f) if f else None
+        c = min(1536, h, w)
+        out = []
+        for fy, fx in ((0.5, 0.5), (0.25, 0.25), (0.25, 0.75), (0.75, 0.25), (0.75, 0.75)):
+            y0 = int(min(max(fy * h - c / 2, 0), h - c))
+            x0 = int(min(max(fx * w - c / 2, 0), w - c))
+            r = metrics.measure(np.asarray(lum[y0:y0 + c, x0:x0 + c], np.float32))
+            f = r.get("fwhm") if isinstance(r, dict) else None
+            if f:
+                out.append(float(f))
+        return float(np.median(out)) if out else None
     except Exception:  # noqa: BLE001 - only a hint
         return None
+
+
+def sxt_half(data) -> tuple:
+    """(work on a half-size copy?, star size, why). Big pictures - a bright star's glow is then wider than
+    StarXTerminator's tiles and is left behind as a square - and big stars both go half size. Small
+    stars in a picture of normal size are left as they are (half size would make them too small)."""
+    fw = star_size(data)
+    h, w = data.shape[-2:]
+    mp = h * w
+    if fw is not None and fw >= SXT_HALF_FWHM:
+        return True, fw, f"the stars are large here (about {fw:.1f} px)"
+    if mp >= SXT_HALF_PIXELS and (fw is None or fw >= 3.0):
+        return True, fw, f"the picture is big ({mp / 1e6:.0f} megapixels, e.g. after drizzle)"
+    return False, fw, ""
 
 
 def _half2(d: np.ndarray) -> np.ndarray:
@@ -1053,7 +1075,7 @@ def plan_steps(masters: list, opts) -> list:
         if key == "bxt":
             vals, _note = bxt_values_for(masters, vals)
         args = spec.args(vals, cfg.get("mode"))
-        sig = [list(args), cfg.get("mode")] + (["big-stars-half-v1"] if key == "sxt" else [])
+        sig = [list(args), cfg.get("mode")] + (["big-stars-half-v2"] if key == "sxt" else [])
         out.append((key, json.dumps(sig, default=str), (spec, args)))
     return out
 
@@ -1265,13 +1287,16 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
             key = step
             spec, args = extra
             half = False
+            run_args = list(args)
             if key == "sxt":
-                fw = star_size(masters[0].data)
-                half = fw is not None and fw >= SXT_HALF_FWHM
+                half, fw, why = sxt_half(masters[0].data)
+                lg(f"    star size: {fw:.1f} px" if fw else "    star size: not measured")
                 if half:
-                    lg(f"    {spec.name} works on a half-size copy: the stars are large here (about {fw:.1f} px, "
-                       "e.g. after drizzle), so a bright star's glow would not fit its tiles and would leave "
-                       "squares; the starless picture keeps its full detail")
+                    if spec.param("overlap") and "--overlap" not in run_args:
+                        run_args += ["--overlap", "0.50"]      # the most overlap between its tiles
+                    lg(f"    {spec.name} works on a half-size copy with the most tile overlap: {why}, so a bright "
+                       "star's glow would not fit its tiles and would leave squares; the starless picture keeps "
+                       "its full detail")
             for i, m in enumerate(masters):
                 base = s0 + ds * i / n
                 pr(f"{spec.name}: {m.name}", base)
@@ -1281,7 +1306,7 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                 sent = _half2(full) if half else full
                 sc = _write_temp(m, tmp_in, data=sent)
                 try:
-                    written = rc.run(key, tmp_in, tmp_out, args, device=opts.device,
+                    written = rc.run(key, tmp_in, tmp_out, run_args, device=opts.device,
                                      progress=lambda f, t, b=base, mm=m: pr(f"{spec.name}: {mm.name} {t}",
                                                                             b + ds / n * f),
                                      log=lg, cancel=can)
@@ -1306,7 +1331,7 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                 m.data = out
                 if stars_out is not None:
                     stars_images[i] = stars_out
-                desc = " ".join(args) or "default settings"
+                desc = " ".join(run_args) or "default settings"
                 m.steps.append((key, f"{spec.name} ({desc})"))
                 lg(f"{spec.name} done: {m.name}  [{desc}]")
         rgb_step = None
