@@ -406,6 +406,22 @@ def run(app, out_dir: Path) -> int:
           f"Clean Bright-Star Leftovers: a painted grain-free box (with its bar and dot) is found and patched (level "
           f"off by {_glevel:.4f}, grain {_ggrain:.2f}x the sky's); a box inside bright nebula is left alone "
           f"({_gbusy}); a picture without painted boxes is left alone ({len(_gnone)})")
+    # ... and the square glow star removal leaves around the box (a plate with straight edges) is made round
+    _gsq = _gpaint + 0.008 * ((np.abs(_gx - 250) < 80) & (np.abs(_gy - 250) < 80))
+    _gsb, _ = _fnc.find_star_leftovers(_gsq[None], _gst[None])
+    _gso = _gsq[None]
+    for _i, (_a, _b, _c, _d) in enumerate(_gsb):
+        _gso = _fnc.heal_box(_gso, int(_a * _gW), int(_b * _gH), int(np.ceil(_c * _gW)), int(np.ceil(_d * _gH)), seed=_i)
+    _gso = _gso[0]
+    _grr = np.hypot(_gx - 250, _gy - 250)
+    _gang = np.abs(np.sin(2 * np.arctan2(_gy - 250, _gx - 250)))         # 1 on the diagonals, 0 on the axes
+    _gband = (_grr > 88) & (_grr < 104)
+    def _gsquare(a):
+        return float(np.mean(a[_gband & (_gang > 0.9)]) - np.mean(a[_gband & (_gang < 0.3)]))
+    _gq0, _gq1 = _gsquare(_gsq), _gsquare(_gso)
+    check(len(_gsb) == 1 and abs(_gq1) < 0.25 * abs(_gq0),
+          f"Clean Bright-Star Leftovers: the square glow around a painted box is made round (corners vs sides "
+          f"{_gq0:.4f} -> {_gq1:.4f})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
