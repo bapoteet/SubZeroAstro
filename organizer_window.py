@@ -3,6 +3,7 @@ works too), see the plan, then copy or move, with undo."""
 from __future__ import annotations
 
 import re
+import time
 import traceback
 from pathlib import Path
 
@@ -28,12 +29,34 @@ class _Job(QThread):
         super().__init__()
         self.fn = fn
         self.stop = False
+        self._last_note = 0.0
+        self.note.connect(self._log_note)
+
+    def _log_note(self, text, i, n):
+        # the session log on disk gets the progress now and then - after a freeze it shows how far it got
+        now = time.time()
+        if now - self._last_note >= 60:
+            self._last_note = now
+            _slog(f"{text}" + (f"  ({i:,} of {n:,})" if n else ""))
 
     def run(self):
+        t0 = time.time()
+        _slog(f"started: {getattr(self.fn, '__name__', 'job')}")
         try:
-            self.ok.emit(self.fn(self))
+            res = self.fn(self)
+            _slog(f"finished in {time.time() - t0:.0f} s")
+            self.ok.emit(res)
         except Exception as e:  # noqa: BLE001
+            _slog(f"failed after {time.time() - t0:.0f} s: {e}\n{traceback.format_exc()[-1200:]}")
             self.failed.emit(f"{e}\n\n{traceback.format_exc()[-1200:]}")
+
+
+def _slog(text):
+    try:
+        import session_log
+        session_log.write("organizer", text)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class OrganizeDialog(QDialog):
@@ -354,6 +377,7 @@ class OrganizeDialog(QDialog):
                     paths.append(sp)
             O.scan._keep_skipped = False
             paths = list(dict.fromkeys(paths))
+            _slog(f"Step 1: {len(paths):,} files found in {', '.join(str(x) for x in srcs)}")
             items = O.classify(paths, progress=lambda t, i: job.note.emit(t, i, len(paths)), stop=lambda: job.stop,
                                library=lib, layout=layout, root=src, riglist=riglist, tol=tol)
             job.note.emit("Checking for duplicates and name clashes…", 0, 0)
@@ -472,7 +496,7 @@ class OrganizeDialog(QDialog):
                            + (" …" if len(O.SKIPPED) > 4 else ""))
             self.status.setText("<br>".join(msg))
             self.items = []
-            self.table.setRowCount(len(rows))
+            self.table.setRowCount(min(len(rows), PREVIEW_ROWS))
             for r, (pth, why) in enumerate(rows[:PREVIEW_ROWS]):
                 for c, v in enumerate(("!", pth.name, f"(still in {pth.parent})", why)):
                     cell = QTableWidgetItem(v)
@@ -786,14 +810,24 @@ class DuplicatesDialog(QDialog):
                      "Folder</b> sets them aside (Undo puts them back) and you can delete that folder later.")
         lab.setWordWrap(True)
         lay.addWidget(lab)
-        self.table = QTableWidget(len(dups), 3)
+        # a whole drive can hold tens of thousands of duplicates: list the first ones, the rest follow Tick All /
+        # Untick All (a table row for every one of them made the window crawl)
+        self.shown = dups[:PREVIEW_ROWS]
+        self.extra = dups[PREVIEW_ROWS:]
+        self.extra_on = True
+        if self.extra:
+            more = QLabel(f"The first {len(self.shown):,} are listed; the other {len(self.extra):,} are "
+                          "handled together with them - <b>Tick All</b> / <b>Untick All</b> includes or leaves them out.")
+            more.setWordWrap(True)
+            lay.addWidget(more)
+        self.table = QTableWidget(len(self.shown), 3)
         self.table.setHorizontalHeaderLabels(["Duplicate", "Kept", "Size"])
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        for r, it in enumerate(dups):
+        for r, it in enumerate(self.shown):
             c = QTableWidgetItem(it.src.name)
             c.setFlags(c.flags() | Qt.ItemIsUserCheckable)
             c.setCheckState(Qt.Checked)
@@ -822,11 +856,13 @@ class DuplicatesDialog(QDialog):
         self.resize(820, 460)
 
     def _tick(self, on):
+        self.extra_on = bool(on)
         for r in range(self.table.rowCount()):
             self.table.item(r, 0).setCheckState(Qt.Checked if on else Qt.Unchecked)
 
     def ticked(self):
-        return [it for r, it in enumerate(self.dups) if self.table.item(r, 0).checkState() == Qt.Checked]
+        return ([it for r, it in enumerate(self.shown) if self.table.item(r, 0).checkState() == Qt.Checked]
+                + (list(self.extra) if self.extra_on else []))
 
     def act(self, delete, ask=True, wait=False):
         todo = self.ticked()

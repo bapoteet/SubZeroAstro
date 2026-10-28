@@ -206,11 +206,33 @@ def _exists(p) -> bool:
         return False
 
 
+def _norm(p) -> str:
+    return os.path.normcase(os.path.normpath(os.path.abspath(str(p))))
+
+
 def _same_path(a, b) -> bool:
-    try:
-        return Path(a).resolve() == Path(b).resolve()
-    except OSError:
-        return str(a) == str(b)
+    """The same file? Compared by name only - no trip to the disk (on a NAS or a USB drive every
+    resolve() asks the drive about each folder on the way, and over 100,000 files that took hours)."""
+    return _norm(a) == _norm(b)
+
+
+class _Listing:
+    """Which names are in a folder, asked once per folder (not once per file)."""
+
+    def __init__(self):
+        self.dirs = {}
+
+    def exists(self, p) -> bool:
+        p = Path(p)
+        d = _norm(p.parent)
+        names = self.dirs.get(d)
+        if names is None:
+            try:
+                names = {os.path.normcase(n) for n in os.listdir(p.parent)}
+            except OSError:              # no such folder yet (the usual case for a new layout), or unreadable
+                names = set()
+            self.dirs[d] = names
+        return os.path.normcase(p.name) in names
 
 
 def _is_project_dir(d: Path) -> bool:
@@ -506,6 +528,7 @@ def plan(items, library) -> list:
     different file of that name is in the way (also between files of this same run)."""
     library = Path(library)
     taken = {}
+    listing = _Listing()
     # the same frame twice (a copy under another name): the one already in the library - or else the
     # first one found - is kept, the others are left where they are and reported
     seen = {}
@@ -539,7 +562,7 @@ def plan(items, library) -> list:
                     it.status, it.same_as = "duplicate", Path(taken[key + "#src"])
                     it.why = f"the same file as {it.same_as.name}"
                     break
-            elif _exists(cand):
+            elif listing.exists(cand):
                 try:
                     if cand.stat().st_size == it.size and _quick_hash(cand) == _quick_hash(it.src):
                         it.status, it.same_as = "duplicate", cand
