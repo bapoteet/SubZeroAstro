@@ -400,6 +400,69 @@ def gradient_correction_for(m) -> tuple:
     return "Division", "stacked without flats, so vignetting is still in the picture"
 
 
+SXT_HALF_FWHM = 5.0        # stars at least this big (px): StarXTerminator works on a half-size copy
+
+
+def star_size(data) -> float | None:
+    """Median star size (FWHM, px) in the middle of a master, or None."""
+    try:
+        import metrics
+        lum = data.mean(axis=0) if data.ndim == 3 and data.shape[0] > 1 else (data[0] if data.ndim == 3 else data)
+        h, w = lum.shape
+        c = min(2048, h, w)
+        y0, x0 = (h - c) // 2, (w - c) // 2
+        r = metrics.measure(np.asarray(lum[y0:y0 + c, x0:x0 + c], np.float32))
+        f = r.get("fwhm") if isinstance(r, dict) else None
+        return float(f) if f else None
+    except Exception:  # noqa: BLE001 - only a hint
+        return None
+
+
+def _half2(d: np.ndarray) -> np.ndarray:
+    """2 x 2 average (C, h, w) -> (C, ceil(h/2), ceil(w/2)); an odd last row / column is repeated."""
+    c, h, w = d.shape
+    p = np.pad(d, ((0, 0), (0, h % 2), (0, w % 2)), mode="edge")
+    return p.reshape(c, p.shape[1] // 2, 2, p.shape[2] // 2, 2).mean(axis=(2, 4)).astype(np.float32)
+
+
+def _up2(d: np.ndarray, h: int, w: int) -> np.ndarray:
+    """Bilinear enlarge of (C, h2, w2) to (C, h, w) - the inverse of _half2 for smooth pictures."""
+    c, ih, iw = d.shape
+    ys = np.clip((np.arange(h) + 0.5) * ih / h - 0.5, 0, ih - 1)
+    xs = np.clip((np.arange(w) + 0.5) * iw / w - 0.5, 0, iw - 1)
+    y0, x0 = np.floor(ys).astype(int), np.floor(xs).astype(int)
+    y1, x1 = np.minimum(y0 + 1, ih - 1), np.minimum(x0 + 1, iw - 1)
+    fy, fx = (ys - y0)[None, :, None].astype(np.float32), (xs - x0)[None, None, :].astype(np.float32)
+    a = d[:, y0][:, :, x0] * (1 - fx) + d[:, y0][:, :, x1] * fx
+    b = d[:, y1][:, :, x0] * (1 - fx) + d[:, y1][:, :, x1] * fx
+    return (a * (1 - fy) + b * fy).astype(np.float32)
+
+
+def _box(a: np.ndarray, r: int) -> np.ndarray:
+    p = np.pad(a, ((r + 1, r), (r + 1, r)), mode="edge").astype(np.float64)
+    c = p.cumsum(0).cumsum(1)
+    k = 2 * r + 1
+    return ((c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k]) / (k * k)).astype(np.float32)
+
+
+def _starless_full(full, half, starless_h, stars_h):
+    """StarXTerminator's answer on the half-size copy, back at full size: the half-size starless picture
+    enlarged, plus the full picture's own fine detail everywhere except where the stars were (there the fine
+    detail is the stars themselves). The stars image is what is left over, so starless + stars is exactly the
+    original - Put Stars Back gives the stars back as they were."""
+    c, h, w = full.shape
+    lum_s = stars_h.mean(axis=0)
+    lum_h = half.mean(axis=0)
+    noise = float(np.median(np.abs(lum_h - np.median(lum_h)))) * 1.4826 * 0.25 + 1e-6
+    mask_h = np.clip(lum_s / (3.0 * noise), 0, 1)
+    mask_h = np.clip(_box(_box(mask_h, 2), 2) * 2.0, 0, 1)              # a little wider than the star
+    mask = _up2(mask_h[None], h, w)[0]
+    detail = full - _up2(half, h, w)
+    starless = _up2(starless_h, h, w) + detail * (1.0 - mask)[None]
+    stars = np.clip(full - starless, 0, None).astype(np.float32)
+    return (full - stars).astype(np.float32), stars
+
+
 def _temp_scale(d) -> float:
     """What a picture is divided by before an outside tool gets it (they all work in 0..1).
     Normally 65535 (the app's ADU scale). A picture on another scale - a master saved as 0..1, or values
@@ -990,7 +1053,8 @@ def plan_steps(masters: list, opts) -> list:
         if key == "bxt":
             vals, _note = bxt_values_for(masters, vals)
         args = spec.args(vals, cfg.get("mode"))
-        out.append((key, json.dumps([list(args), cfg.get("mode")], default=str), (spec, args)))
+        sig = [list(args), cfg.get("mode")] + (["big-stars-half-v1"] if key == "sxt" else [])
+        out.append((key, json.dumps(sig, default=str), (spec, args)))
     return out
 
 
@@ -1200,12 +1264,22 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
         else:                               # RC-Astro bxt / nxt / sxt
             key = step
             spec, args = extra
+            half = False
+            if key == "sxt":
+                fw = star_size(masters[0].data)
+                half = fw is not None and fw >= SXT_HALF_FWHM
+                if half:
+                    lg(f"    {spec.name} works on a half-size copy: the stars are large here (about {fw:.1f} px, "
+                       "e.g. after drizzle), so a bright star's glow would not fit its tiles and would leave "
+                       "squares; the starless picture keeps its full detail")
             for i, m in enumerate(masters):
                 base = s0 + ds * i / n
                 pr(f"{spec.name}: {m.name}", base)
                 tmp_in = work / f"{key}_{i}.fits"
                 tmp_out = work / f"{key}_{i}_out.fits"
-                sc = _write_temp(m, tmp_in)
+                full = m.data
+                sent = _half2(full) if half else full
+                sc = _write_temp(m, tmp_in, data=sent)
                 try:
                     written = rc.run(key, tmp_in, tmp_out, args, device=opts.device,
                                      progress=lambda f, t, b=base, mm=m: pr(f"{spec.name}: {mm.name} {t}",
@@ -1214,19 +1288,21 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
                 except tools.ToolCancelled:
                     raise Cancelled()
                 main = next((w for w in written if "star" not in Path(w).stem.lower()), str(tmp_out))
-                out = _read_result(main, m.data, sc, lg)
+                out = _read_result(main, sent, sc, lg)
                 extra_out = [w for w in written if "star" in Path(w).stem.lower()]
-                stars_out = _read_result(extra_out[0], m.data, sc, check_level=False) if extra_out else None
+                stars_out = _read_result(extra_out[0], sent, sc, check_level=False) if extra_out else None
                 if key == "sxt" and stars_out is None:
                     lg(f"    {spec.name} did not hand back a stars-only image — making it from the "
                        "difference")
                 # starless + stars should add up to what was sent: the best check of which way up it is
-                how = orientation_of(out if stars_out is None else out + stars_out, m.data)
+                how = orientation_of(out if stars_out is None else out + stars_out, sent)
                 if how != "same":
                     out, stars_out = turn_back(how, out, stars_out)
                     lg(f"    {spec.name} returned the picture {how} — turned it back")
                 if key == "sxt" and stars_out is None:
-                    stars_out = np.clip(m.data - out, 0, None).astype(np.float32)
+                    stars_out = np.clip(sent - out, 0, None).astype(np.float32)
+                if half:
+                    out, stars_out = _starless_full(full, sent, out, stars_out)
                 m.data = out
                 if stars_out is not None:
                     stars_images[i] = stars_out

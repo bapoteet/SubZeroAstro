@@ -322,6 +322,27 @@ def run(app, out_dir: Path) -> int:
     _raz = _stk._rotation_spread([_rT(0), _rT(5), _rT(12)])
     check(_rflip < 0.5 and abs(_raz - 12) < 0.01, f"a meridian flip is not taken for alt-az field rotation "
                                                    f"({_rflip:.2f}° vs {_raz:.1f}°)")
+    # StarXTerminator on a half-size copy for big (drizzled) stars: no star left in the starless picture, its fine
+    # detail kept, and starless + stars is exactly the original (the Shark's squares)
+    _hr = np.random.default_rng(0)
+    _hH, _hW = 400, 500
+    _hy, _hx = np.mgrid[:_hH, :_hW].astype(np.float32)
+    _hneb = 2000 + 800 * np.exp(-((_hx - 250) ** 2 + (_hy - 200) ** 2) / (2 * 100 ** 2)) + 60 * np.sin(_hx / 7) * np.sin(_hy / 9)
+    _hst = np.zeros((_hH, _hW), np.float32)
+    for _ in range(60):
+        _a, _b, _f = _hr.uniform(15, _hW - 15), _hr.uniform(15, _hH - 15), _hr.uniform(500, 30000)
+        _hst += _f * np.exp(-((_hx - _a) ** 2 + (_hy - _b) ** 2) / (2 * 2.6 ** 2))
+    _hno = _hr.normal(0, 15, (_hH, _hW))
+    _hfull = (_hneb + _hst + _hno)[None].astype(np.float32)
+    _hsl, _hstars = _prp._starless_full(_hfull, _prp._half2(_hfull), _prp._half2((_hneb + _hno)[None].astype(np.float32)),
+                                        _prp._half2(_hst[None]))
+    _herr = _hsl[0] - (_hneb + _hno)
+    _hfw = _prp.star_size(_hfull)
+    check(_hfw is not None and _hfw >= _prp.SXT_HALF_FWHM and float(_herr.max()) < 0.01 * float(_hst.max())
+          and float(_herr.std()) < 10 and bool(np.allclose(_hsl + _hstars, _hfull, atol=0.05)),
+          f"big stars (FWHM {(_hfw or 0):.1f} px): StarXTerminator on a half-size copy leaves no squares or stars "
+          f"behind ({float(_herr.max()):.0f} of {float(_hst.max()):.0f}), keeps the fine detail, and starless + "
+          f"stars = the original")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)
