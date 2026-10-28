@@ -406,6 +406,14 @@ def run(app, out_dir: Path) -> int:
           f"Clean Bright-Star Leftovers: a painted grain-free box (with its bar and dot) is found and patched (level "
           f"off by {_glevel:.4f}, grain {_ggrain:.2f}x the sky's); a box inside bright nebula is left alone "
           f"({_gbusy}); a picture without painted boxes is left alone ({len(_gnone)})")
+    # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
+    _tfn = [_stk.target_from_name(n) for n in (
+        "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
+        "/x/Light_NGC 7000_300.0s_Bin1_2600MM_Ha_gain100_20240901-010101_-10.0C_0002.fit",
+        "/a/Autorun/Light/IC1396/Light_120.0s_Bin1_0001.fit", "/x/M51_2024-05-25_L_300s_0001.fits",
+        "/x/Flat_Ha_1.0s_Bin1_0001.fit", "/x/Light_180.0s_Bin1_0001.fit")]
+    check(_tfn == ["M51", "NGC 7000", "IC1396", "M51", None, None],
+          f"no target in the header: it is read from the file name (ASIAIR, Seestar, N.I.N.A.) or the ASIAIR folder ({_tfn})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)

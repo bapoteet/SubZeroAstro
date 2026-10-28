@@ -221,12 +221,39 @@ def folder_kind(folder: str):
     return None
 
 
+_NOT_TARGET = re.compile(r"^(light|lights|flat|flats|dark|darks|bias|biases|darkflat|darkflats|autorun|plan|live|preview|"
+                         r"rejected|calibrated|registered|masters?|stack(ed)?|\d{4}-\d{2}-\d{2}.*|[lrgbhaoiis]+|"
+                         r"luminance|red|green|blue|h-?alpha|oiii|sii|ha|session.*|night.*|\d+s?)$", re.I)
+
+
+def target_from_name(path) -> str | None:
+    """The target when the header does not say (no OBJECT): from the file name the capture program wrote, or
+    from the folder it is in. ASIAIR / Seestar: Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_0001.fit,
+    in .../Autorun/Light/M51/. N.I.N.A. and others often: M51_2024-05-25_..."""
+    p = Path(path)
+    stem = p.stem
+    m = re.match(r"^(?:light|lights)[_ -](.+?)[_ ]\d+(?:\.\d+)?s(?:ec)?[_ ]", stem, re.I)       # ASIAIR / Seestar
+    if m and not _NOT_TARGET.match(m.group(1).strip()):
+        return m.group(1).strip()
+    m = re.match(r"^([A-Za-z][A-Za-z0-9 +\-]*?\d[A-Za-z0-9 +\-]*?)[_ ]\d{4}-?\d{2}-?\d{2}", stem)   # M51_2024-05-25…
+    if m and not _NOT_TARGET.match(m.group(1).strip()):
+        return m.group(1).strip()
+    # the folder: ASIAIR keeps lights in .../Light/<target>/
+    for anc in list(p.parents)[:2]:
+        if anc.parent.name.lower() in ("light", "lights") and not _NOT_TARGET.match(anc.name):
+            return anc.name
+    return None
+
+
 def read_info(path) -> ImgInfo:
     src = ImageSource(path)
     typ, master = frame_type(src.look, src.path.name)
     if typ is None:                      # no IMAGETYP and nothing in the file name: the folder may say
         typ = folder_kind(src.path.parent.name)
-    return info_from_look(path, src.look, src.w, src.h, typ, master, planes=src.channels, cards=src.cards)
+    info = info_from_look(path, src.look, src.w, src.h, typ, master, planes=src.channels, cards=src.cards)
+    if not info.target and typ in (None, "light"):
+        info.target = target_from_name(path)        # no OBJECT in the header (some ASIAIR files): the name says
+    return info
 
 
 # ==========================================================================
