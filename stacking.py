@@ -2233,9 +2233,15 @@ def _invert_T(T: np.ndarray) -> np.ndarray:
 
 
 def _rotation_spread(transforms) -> float:
-    """How far (degrees) the frames are turned against each other - field rotation of an alt-az mount."""
+    """How far (degrees) the frames are turned against each other - field rotation of an alt-az mount.
+    A meridian flip (an equatorial mount turning the camera half a turn, 180 degrees) is not field rotation:
+    angles are compared modulo 180, so frames from both sides of the meridian count as not turned."""
     ang = [float(np.degrees(np.arctan2(T[1, 0], T[0, 0]))) for T in transforms]
-    return (max(ang) - min(ang)) if ang else 0.0
+    if not ang:
+        return 0.0
+    a0 = ang[0]
+    folded = [((a - a0 + 90.0) % 180.0) - 90.0 for a in ang]
+    return max(folded) - min(folded)
 
 
 PATTERN_PASSES = 2          # a second measurement from the cleaned stack catches what the first left

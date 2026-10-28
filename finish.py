@@ -1786,10 +1786,25 @@ def star_colour_map(stars: np.ndarray, spread=1.0):
     med = float(np.median(vals))
     mad = float(np.median(np.abs(vals - med))) + 1e-3
     x = np.clip((ratio - med) / (2.2 * mad / max(spread, 0.1)), -1, 1)   # scaled to this image's stars
-    # one colour per star: spread the estimate from its rim over the whole disc
-    wgt = lum * ok + 1e-6
-    x = _blur(x * wgt, 2.5) / _blur(wgt, 2.5)
-    return np.clip(x, -1, 1).astype(np.float32), lum
+    # one colour per star: spread the estimate from its rim over the whole disc. A big overexposed star
+    # (its clipped core wider than the small blur) is filled from further out, step by step; whatever is
+    # still far from any usable rim stays white - never a guess (that painted a big star's core pure blue)
+    wgt = lum * ok
+    est = _blur(x * wgt, 2.5)
+    cover = _blur(wgt, 2.5)
+    out = np.where(cover > 1e-3, est / np.maximum(cover, 1e-6), 0.0)
+    filled = cover > 1e-3
+    for rad in (8.0, 24.0, 64.0):
+        if filled.all():
+            break
+        e2, c2 = _blur(x * wgt, rad), _blur(wgt, rad)
+        new = ~filled & (c2 > 1e-3)
+        out = np.where(new, e2 / np.maximum(c2, 1e-6), out)
+        filled |= new
+    # the overexposed core itself: white, fading into the rim's colour (as a real overexposed star looks)
+    core_w = np.clip((lum - 0.85) / 0.15, 0, 1)
+    out = out * (1.0 - 0.7 * _blur(core_w, 1.5))
+    return np.clip(out, -1, 1).astype(np.float32), lum
 
 
 def _star_ramp(x):

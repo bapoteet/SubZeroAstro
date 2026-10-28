@@ -296,6 +296,32 @@ def run(app, out_dir: Path) -> int:
     check("app" in _sl_mem and "free" in _sl_mem, f"the memory note has the app's own use and what is free ({_sl_mem})")
     check(_sl_ok, f"every session writes a log on disk (page lines, memory); a session that ended badly is "
                   f"flagged for Zip My Logs ({_slg.memory_text()})")
+    # Star Colours on a big overexposed star: its core turns white, never a guessed pure blue (Shark's eye)
+    _syy, _sxx = np.mgrid[:300, :300]
+    _sst = np.zeros((3, 300, 300), np.float32)
+    _sr = np.hypot(_syy - 150, _sxx - 150)
+    _spf = np.clip(1.6 * np.exp(-(_sr / 30) ** 2), 0, 1)
+    _sst[0], _sst[1], _sst[2] = _spf, _spf * 0.8, _spf * 0.6
+    _sr2 = np.hypot(_syy - 60, _sxx - 60)
+    _sp2 = 0.5 * np.exp(-(_sr2 / 2) ** 2)
+    _sst[0] += _sp2 * 0.6
+    _sst[1] += _sp2 * 0.8
+    _sst[2] += _sp2
+    _sx, _ = _fnc.star_colour_map(_sst)
+    _scol = _fnc._star_ramp(_sx)
+    _scol = _scol / np.max(_scol, axis=0, keepdims=True)
+    _score, _sblue = _scol[:, 150, 150], _scol[:, 60, 60]
+    check(float(_score.min()) > 0.85 and float(_sblue[2] - _sblue[0]) > 0.2,
+          f"Star Colours: a big overexposed star's core stays white (no guessed blue disc), small stars keep their "
+          f"colour (core {np.round(_score, 2).tolist()}, blue star {np.round(_sblue, 2).tolist()})")
+    # a meridian flip (half a turn) is not alt-az field rotation; real field rotation still counts
+    def _rT(d):
+        _rr = np.radians(d)
+        return np.array([[np.cos(_rr), -np.sin(_rr), 0], [np.sin(_rr), np.cos(_rr), 0]])
+    _rflip = _stk._rotation_spread([_rT(0), _rT(0.1), _rT(179.8), _rT(180.1)])
+    _raz = _stk._rotation_spread([_rT(0), _rT(5), _rT(12)])
+    check(_rflip < 0.5 and abs(_raz - 12) < 0.01, f"a meridian flip is not taken for alt-az field rotation "
+                                                   f"({_rflip:.2f}° vs {_raz:.1f}°)")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)
