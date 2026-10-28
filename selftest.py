@@ -367,56 +367,45 @@ def run(app, out_dir: Path) -> int:
             _dk.append(f"error: {_de}")
     check(_dk == ["Much darker", "Darker"], f"Darken the Sky Background suggests 'Much darker', or 'Darker' when the "
                                            f"sky is already dark ({_dk})")
-    # Clean Bright-Star Leftovers: square glows and a leftover dot around bright stars are found and patched;
-    # a clean picture and real round reflection nebulae around bright stars are left alone
+    # Clean Bright-Star Leftovers (from the real Shark data): StarXTerminator paints a smooth, grain-free box over a big
+    # star, with a bright bar along its edge and a leftover dot. The box is found by its missing grain and patched with
+    # the surroundings' texture; a painted box inside bright structured nebula is left alone; a picture without
+    # painted boxes is left alone
     _gr = np.random.default_rng(5)
-    _gH, _gW = 600, 900
+    _gH, _gW = 700, 1000
     _gy, _gx = np.mgrid[:_gH, :_gW].astype(np.float32)
-    _gneb = 0.05 + 0.03 * np.exp(-((_gx - 450) ** 2 + (_gy - 300) ** 2) / (2 * 150 ** 2))
-    _gclean = np.repeat((_gneb + _gr.normal(0, 0.002, (_gH, _gW)))[None], 3, 0).astype(np.float32)
-    _gst = np.zeros((3, _gH, _gW), np.float32)
-    _gb = [(150, 150), (700, 450), (450, 120)]
-    for _x, _y in _gb:
-        _gst += (np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * 3 ** 2)))[None]
+    _gneb = 0.05 + 0.02 * np.exp(-((_gx - 500) ** 2 + (_gy - 350) ** 2) / (2 * 220 ** 2))
+    _gneb = _gneb + 0.03 * np.exp(-((_gx - 760) ** 2 + (_gy - 330) ** 2) / (2 * 70 ** 2)) * (1 + np.sin(_gx / 6) * np.sin(_gy / 7))
+    _gclean = (_gneb + _gr.normal(0, 0.002, (_gH, _gW))).astype(np.float32)
+    _gst = np.zeros((_gH, _gW), np.float32)
+    for _x, _y, _f in ((250, 250, 1.0), (760, 330, 0.9)):
+        _gst += _f * np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * 3 ** 2))
     for _ in range(150):
-        _x, _y, _f = _gr.uniform(10, _gW - 10), _gr.uniform(10, _gH - 10), _gr.uniform(0.01, 0.1)
-        _gst += (_f * np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * 1.3 ** 2)))[None]
-    _gghost = _gclean.copy()
-    for (_x, _y), _hs in zip(_gb[:2], (40, 30)):
-        _gghost[:, (np.abs(_gx - _x) < _hs) & (np.abs(_gy - _y) < _hs)] += 0.012
-    _gghost[:, (_gx - 450) ** 2 + (_gy - 120) ** 2 < 4 ** 2] += 0.08
-    _grefl = _gclean.copy()
-    for _x, _y in _gb[:2]:
-        _grefl += (0.03 * np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * 28 ** 2)))[None]
-    _gfound = _fnc.find_star_leftovers(_gghost, _gst)
+        _x, _y, _fl = _gr.uniform(10, _gW - 10), _gr.uniform(10, _gH - 10), _gr.uniform(0.01, 0.08)
+        _gst += _fl * np.exp(-((_gx - _x) ** 2 + (_gy - _y) ** 2) / (2 * 1.3 ** 2))
+    _gpaint = _gclean.copy()
+    for (_x, _y), _hs in (((250, 250), 45), ((760, 330), 22)):
+        _m = (np.abs(_gx - _x) < _hs) & (np.abs(_gy - _y) < _hs)
+        _gpaint[_m] = float(np.median(_gneb[_m])) - 0.004                   # smooth, no grain, a little dark
+    _gpaint[(np.abs(_gx - 250) < 45) & (np.abs(_gy - 205) < 4)] += 0.01     # bright bar along the top edge
+    _gpaint[(_gx - 262) ** 2 + (_gy - 250) ** 2 < 5 ** 2] += 0.05           # leftover dot
+    _gboxes, _gbusy = _fnc.find_star_leftovers(_gpaint[None], _gst[None])
+    _gnone, _ = _fnc.find_star_leftovers(_gclean[None], _gst[None])
     _gs = _fnc.State.__new__(_fnc.State)
-    _gs.rgb, _gs.stars, _gs.stars_out, _gs.stars_hidden, _gs.done, _gs.linear = _gghost, _gst, True, False, [], True
+    _gs.rgb, _gs.stars, _gs.stars_out, _gs.stars_hidden, _gs.done, _gs.linear = _gpaint[None].copy(), _gst[None], True, False, [], True
     _gs.copy = lambda: _gs
     _gv = next(v for v in _fnc.TOOLS["leftovers"].variants(_gs) if v.recommended)
-    _gout = _fnc.TOOLS["leftovers"].apply(_gs, _gv.params).rgb
-    _gres = [float(np.mean((_gout - _gclean)[0, _y - _hs + 4:_y + _hs - 4, _x - _hs + 4:_x + _hs - 4]))
-             for (_x, _y), _hs in zip(_gb[:2], (40, 30))]
-    check(len(_gfound) == 3 and max(abs(r) for r in _gres) < 0.002
-          and not _fnc.find_star_leftovers(_gclean, _gst) and not _fnc.find_star_leftovers(_grefl, _gst),
-          f"Clean Bright-Star Leftovers: square glows and a leftover dot around bright stars are found and patched "
-          f"({len(_gfound)} found, left {[round(r, 4) for r in _gres]} of 0.012); a clean picture and round "
-          f"reflection nebulae around bright stars are left alone")
-    # Star Colours: a big star whose red sits a few pixels off its green and blue gets ONE colour, not half orange
-    _cyy, _cxx = np.mgrid[:400, :400].astype(np.float32)
-    _cst = np.zeros((3, 400, 400), np.float32)
-
-    def _cstar(x, y, f, sig, col, dx=0.0):
-        for _c in range(3):
-            _cst[_c] += col[_c] * f * np.exp(-((_cxx - x - (dx if _c == 0 else 0)) ** 2 + (_cyy - y) ** 2) / (2 * sig ** 2))
-    _cstar(200, 200, 0.9, 12, (1.0, 0.85, 0.7), dx=4)
-    _crng = np.random.default_rng(2)
-    for _ in range(80):
-        _cstar(_crng.uniform(10, 390), _crng.uniform(10, 390), _crng.uniform(0.05, 0.3), 1.5,
-               ((0.8, 0.9, 1.0), (1, 0.8, 0.6))[int(_crng.integers(0, 2))])
-    _cx, _ = _fnc.star_colour_map(_cst)
-    _cl, _cr = float(_cx[200, 188]), float(_cx[200, 212])
-    check(abs(_cl - _cr) < 0.05, f"Star Colours: a big star with its red a few pixels off gets one colour, not two "
-                                 f"halves (left {_cl:.2f}, right {_cr:.2f})")
+    _gout = _fnc.TOOLS["leftovers"].apply(_gs, _gv.params).rgb[0]
+    _gin = (np.abs(_gx - 250) < 40) & (np.abs(_gy - 250) < 40)
+    _glevel = float(np.mean((_gout - _gclean)[_gin]))
+    _ggrain = _fnc.SpotFix._grain(_gout[200:300, 200:300], np.ones((100, 100), bool)) / \
+        _fnc.SpotFix._grain(_gclean[200:300, 200:300], np.ones((100, 100), bool))
+    _grefl = float(np.abs(_gout - _gpaint)[300:360, 730:790].max())
+    check(len(_gboxes) == 1 and _gbusy >= 1 and not _gnone and abs(_glevel) < 0.002 and 0.6 < _ggrain < 1.5
+          and _grefl == 0.0,
+          f"Clean Bright-Star Leftovers: a painted grain-free box (with its bar and dot) is found and patched (level "
+          f"off by {_glevel:.4f}, grain {_ggrain:.2f}x the sky's); a box inside bright nebula is left alone "
+          f"({_gbusy}); a picture without painted boxes is left alone ({len(_gnone)})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)

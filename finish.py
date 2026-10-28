@@ -1375,83 +1375,146 @@ class TakeStarsOut(Tool):
         return s
 
 
-def find_star_leftovers(starless: np.ndarray, stars: np.ndarray, max_stars: int = 40) -> list:
-    """What star removal left behind around the brightest stars - a square glow (microlens diffraction of
-    many Sony sensors, or a star removal tile edge), a leftover core (a close double star): a glow that
-    stands clearly above the sky around it, centred on a bright star. Returns [(fx, fy, fr, strength)] -
-    centre and radius as fractions of the picture's width, so the same list fits any copy of the picture."""
-    L, f = _small_plane(_lum(starless).astype(np.float32), 1600)
-    S, _ = _small_plane(_lum(stars).astype(np.float32), 1600)
+def _grain_map(C: np.ndarray, k: int = 3) -> np.ndarray:
+    """Pixel-to-pixel grain: how much each pixel differs from the mean of its four neighbours, smoothed."""
+    g = np.zeros_like(C, dtype=np.float32)
+    g[1:-1, 1:-1] = np.abs(C[1:-1, 1:-1] - 0.25 * (C[:-2, 1:-1] + C[2:, 1:-1] + C[1:-1, :-2] + C[1:-1, 2:]))
+    return _box_blur(g, k)
+
+
+def find_star_leftovers(starless: np.ndarray, stars: np.ndarray, max_stars: int = 30) -> tuple:
+    """The boxes star removal painted over the brightest stars. StarXTerminator replaces a big star with a smooth,
+    grain-free square patch; once the stars and the nebula are brightened differently its edges show as a square,
+    often with bright bars along it, and a leftover core can stay in it (a close double star). A painted box is
+    found by its missing grain (real nebula always has grain), around each bright star of the stars image.
+    Returns ([(fx0, fy0, fx1, fy1)] as fractions of the picture's size, number left for Spot Fix): boxes inside
+    bright, structured nebula (a reflection nebula hugging the star) are left alone - patching would smooth it."""
+    L = _lum(starless).astype(np.float32)
     h, w = L.shape
-    if min(h, w) < 64:
-        return []
-    # bright stars: the highest peaks of the stars image (local maxima, well above the faint ones)
-    pk = S >= SpotFix._minmax(S, 9, np.max) - 1e-12
-    vals = S[pk]
-    if vals.size == 0 or float(S.max()) <= 0:
-        return []
-    top = float(S.max())
-    ys, xs = np.nonzero(pk & (S >= 0.15 * top))
-    order = np.argsort(-S[ys, xs])[:max_stars]
-    Lb = _blur(L, 1.0)
-    grain = SpotFix._grain(L, np.ones_like(L, bool)) + 1e-9
-    out = []
+    if min(h, w) < 128:
+        return [], 0
+    Ssm, f = _small_plane(_lum(stars).astype(np.float32), 1600)
+    sm = _box_blur(Ssm, 2)
+    pk = sm >= SpotFix._minmax(sm, 15, np.max) - 1e-12
+    ys, xs = np.nonzero(pk & (sm > 0))
+    order = np.argsort(-sm[ys, xs])[:max_stars]
+    R = int(np.clip(600 * w / 12298, 120, 700))
+    min_half = max(10, w // 400)
+    out, busy = [], 0
+    seen = []                            # boxes already found (a star and its leftover dot share one)
     for i in order:
-        cy, cx = int(ys[i]), int(xs[i])
-        # the star's own size: where its profile in the stars image falls below 3% of its peak
-        rs = 2
-        while rs < 40 and cy - rs > 0 and cx - rs > 0 and cy + rs < h - 1 and cx + rs < w - 1 and \
-                S[cy - rs:cy + rs + 1, cx - rs:cx + rs + 1].min() > 0.03 * S[cy, cx]:
-            rs += 1
-        rmax = int(min(max(14 * rs, 24), 160, cy, cx, h - 1 - cy, w - 1 - cx))
-        if rmax < 8:
+        cy, cx = int(ys[i] * f + f // 2), int(xs[i] * f + f // 2)
+        if any(a0 <= cx < a1 and b0 <= cy < b1 for a0, b0, a1, b1 in seen):
             continue
-        y0, y1, x0, x1 = cy - rmax, cy + rmax + 1, cx - rmax, cx + rmax + 1
-        yy, xx = np.mgrid[y0:y1, x0:x1]
-        d = np.maximum(np.abs(yy - cy), np.abs(xx - cx))       # square rings: squares are what is left
-        patch = Lb[y0:y1, x0:x1]
-        ring = d >= int(rmax * 0.8)
-        sky = float(np.median(patch[ring]))
-        var = float(np.std(patch[ring])) + grain
-        # leftover size: the largest square ring whose mean still stands clearly above the sky
-        left = 0
-        for r in range(1, int(rmax * 0.8)):
-            sel = d == r
-            if float(np.mean(patch[sel])) - sky > 2.5 * var / np.sqrt(max(sel.sum() / 8.0, 1.0)) + 1.5 * grain:
-                left = r
-            elif r > left + max(3, rs):
+        y0, y1, x0, x1 = max(0, cy - R), min(h, cy + R), max(0, cx - R), min(w, cx + R)
+        C = L[y0:y1, x0:x1]
+        q = 4
+        gm = _grain_map(C, 3)
+        hh, ww = C.shape[0] // q * q, C.shape[1] // q * q
+        if hh < 8 or ww < 8:
+            continue
+        g4 = gm[:hh, :ww].reshape(hh // q, q, ww // q, q).mean((1, 3))
+        yy, xx = np.mgrid[:g4.shape[0], :g4.shape[1]]
+        ccy, ccx = min((cy - y0) // q, g4.shape[0] - 1), min((cx - x0) // q, g4.shape[1] - 1)
+        d = np.maximum(abs(yy - ccy), abs(xx - ccx))
+        far = d > 0.7 * R / q
+        if not far.any():
+            continue
+        ref = float(np.median(g4[far]))
+        low = g4 < 0.45 * ref
+        if not low[ccy, ccx]:
+            continue
+        comp = np.zeros_like(low)
+        comp[ccy, ccx] = True
+        for _ in range(R // q):
+            g2 = (SpotFix._minmax(comp.astype(np.float32), 3, np.max) > 0) & low
+            if (g2 == comp).all():
                 break
-        if left < 2:
+            comp = g2
+        if comp[0].any() or comp[-1].any() or comp[:, 0].any() or comp[:, -1].any():
+            continue                     # runs out of the window: a large smooth area, not a painted box
+        ry, rx = np.nonzero(comp)
+        by0, by1 = ry.min() * q + y0, (ry.max() + 1) * q + y0
+        bx0, bx1 = rx.min() * q + x0, (rx.max() + 1) * q + x0
+        if max(by1 - by0, bx1 - bx0) / 2 < min_half:
             continue
-        inside = float(np.mean(patch[d <= left])) - sky
-        compact = left <= 2 * rs + 2                           # a leftover dot or core the size of the star
-        if not compact:
-            # only square leftovers: their corners are as bright as their sides, and they end in a sharp edge.
-            # A real nebula around a star (a reflection nebula) fades out smoothly and roundly - it is kept.
-            e = np.hypot(yy - cy, xx - cx)
-            corners = (d <= left * 0.95) & (e > left * 1.05)
-            sides = (d <= left * 0.95) & (d > left * 0.6) & (e <= left * 0.95)
-            if corners.sum() < 4 or sides.sum() < 4:
-                continue
-            c_ex = float(np.mean(patch[corners])) - sky
-            s_ex = float(np.mean(patch[sides])) - sky
-            edge_in = float(np.mean(patch[(d > left * 0.75) & (d <= left)])) - sky
-            edge_out = float(np.mean(patch[(d > left + 1) & (d <= left * 1.25 + 2)])) - sky
-            if s_ex <= 0 or c_ex < 0.6 * s_ex or edge_out > 0.5 * edge_in:
-                continue
-        if inside > 1.5 * var:                                 # clearly brighter than the sky's own ups and downs
-            fr = (left * 1.45 + 2) * f / (w * f)               # cover a square's corners too
-            out.append(((cx + 0.5) * f / (w * f), (cy + 0.5) * f / (h * f), fr, inside / var))
+        seen.append((bx0, by0, bx1, by1))
+        # busy surroundings (bright, structured nebula): leave it - Spot Fix by hand if it shows
+        bw, bh = bx1 - bx0, by1 - by0
+        m = int(max(bw, bh) * 0.8)
+        X0, X1, Y0, Y1 = max(0, bx0 - m), min(w, bx1 + m), max(0, by0 - m), min(h, by1 + m)
+        A = L[Y0:Y1, X0:X1]
+        yy2, xx2 = np.mgrid[Y0:Y1, X0:X1]
+        ring = ~((yy2 >= by0 - bh * 0.45) & (yy2 < by1 + bh * 0.45) & (xx2 >= bx0 - bw * 0.45) & (xx2 < bx1 + bw * 0.45))
+        if ring.sum() < 50:
+            continue
+        grain = SpotFix._grain(A, ring) + 1e-12
+        struct = float(np.std((_blur(A, 3) - _blur(A, 24))[ring])) / grain
+        if struct > 1.1:
+            busy += 1
+            continue
+        out.append((bx0 / w, by0 / h, bx1 / w, by1 / h))
+    return out, busy
+
+
+def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0) -> np.ndarray:
+    """Patch a painted box (grown on every side to take in the bright bars along its edges): a smooth fill from the
+    surroundings plus the real fine texture of an equal area right next to it (as PixInsight's CloneStamp would),
+    blended in softly at the edges, so the patch has the grain and fine structure of its neighbourhood."""
+    c, h, w = img.shape
+    bw, bh = x1 - x0, y1 - y0
+    gx, gy = int(bw * grow) + 2, int(bh * grow) + 2
+    px0, px1, py0, py1 = max(0, x0 - gx), min(w, x1 + gx), max(0, y0 - gy), min(h, y1 + gy)
+    pw, ph = px1 - px0, py1 - py0
+    if pw < 3 or ph < 3:
+        return img
+    rx, ry = int(pw * 0.35) + 4, int(ph * 0.35) + 4
+    wx0, wx1, wy0, wy1 = max(0, px0 - rx), min(w, px1 + rx), max(0, py0 - ry), min(h, py1 + ry)
+    yy, xx = np.mgrid[wy0:wy1, wx0:wx1]
+    mask = (yy >= py0) & (yy < py1) & (xx >= px0) & (xx < px1)
+    ring = ~mask
+    if not ring.any():
+        return img
+    cands = [(px0 - pw, py0), (px1, py0), (px0, py0 - ph), (px0, py1)]
+    cands = [(dx, dy) for dx, dy in cands if 0 <= dx and dx + pw <= w and 0 <= dy and dy + ph <= h]
+    rng = np.random.default_rng(seed)
+    donor_xy = cands[int(rng.integers(0, len(cands)))] if cands else None
+    dist = np.minimum.reduce([yy - py0, py1 - 1 - yy, xx - px0, px1 - 1 - xx]).astype(np.float32)
+    soft = np.clip(dist / 3.0, 0, 1)[mask]                     # full texture right up to a 3-pixel blend at the edge
+    out = img.copy()
+    for k in range(c):
+        patch = out[k, wy0:wy1, wx0:wx1].astype(np.float64)
+        fill = patch.copy()
+        fill[mask] = np.median(patch[ring])
+        fill = SpotFix._harmonic(fill, mask)
+        if donor_xy is not None:
+            dx, dy = donor_xy
+            mg = 12                                                      # filtered with a margin: no edge lines
+            ex0, ey0 = max(0, dx - mg), max(0, dy - mg)
+            ex1, ey1 = min(w, dx + pw + mg), min(h, dy + ph + mg)
+            big = out[k, ey0:ey1, ex0:ex1].astype(np.float32)
+            hp = big - _blur(big, max(3.0, min(pw, ph) / 12))
+            tex = hp[dy - ey0:dy - ey0 + ph, dx - ex0:dx - ex0 + pw].astype(np.float64).ravel()
+            sd = 1.4826 * float(np.median(np.abs(tex - np.median(tex)))) + 1e-12
+            tex = np.where(np.abs(tex) > 3.5 * sd, 0.0, tex)                 # no stars or specks copied along
+        else:
+            tex = rng.normal(0, SpotFix._grain(patch, ring), int(mask.sum()))
+        inner = fill[mask] + tex
+        res = patch.copy()
+        res[mask] = inner * soft + fill[mask] * (1 - soft)
+        out[k, wy0:wy1, wx0:wx1] = res.astype(out.dtype)
     return out
 
 
 class CleanStarLeftovers(Tool):
     key = "leftovers"
     title = "Clean Bright-Star Leftovers"
-    tip = ("Star removal can leave something behind around the brightest stars: a square glow (many Sony "
-           "camera sensors throw one off - microlens diffraction - or a star removal tile edge), or a "
-           "leftover dot where a close double star was. This finds them and patches each from its "
-           "surroundings, before the picture is brightened. Nothing else is touched. (PixInsight: CloneStamp)")
+    tip = ("Star removal (StarXTerminator) paints a smooth, grain-free square over each big star. Once the nebula "
+           "and the stars are brightened differently, those squares show - often with bright bars along their "
+           "edges, and sometimes with a leftover dot where a close double star was. This finds the painted squares "
+           "by their missing grain and patches each from its surroundings, with the surroundings' own texture. "
+           "Squares inside bright, structured nebula are left alone (patching would smooth the nebula) - use Spot "
+           "Fix on those if they show. (PixInsight: CloneStamp)")
     pick = True
 
     def possible(self, s):
@@ -1470,33 +1533,40 @@ class CleanStarLeftovers(Tool):
             try:
                 self._cache = find_star_leftovers(s.rgb, s.stars)
             except Exception:  # noqa: BLE001 - nothing found is the safe answer
-                self._cache = []
+                self._cache = ([], 0)
             self._cache_key = key
         return self._cache
 
     def is_optional(self, s):
-        return not self._found(s)
+        return not self._found(s)[0]
 
     def why(self, s):
-        n = len(self._found(s))
-        if n:
-            return (f"{n} bright star(s) left something behind when the stars were taken out (a square glow or a "
-                    "leftover dot). Clean them now, before brightening makes them stand out.")
+        boxes, busy = self._found(s)
+        if boxes:
+            return (f"Star removal left {len(boxes)} painted square(s) around bright stars - they show once the "
+                    "picture is brightened. Clean them now." + (f" ({busy} inside bright nebula are left for Spot "
+                                                                  "Fix, if they show.)" if busy else ""))
         return self.tip
 
     def variants(self, s):
-        spots = [list(x[:3]) for x in self._found(s)]
-        n = len(spots)
-        return [Variant(f"Clean them ({n} found)" if n else "Nothing found", {"spots": spots},
-                        "each patched from its surroundings", bool(n)),
-                Variant("Leave as they are", {"spots": []}, "", not n)]
+        boxes, busy = self._found(s)
+        note = f"{busy} inside bright nebula left alone" if busy else ""
+        if not boxes:
+            return [Variant("Nothing to clean - next step", {"boxes": []},
+                            "no painted squares found around the bright stars" + (f"; {note}" if note else ""), True)]
+        return [Variant(f"Clean the squares ({len(boxes)})", {"boxes": [list(b) for b in boxes]},
+                        "each patched from its surroundings" + (f"; {note}" if note else ""), True),
+                Variant("Don't clean", {"boxes": []}, "leave the picture as it is", False)]
 
     def apply(self, s, params):
         s = s.copy()
         img = s.rgb
         h, w = img.shape[1:]
-        for i, (fx, fy, fr) in enumerate(params.get("spots", [])):
-            img = SpotFix.heal(img, fx * w, fy * h, max(2.0, fr * w), seed=i, keep_stars=False)
+        for i, b in enumerate(params.get("boxes") or []):
+            if len(b) != 4:
+                continue
+            fx0, fy0, fx1, fy1 = b
+            img = heal_box(img, int(fx0 * w), int(fy0 * h), int(np.ceil(fx1 * w)), int(np.ceil(fy1 * h)), seed=i)
         s.rgb = img.astype(np.float32)
         s.done.append(self.key)
         return s
