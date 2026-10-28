@@ -292,6 +292,8 @@ def run(app, out_dir: Path) -> int:
     finally:
         _slg.logs_dir = _sl_old
         _slg._path = None
+    _sl_mem = _slg.memory()
+    check("app" in _sl_mem and "free" in _sl_mem, f"the memory note has the app's own use and what is free ({_sl_mem})")
     check(_sl_ok, f"every session writes a log on disk (page lines, memory); a session that ended badly is "
                   f"flagged for Zip My Logs ({_slg.memory_text()})")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly

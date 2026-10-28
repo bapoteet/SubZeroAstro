@@ -81,8 +81,12 @@ def memory() -> dict:
                             ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
             pmc = PMC()
             pmc.cb = ctypes.sizeof(PMC)
-            h = ctypes.windll.kernel32.GetCurrentProcess()
-            if ctypes.windll.psapi.GetProcessMemoryInfo(h, ctypes.byref(pmc), pmc.cb):
+            k32 = ctypes.windll.kernel32
+            k32.GetCurrentProcess.restype = wintypes.HANDLE
+            get = getattr(k32, "K32GetProcessMemoryInfo", None) or ctypes.windll.psapi.GetProcessMemoryInfo
+            get.argtypes = [wintypes.HANDLE, ctypes.POINTER(PMC), wintypes.DWORD]
+            get.restype = wintypes.BOOL
+            if get(k32.GetCurrentProcess(), ctypes.byref(pmc), pmc.cb):
                 out["app"] = _gb(pmc.WorkingSetSize)
         elif sys.platform == "darwin":
             total = int(subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True,
