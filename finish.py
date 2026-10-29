@@ -193,6 +193,48 @@ def _edge_offset(ref_img, img, shape):
     return worst, (float(np.hypot(*c)) if c is not None else 0.0)
 
 
+def _edge_offset_stars(ref_st, st_, shape):
+    """Like _edge_offset, from the centres of the same stars in two stars-only images: the median offset of the
+    stars in each corner area (and the centre). Patch comparison on a faint filter's stars (OIII) read up to
+    2 px on masters that matched to 0.1 px. None when too few stars to tell."""
+    h, w = shape
+    s = int(min(h, w) // 3)
+    if s < 64:
+        return None
+    m_ = int(0.04 * min(h, w))
+    spots = [(m_, m_), (m_, w - m_ - s), (h - m_ - s, m_), (h - m_ - s, w - m_ - s), (h // 2 - s // 2, w // 2 - s // 2)]
+
+    def cen(A, y, x, r=6):
+        c = A[y - r:y + r + 1, x - r:x + r + 1].astype(np.float64)
+        c = np.clip(c - np.median(A[y - 20:y + 21, x - 20:x + 21]), 0, None)
+        t = c.sum()
+        if t <= 0:
+            return None
+        yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+        return float((c * yy).sum() / t), float((c * xx).sum() / t)
+    res = []
+    for y0, x0 in spots:
+        P = ref_st[y0:y0 + s, x0:x0 + s].astype(np.float32)
+        sm = _box_blur(P, 2)[:P.shape[0], :P.shape[1]]
+        mx = SpotFix._minmax(sm, 12, np.max)[:P.shape[0], :P.shape[1]]
+        top = float(np.percentile(sm, 99.9))
+        ys, xs = np.nonzero((sm >= mx - 1e-12) & (sm > 0.2 * top) & (sm > 0))
+        order = np.argsort(-sm[ys, xs])[:25]
+        d = []
+        for i in order:
+            y, x = int(ys[i]) + y0, int(xs[i]) + x0
+            if y < 21 or x < 21 or y >= h - 21 or x >= w - 21:
+                continue
+            a, b = cen(ref_st, y, x), cen(st_, y, x)
+            if a is not None and b is not None:
+                d.append((b[0] - a[0], b[1] - a[1]))
+        res.append(float(np.hypot(*np.median(np.array(d), axis=0))) if len(d) >= 3 else None)
+    corners = [r for r in res[:4] if r is not None]
+    if not corners:
+        return None
+    return max(corners), (res[4] if res[4] is not None else 0.0)
+
+
 EDGE_LIMIT = 1.5          # px: a master whose corner stars are further off than this would show double stars
 
 
@@ -244,6 +286,16 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None, crop_edges=True):
     # starless image plus its stars-only image, i.e. the picture as it really is
     _rs = stars_of(ref)
     ref_full = ref_plane + _rs[0] * 65535.0 if _rs is not None and _rs.shape[1:] == shape else ref_plane
+    # the corner check compares the stars alone when both have a stars-only image: nebulosity differs from filter
+    # to filter (Ha vs OIII) and pulled the check off by up to 2 px on well-aligned masters (M27)
+    ref_chk = _rs[0] * 65535.0 if _rs is not None and _rs.shape[1:] == shape else None
+
+    def _offset_check(full_, star_):
+        if ref_chk is not None and star_ is not None and star_.shape == shape:
+            r_ = _edge_offset_stars(ref_chk, star_, shape)
+            if r_ is not None:
+                return r_
+        return _edge_offset(ref_full, full_, shape)
     ref_grid = str(_cards_look(ref).get("ALIGNREF") or "")
     planes = {}          # filter -> [(plane, stars or None, weight)]
     fixed, failed = [], []
@@ -262,7 +314,7 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None, crop_edges=True):
             # page 3 already lined this master up with the others: keep it unless the check says otherwise
             pre = None
             try:
-                pre = _edge_offset(ref_full, full, shape)
+                pre = _offset_check(full, star_plane)
             except Exception:  # noqa: BLE001
                 pre = None
             if pre is None or (pre[0] <= 0.6 and pre[1] <= 0.6):
@@ -304,7 +356,7 @@ def assemble_mono(masters, stars_of=lambda m: None, log=None, crop_edges=True):
         if m is not ref:
             # check the result: are this master's stars really on the reference's, out to the corners?
             try:
-                off = _edge_offset(ref_full, full, shape)
+                off = _offset_check(full, star_plane)
             except Exception:  # noqa: BLE001
                 off = None
             name = getattr(m, "path", Path(m.filter)).stem

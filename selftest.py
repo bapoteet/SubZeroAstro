@@ -540,6 +540,26 @@ def run(app, out_dir: Path) -> int:
     check(_psug == ["HOO + SII", "Hubble (SHO)"] and _pgr == ["None needed", "25%", "Gold 100%"],
           f"narrowband: a planetary nebula gets 'HOO + SII', other targets the Hubble palette ({_psug}); Remove Green "
           f"Cast leaves HSO's SII and HOO's teal alone, turns SHO gold ({_pgr})")
+    # the page-4 alignment check reads star centres in the stars-only images: two filters with the same stars but a
+    # different nebula and faint stars (OIII) match (M27 was reported 1.9 px off while it matched to 0.1 px), and a
+    # real 1.5 px shift still shows
+    _ar = np.random.default_rng(9)
+    _ay, _ax = np.mgrid[:900, :1200].astype(np.float32)
+    _apts = [(_ar.uniform(30, 1170), _ar.uniform(30, 870), _ar.uniform(0.05, 1.0)) for _ in range(400)]
+
+    def _astars(dx, k):
+        a = np.zeros((900, 1200), np.float32)
+        for _x, _y, _f in _apts:
+            _y0, _x0 = int(_y) - 8, int(_x) - 8
+            gy, gx = _ay[_y0:_y0 + 17, _x0:_x0 + 17], _ax[_y0:_y0 + 17, _x0:_x0 + 17]
+            a[_y0:_y0 + 17, _x0:_x0 + 17] += k * _f * np.exp(-((gx - _x - dx) ** 2 + (gy - _y) ** 2) / (2 * 1.8 ** 2))
+        return a + _ar.normal(0, 0.002, a.shape).astype(np.float32)
+    _aref = _astars(0, 1.0)
+    _a0 = _fnc._edge_offset_stars(_aref, _astars(0, 0.3), (900, 1200))
+    _a1 = _fnc._edge_offset_stars(_aref, _astars(1.5, 0.3), (900, 1200))
+    check(_a0 is not None and _a0[0] < 0.3 and _a1 is not None and 1.2 < _a1[0] < 1.8,
+          f"page 4's alignment check reads star centres: matching faint stars are found to match ({_a0 and round(_a0[0], 2)} px), "
+          f"a real 1.5 px shift shows ({_a1 and round(_a1[0], 2)} px)")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
