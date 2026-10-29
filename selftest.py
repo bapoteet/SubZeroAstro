@@ -355,9 +355,9 @@ def run(app, out_dir: Path) -> int:
                                  f"({_bbig}, {_bsmall})")
     # Darken the Sky Background: 'Much darker' by default, 'Darker' when that would take the sky below about 3%
     _dk = []
-    for _dsky in (0.15, 0.07):
+    for _dsky, _dtg in ((0.15, "IC1396"), (0.07, "IC1396"), (0.15, "M28")):
         _ds = _fnc.State.__new__(_fnc.State)
-        _ds.kind = "mono_lrgb"
+        _ds.kind, _ds.target = "mono_lrgb", _dtg
         _drng = np.random.default_rng(3)
         _ds.rgb = np.clip(_dsky + _drng.normal(0, 0.005, (3, 300, 300)), 0, 1).astype(np.float32)
         _ds.linear = False
@@ -365,8 +365,8 @@ def run(app, out_dir: Path) -> int:
             _dk.append(next(v.label for v in _fnc.TOOLS["sky"].variants(_ds) if v.recommended))
         except Exception as _de:  # noqa: BLE001
             _dk.append(f"error: {_de}")
-    check(_dk == ["Much darker", "Darker"], f"Darken the Sky Background suggests 'Much darker', or 'Darker' when the "
-                                           f"sky is already dark ({_dk})")
+    check(_dk == ["Much darker", "Darker", "Darkest"], f"Darken the Sky Background suggests 'Much darker', 'Darker' when "
+                                                       f"the sky is already dark, 'Darkest' for a star cluster ({_dk})")
     # Clean Bright-Star Leftovers (from the real Shark data): StarXTerminator paints a smooth, grain-free box over a big
     # star, with a bright bar along its edge and a leftover dot. The box is found by its missing grain and patched with
     # the surroundings' texture; a painted box inside bright structured nebula is left alone; a picture without

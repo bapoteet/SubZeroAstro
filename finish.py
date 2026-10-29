@@ -2507,9 +2507,13 @@ class DarkenSky(Tool):
         calm = 0.6 if s.kind in NARROWBAND_KINDS else 0.5
         # 'Much darker' unless that would take the sky below about 3% (black, faint dust lost): then 'Darker'
         much = not crushed and sky * (1 - 0.7) >= 0.03
+        # a star cluster has no faint nebulosity to keep: a deep black sky makes its stars stand out (M28 needed
+        # 'Much darker' three times)
+        darkest = much and target_type(s) == "star cluster" and sky * (1 - 0.85) >= 0.02
         return [Variant("Slightly darker", {"amount": 0.3, "calm": calm}, note(0.3), False),
                 Variant("Darker", {"amount": 0.5, "calm": calm}, note(0.5), not crushed and not much),
-                Variant("Much darker", {"amount": 0.7, "calm": calm}, note(0.7), much),
+                Variant("Much darker", {"amount": 0.7, "calm": calm}, note(0.7), much and not darkest),
+                Variant("Darkest", {"amount": 0.85, "calm": calm}, note(0.85), darkest),
                 Variant("Lighter", {"amount": -0.3, "calm": calm},
                         note(-0.3) + (" - the sky looks crushed to black" if crushed else ""), crushed)]
 
