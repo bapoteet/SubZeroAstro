@@ -453,7 +453,7 @@ table(["Step", "What it does", "PixInsight equivalent"], [
   ["Shrink Stars", "Makes stars smaller", "Star reduction / MorphologicalTransformation"],
   ["Star Colours", "Natural star colours (estimated from your data) or clean white stars - recommended for narrowband", "Star colour correction"],
   ["Put Stars Back", "Blends the stars back at the strength you pick", "PixelMath screen blend"],
-  ["Darken the Sky Background ◇", "Darker (or lighter) sky without dimming the nebula, faint dust or stars; also evens out a brighter corner or side. Much darker is suggested; Darkest for star clusters, which have no faint nebulosity to keep", "ABE/DBE model + PixelMath"],
+  ["Darken the Sky Background ◇", "Darker (or lighter) sky without dimming the nebula, faint dust or stars; also evens out a brighter corner or side. Much darker is suggested; Darker for planetary nebulae (keeps the faint outer halo); Darkest for star clusters, which have no faint nebulosity to keep", "ABE/DBE model + PixelMath"],
   ["Final Noise Reduction ◇", "A last, light NoiseXTerminator pass on the finished picture (needs the RC-Astro CLI)", "NoiseXTerminator"],
   ["Flip or Rotate the Picture ◇", "Flip Horizontally and/or Vertically (each press toggles), Rotate 90° Clockwise or Counter-clockwise (each press turns once more) - the saved pictures are turned too", "FastRotation"],
   ["Final Crop ◇", "A last clean-up crop; finds ragged or off-colour edges for you", "DynamicCrop"],

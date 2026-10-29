@@ -355,7 +355,7 @@ def run(app, out_dir: Path) -> int:
                                  f"({_bbig}, {_bsmall})")
     # Darken the Sky Background: 'Much darker' by default, 'Darker' when that would take the sky below about 3%
     _dk = []
-    for _dsky, _dtg in ((0.15, "IC1396"), (0.07, "IC1396"), (0.15, "M28")):
+    for _dsky, _dtg in ((0.15, "IC1396"), (0.07, "IC1396"), (0.15, "M28"), (0.15, "M27")):
         _ds = _fnc.State.__new__(_fnc.State)
         _ds.kind, _ds.target = "mono_lrgb", _dtg
         _drng = np.random.default_rng(3)
@@ -365,8 +365,14 @@ def run(app, out_dir: Path) -> int:
             _dk.append(next(v.label for v in _fnc.TOOLS["sky"].variants(_ds) if v.recommended))
         except Exception as _de:  # noqa: BLE001
             _dk.append(f"error: {_de}")
-    check(_dk == ["Much darker", "Darker", "Darkest"], f"Darken the Sky Background suggests 'Much darker', 'Darker' when "
-                                                       f"the sky is already dark, 'Darkest' for a star cluster ({_dk})")
+    _ck = []
+    for _ctg in ("M27", "M51"):
+        _cs4 = _fnc.State.__new__(_fnc.State)
+        _cs4.kind, _cs4.target, _cs4.linear = "mono_nb", _ctg, False
+        _ck.append(next(v.label for v in _fnc.TOOLS["curves"].variants(_cs4) if v.recommended))
+    check(_dk == ["Much darker", "Darker", "Darkest", "Darker"] and _ck == ["Lift faint detail", "More contrast"],
+          f"Darken the Sky Background suggests 'Much darker', 'Darker' when the sky is already dark or for a planetary "
+          f"(its faint halo), 'Darkest' for a star cluster ({_dk}); Curves lifts faint detail for a planetary ({_ck})")
     # Clean Bright-Star Leftovers (from the real Shark data): StarXTerminator paints a smooth, grain-free box over a big
     # star, with a bright bar along its edge and a leftover dot. The box is found by its missing grain and patched with
     # the surroundings' texture; a painted box inside bright structured nebula is left alone; a picture without

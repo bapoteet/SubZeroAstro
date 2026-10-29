@@ -2546,8 +2546,12 @@ class DarkenSky(Tool):
         # a star cluster has no faint nebulosity to keep: a deep black sky makes its stars stand out (M28 needed
         # 'Much darker' three times)
         darkest = much and target_type(s) == "star cluster" and sky * (1 - 0.85) >= 0.02
+        # a planetary's faint outer halo is barely above the sky: 'Darker' keeps it, 'Much darker' squeezes it
+        # into the black (M27)
+        if target_type(s) == "planetary nebula":
+            much = False
         return [Variant("Slightly darker", {"amount": 0.3, "calm": calm}, note(0.3), False),
-                Variant("Darker", {"amount": 0.5, "calm": calm}, note(0.5), not crushed and not much),
+                Variant("Darker", {"amount": 0.5, "calm": calm}, note(0.5), not crushed and not much and not darkest),
                 Variant("Much darker", {"amount": 0.7, "calm": calm}, note(0.7), much and not darkest),
                 Variant("Darkest", {"amount": 0.85, "calm": calm}, note(0.85), darkest),
                 Variant("Lighter", {"amount": -0.3, "calm": calm},
@@ -3266,8 +3270,13 @@ class Curves(Tool):
         return [[q[0], float(y)] for q, y in zip(pts, ys)]
 
     def variants(self, s):
+        # a planetary nebula's faint outer halo sits just above the sky: an S-curve pushes it into the black, so
+        # planetaries get 'Lift faint detail' (Darken the Sky then takes the sky down and keeps the halo above it)
+        pick = 1 if target_type(s) == "planetary nebula" else 0
         return [Variant(name, {**{"contrast": 0.0, "shadows": 0.0, "midtones": 0.0, "highlights": 0.0}, **v,
-                               "points": self.points(**v)}, "", i == 0) for i, (name, v) in enumerate(self.PRESETS)]
+                               "points": self.points(**v)},
+                        "suggested for a planetary nebula: keeps its faint outer halo" if (i == pick and pick) else "",
+                        i == pick) for i, (name, v) in enumerate(self.PRESETS)]
 
     def sliders(self, s, params):
         return [Slider("contrast", "Contrast", -1, 1, params.get("contrast", 0), "Flatter <-> punchier"),
