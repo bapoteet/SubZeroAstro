@@ -4710,12 +4710,13 @@ WHY = {
 # Colour Intensity's suggested strength (0 Calmer, 1 Slight, 2 Rich, 3 Vivid, 4 Bold) by kind of target and
 # (narrowband?) - tuned on well-calibrated data (Telescope Live) so defaults alone give a natural picture:
 # galaxies and broadband nebulae start with weak colour and take 'Rich'; narrowband colours come out strong once
-# mapped, and planetaries, clusters (the star colours have their own step) and comets look neon with more
+# mapped, and planetaries and comets look neon with more; a star cluster in colour takes 'Rich' (its star colours
+# are the picture - the pink cast that once made it 'Slight' came from Remove Green Cast, now fixed)
 SAT_DEFAULT = {
     ("galaxy", False): 2, ("galaxy", True): 1,
     ("nebula", False): 2, ("nebula", True): 1,
     ("planetary nebula", False): 1, ("planetary nebula", True): 0,
-    ("star cluster", False): 1, ("star cluster", True): 1,
+    ("star cluster", False): 2, ("star cluster", True): 1,
     ("comet", False): 1, ("comet", True): 1,
     ("unknown", False): 2, ("unknown", True): 1,
 }

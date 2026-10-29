@@ -501,9 +501,9 @@ def run(app, out_dir: Path) -> int:
         _cs.kind, _cs.linear, _cs.target = _kind, False, _tgt
         _cs.rgb = np.stack([_cneb * t for t in _tint]).astype(np.float32)
         _sat.append(next(v.label for v in _fnc.TOOLS["saturation"].variants(_cs) if v.recommended))
-    check(_sat == ["Slight", "Rich", "Slight", "Slight", "Slight"],
+    check(_sat == ["Slight", "Rich", "Slight", "Slight", "Rich"],
           f"Colour Intensity's suggestion follows the target and the data: narrowband, already strong colours, "
-          f"planetaries and clusters 'Slight'; a galaxy in colour 'Rich' ({_sat})")
+          f"planetaries 'Slight'; a galaxy or a star cluster in colour 'Rich' ({_sat})")
     # Remove Green Cast on balanced colour data: nothing suggested (SCNR on noise turns a picture pink); a real
     # green cast still gets removed
     _gr3 = np.random.default_rng(8)
