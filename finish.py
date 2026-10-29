@@ -1958,9 +1958,23 @@ def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     sh, sw = m.shape
     box = np.zeros_like(m)
     box[int(sh * 0.3):int(sh * 0.7), int(sw * 0.3):int(sw * 0.7)] = True   # the target sits near the middle
-    m &= box
-    if not m.any():
+    # the planetary is ONE blob near the middle, clearly bigger than the biggest star elsewhere: bright stars
+    # (with their spikes) also survive the opening, and the Helix's were moved into the nebula image as blobs
+    from scipy import ndimage as _ndi
+    lab, nlab = _ndi.label(m)
+    if nlab == 0:
         return rgb, stars, 0.0
+    areas = np.bincount(lab.ravel(), minlength=nlab + 1)
+    central = np.unique(lab[box & m])
+    central = central[central > 0]
+    if central.size == 0:
+        return rgb, stars, 0.0
+    best = int(central[np.argmax(areas[central])])
+    outside = [int(i) for i in range(1, nlab + 1) if i not in set(central.tolist())]
+    biggest_star = max([int(areas[i]) for i in outside] + [int(areas[i]) for i in central if i != best] + [0])
+    if areas[best] < 4 * max(biggest_star, 1):
+        return rgb, stars, 0.0
+    m = lab == best
     # the part to move follows the object's own light, not a box: how bright the (smoothed) stars image is
     # there, faded smoothly to nothing at the sky - inside a round area around the object (a square-shaped
     # weight left a visible square around NGC 7662's core)

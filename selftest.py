@@ -2635,6 +2635,20 @@ def run(app, out_dir: Path) -> int:
         check(_wdot < 0.008, f"a bright, wide star on a planetary nebula's body leaves no dot in the nebula image (before the fix: 0.036) "
                              f"({_wdot:.4f}; the star's peak is 0.98)")
 
+        # a big planetary (the Helix) that star removal did not take for a star: bright stars with spikes near the
+        # middle are not moved into the nebula image (they came out as teal blobs)
+        _hy, _hx = np.mgrid[:1200, :1600].astype(np.float32)
+        _hst = np.zeros((1200, 1600), np.float32) + 0.001
+        _hr = np.random.default_rng(4)
+        for _ in range(14):
+            _x, _y = _hr.uniform(100, 1500), _hr.uniform(100, 1100)
+            _r2 = (_hx - _x) ** 2 + (_hy - _y) ** 2
+            _hst += 0.9 * np.exp(-_r2 / (2 * 3.0 ** 2)) + 0.05 * np.exp(-_r2 / (2 * 14 ** 2))
+            _hst += 0.03 * (((np.abs(_hy - _y) < 1.5) & (np.abs(_hx - _x) < 60)) | ((np.abs(_hx - _x) < 1.5) & (np.abs(_hy - _y) < 60)))
+        _, _, _hsh = F.rescue_object(np.full((3, 1200, 1600), 0.02, np.float32), np.stack([_hst, _hst * 0.9, _hst * 0.8]))
+        check(_hsh < 0.001, f"bright stars with spikes are not taken for a planetary nebula (moved {_hsh:.3f}; "
+                            f"the Helix's stars turned into blobs)")
+
         # an L master much noisier than R, G and B (one L frame against hours of colour - M101) is not suggested:
         # RGB is; a good L still makes LRGB the suggestion
         _lr = np.random.default_rng(1)
