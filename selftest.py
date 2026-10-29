@@ -2585,6 +2585,14 @@ def run(app, out_dir: Path) -> int:
         _bkept = float((_bs[0] - 0.001)[_bd < 10].sum() / _bstar[_bd < 10].sum())
         check(_bkept > 0.95 and _bsh > 0.5, f"a star on a planetary nebula's body stays a star ({_bkept:.0%} kept in the "
                                            f"stars image), the body still goes back to the nebula ({_bsh:.0%} moved)")
+        # ... also a bright, wide star (a compact core with a wide halo that survives the small opening - M27's red dot, real data)
+        _wr2 = (_bx - 650) ** 2 + (_by - 480) ** 2
+        _wstar = 0.9 * np.exp(-_wr2 / (2 * 2.2 ** 2)) + 0.08 * np.exp(-_wr2 / (2 * 9.0 ** 2))   # core + wide halo
+        _wst = np.stack([_bbody + _wstar, _bbody * 0.8 + _wstar * 0.5, _bbody * 0.9 + _wstar * 0.4]).astype(np.float32) + 0.001
+        _wo, _ws, _ = F.rescue_object(np.full_like(_wst, 0.02), _wst)
+        _wdot = float((_wo[0] - 0.02)[_bd < 4].mean() - (_wo[0] - 0.02)[(_bd > 25) & (_bd < 30)].mean())
+        check(_wdot < 0.008, f"a bright, wide star on a planetary nebula's body leaves no dot in the nebula image (before the fix: 0.036) "
+                             f"({_wdot:.4f}; the star's peak is 0.98)")
 
         # an L master much noisier than R, G and B (one L frame against hours of colour - M101) is not suggested:
         # RGB is; a good L still makes LRGB the suggestion

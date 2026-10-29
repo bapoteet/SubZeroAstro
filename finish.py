@@ -1947,7 +1947,20 @@ def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     # came out as a coloured dot (the red dot on M27's edge)
     ksw = np.clip(_blur(SpotFix._minmax(ks, 3, np.max).astype(np.float32), 1.0), 0, 1)   # the star's wings too
     body_part = stars - rest * ksw[None]
-    moved = np.maximum((fb[None] * body_part + (1 - fb[None]) * smooth) - sky, 0) * full[None]
+    # a bright star is wider than the small opening: its core survives it and was moved as 'glow'. Under the
+    # stars, what moves is the glow around them (a much wider opening, worked out small) - the star stays whole
+    wide = []
+    for c_ in stars:
+        sm_c, fw = _small_plane(c_.astype(np.float32), 1500)
+        ow = _blur(_opening(sm_c, max(3, int(round(24 / fw)))).astype(np.float32), 1.0)
+        big = np.zeros((h, w), np.float32)
+        up = _resize(ow, sm_c.shape[0] * fw, sm_c.shape[1] * fw)
+        big[:min(h, up.shape[0]), :min(w, up.shape[1])] = up[:h, :w]
+        wide.append(np.minimum(big, c_))
+    wide = np.stack(wide)
+    base_ = fb[None] * body_part + (1 - fb[None]) * smooth
+    base_ = base_ * (1 - ksw[None]) + np.minimum(wide, base_) * ksw[None]
+    moved = np.maximum(base_ - sky, 0) * full[None]
     moved = np.minimum(moved, np.maximum(stars, 0))       # never leave the stars image below nothing
     share = float(moved.sum() / max(float(stars.sum()), 1e-9))
     return (rgb + (moved if moved.shape[0] == rgb.shape[0] else moved.mean(0, keepdims=True))).astype(np.float32), \
