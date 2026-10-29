@@ -3041,8 +3041,8 @@ class SignPicture(Tool):
         region *= (1 - 0.45 * op * shadow)[None]
         c = col[:, None, None] if rgb.shape[0] == 3 else np.asarray([col.mean()], np.float32)[:, None, None]
         region[:] = region * (1 - op * a)[None] + c * (op * a)[None]
-        rgb[:, y0:y0 + ah, x0:x0 + aw] = region
-        s.rgb = np.clip(rgb, 0, 1).astype(np.float32)
+        rgb[:, y0:y0 + ah, x0:x0 + aw] = np.clip(region, 0, 1)     # only the signature's own area is touched
+        s.rgb = rgb.astype(np.float32)
         s.done.append(self.key)
         return s
 
