@@ -570,6 +570,19 @@ def run(app, out_dir: Path) -> int:
     check(float(_hp[1, 0]) > 0.5 * float(_hp[0, 0]) and _hsat == "Calmer",
           f"HOO + SII: an Ha-rich area is pink, not flat red (R {float(_hp[0, 0]):.2f} G {float(_hp[1, 0]):.2f} B "
           f"{float(_hp[2, 0]):.2f}); a narrowband planetary gets '{_hsat}' colour")
+    # a planetary with a dim interior (the Helix) does not get Tame Bright Core recommended; one whose ring burns out
+    # (M27) does
+    _pc = []
+    for _lvl in (0.45, 1.0):
+        _pyy, _pxx = np.mgrid[:300, :300].astype(np.float32)
+        _prr = np.hypot(_pxx - 150, _pyy - 150)
+        _pim = 0.08 + (_lvl - 0.08) * np.exp(-((_prr - 60) / 18) ** 2)
+        _ps = _fnc.State(rgb=np.stack([_pim, _pim * 0.98, _pim * 0.97]).astype(np.float32), kind="mono_nb",
+                         target="NGC 7293", done=["combine", "stars_out", "stretch", "scnr", "curves"], linear=False,
+                         palette="HOO+S")
+        _pc.append(dict((t.key, st) for t, st in _fnc.workflow(_ps)).get("core"))
+    check(_pc[0] == "optional" and _pc[1] == "next", f"Tame Bright Core for a planetary only when its ring burns out "
+                                                     f"(dim interior: {_pc[0]}, white ring: {_pc[1]})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

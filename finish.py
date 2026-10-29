@@ -4626,7 +4626,9 @@ def targets_describe(typ: str) -> str:
 
 TYPE_TUNING = {
     "galaxy": {"recommend": {"local", "core"}, "optional": set()},
-    "planetary nebula": {"recommend": {"core"}, "optional": set()},
+    # a planetary's ring is tamed only when it really burns out (M27 does; the Helix's dim interior does not -
+    # taming it anyway left blotchy light and dark patches): Tame Bright Core's own check decides
+    "planetary nebula": {"recommend": set(), "optional": set()},
     # a globular's core is thousands of overlapping stars, not a burnt-out glow: Tame Bright Core punches dark
     # holes between them (M28), so it is only offered
     "star cluster": {"recommend": set(), "optional": {"stars_out", "shrink", "local", "core"}},
