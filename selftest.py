@@ -583,6 +583,16 @@ def run(app, out_dir: Path) -> int:
         _pc.append(dict((t.key, st) for t, st in _fnc.workflow(_ps)).get("core"))
     check(_pc[0] == "optional" and _pc[1] == "next", f"Tame Bright Core for a planetary only when its ring burns out "
                                                      f"(dim interior: {_pc[0]}, white ring: {_pc[1]})")
+    # a star cluster is stretched one step gentler and gets 'Darker background' curves (its centre's stars stay apart)
+    _cl = []
+    for _tg in ("M28", "M51"):
+        _cls = _fnc.State(rgb=np.clip(np.random.default_rng(0).normal(0.05, 0.01, (3, 64, 64)), 0, 1).astype(np.float32),
+                          kind="mono_lrgb", target=_tg, linear=True)
+        _st1 = next(v.label for v in _fnc.TOOLS["stretch"].variants(_cls) if v.recommended)
+        _cls.linear = False
+        _cl.append((_st1, next(v.label for v in _fnc.TOOLS["curves"].variants(_cls) if v.recommended)))
+    check(_cl[0][1] == "Darker background" and _cl[0][0] != _cl[1][0] and _cl[1][1] == "More contrast",
+          f"a star cluster gets a gentler stretch and 'Darker background' curves, a galaxy 'Medium' and 'More contrast' ({_cl})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

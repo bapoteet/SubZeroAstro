@@ -2139,10 +2139,13 @@ class Brighten(Tool):
         # neutral sky: line the channel backgrounds up before a linked stretch
         shifts = [med - _stats(c)[0] for c in img] if (linked and img.shape[0] > 1) else None
         out = []
+        # a star cluster's centre is thousands of stars: a stronger stretch blends them into one bright glow (M28) -
+        # one step gentler keeps them apart
+        pick = 1 if target_type(s) == "star cluster" else 2
         for i, (name, t) in enumerate(self.LEVELS):
             prm = self._with_target({"method": method, "linked": linked, "stats": st_, "shifts": shifts,
                                      "nm": nm, "protect": 0.0}, t)
-            out.append(Variant(name, prm, f"sky at {int(t * 100)}% grey", i == 2))
+            out.append(Variant(name, prm, f"sky at {int(t * 100)}% grey", i == pick))
         return out
 
     def _with_target(self, prm, t):
@@ -3386,10 +3389,13 @@ class Curves(Tool):
     def variants(self, s):
         # a planetary nebula's faint outer halo sits just above the sky: an S-curve pushes it into the black, so
         # planetaries get 'Lift faint detail' (Darken the Sky then takes the sky down and keeps the halo above it)
-        pick = 1 if target_type(s) == "planetary nebula" else 0
+        # a planetary's faint halo needs 'Lift faint detail'; a star cluster 'Darker background' (an S-curve brightens
+        # its centre's glow until the stars in it blend - M28); everything else 'More contrast'
+        pick = {"planetary nebula": 1, "star cluster": 2}.get(target_type(s), 0)
         return [Variant(name, {**{"contrast": 0.0, "shadows": 0.0, "midtones": 0.0, "highlights": 0.0}, **v,
                                "points": self.points(**v)},
-                        "suggested for a planetary nebula: keeps its faint outer halo" if (i == pick and pick) else "",
+                        ("suggested for a planetary nebula: keeps its faint outer halo" if pick == 1 else
+                         "suggested for a star cluster: keeps the stars in its centre apart") if (i == pick and pick) else "",
                         i == pick) for i, (name, v) in enumerate(self.PRESETS)]
 
     def sliders(self, s, params):
