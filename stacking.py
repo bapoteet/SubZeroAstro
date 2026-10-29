@@ -242,6 +242,11 @@ def target_from_name(path) -> str | None:
     for anc in list(p.parents)[:2]:
         if anc.parent.name.lower() in ("light", "lights") and not _NOT_TARGET.match(anc.name):
             return anc.name
+    # a folder named after a known target (M51, NGC 1097, C_2025_R2, 'Comet PANSTARRS'…), a level or two up
+    import targets as _tg
+    for anc in list(p.parents)[:3]:
+        if anc.name and not _NOT_TARGET.match(anc.name) and _tg.classify(anc.name):
+            return anc.name
     return None
 
 
@@ -251,9 +256,16 @@ def read_info(path) -> ImgInfo:
     if typ is None:                      # no IMAGETYP and nothing in the file name: the folder may say
         typ = folder_kind(src.path.parent.name)
     info = info_from_look(path, src.look, src.w, src.h, typ, master, planes=src.channels, cards=src.cards)
-    if not info.target and typ in (None, "light"):
-        info.target = target_from_name(path)        # no OBJECT in the header (some ASIAIR files): the name says
+    if typ in (None, "light") and (not info.target or _GENERIC_TARGET.match(str(info.target).strip())):
+        # no OBJECT in the header (some ASIAIR files), or a placeholder like 'Snapshot' (Telescope Live comet
+        # frames): the file name or the folder says
+        info.target = target_from_name(path) or info.target
     return info
+
+
+# OBJECT values that are not a target's name
+_GENERIC_TARGET = re.compile(r"^(snapshot|snap|target|object|unknown|untitled|none|test|light|lights|image|"
+                             r"frame|default|new target|my target)?$", re.I)
 
 
 # ==========================================================================

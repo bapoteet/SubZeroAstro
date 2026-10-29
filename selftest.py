@@ -613,6 +613,15 @@ def run(app, out_dir: Path) -> int:
         "/x/Flat_Ha_1.0s_Bin1_0001.fit", "/x/Light_180.0s_Bin1_0001.fit")]
     check(_tfn == ["M51", "NGC 7000", "IC1396", "M51", None, None],
           f"no target in the header: it is read from the file name (ASIAIR, Seestar, N.I.N.A.) or the ASIAIR folder ({_tfn})")
+    # a placeholder OBJECT ('Snapshot' - Telescope Live comet frames) gives way to a folder named after the target
+    _tsd = _sfd / "C_2025_R2_SWAN"
+    _tsd.mkdir(exist_ok=True)
+    core.write_fits(_tsd / "2026-04-16_05-31-24_0006_Snapshot_c_d_r.fits", np.zeros((40, 40), np.uint16),
+                    {"IMAGETYP": "LIGHT", "OBJECT": "Snapshot", "EXPTIME": 15.0}, bitpix=16)
+    _tsi = _stk.read_info(_tsd / "2026-04-16_05-31-24_0006_Snapshot_c_d_r.fits")
+    import targets as _tgm
+    check(_tsi.target == "C_2025_R2_SWAN" and _tgm.is_comet(_tsi.target),
+          f"a placeholder OBJECT ('Snapshot') gives way to the folder's target name ({_tsi.target}, a comet)")
     # a FITS file whose binary data was turned into text (each byte > 127 -> U+FFFD) is caught plainly
     _okf = _sfd / "intact.fits"
     core.write_fits(_okf, (_rs.random((200, 200)) * 60000).astype(np.uint16), {"IMAGETYP": "Light Frame"}, bitpix=16)
