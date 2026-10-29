@@ -4615,8 +4615,16 @@ class ResolveClusterCore(Tool):
         gl = gs.mean(0)
         sky = float(np.percentile(gl, 10))
         pk = float(gl.max())
-        ex = np.clip(gl - (sky + top * (pk - sky)), 0, None)
-        s.rgb = np.clip(s.rgb - k * gs * (ex / np.maximum(gl, 1e-6))[None], 0, 1).astype(np.float32)
+        # a soft knee above 'top' (not a cut: a cut left a flat grey disc at M28's centre) - the glow keeps rising to
+        # its centre, only much more slowly
+        gn = np.clip((gl - sky) / max(pk - sky, 1e-6), 0, None)
+        sl = (1.0 - k) * 0.5                      # slope above the knee
+        wk = 0.15
+        x = np.clip(gn - top, 0, None)
+        fn = np.where(gn > top, top + (1 - sl) * wk * (1 - np.exp(-x / wk)) + sl * x, gn)
+        new_gl = sky + fn * (pk - sky)
+        drop = np.clip(gl - new_gl, 0, None)
+        s.rgb = np.clip(s.rgb - gs * (drop / np.maximum(gl, 1e-6))[None], 0, 1).astype(np.float32)
         s.done.append(self.key)
         return s
 
