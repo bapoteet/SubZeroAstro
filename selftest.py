@@ -2567,6 +2567,18 @@ def run(app, out_dir: Path) -> int:
               f"spikes around a planetary core go back to the nebula ({_spk:.0%} left in the stars image), "
               f"a star beside it stays whole ({_spstar:.0%}, no ring of it in the nebula image: {_spring:.4f})")
 
+        # a real star sitting on a big planetary's body stays in the stars image (moved into the nebula image it came
+        # out as a coloured dot - the red dot on M27's edge); the body itself still moves
+        _by, _bx = np.mgrid[:900, :1100].astype(np.float32)
+        _bbody = 0.05 * np.exp(-(np.hypot(_bx - 550, _by - 450) / 150) ** 4)
+        _bstar = 0.6 * np.exp(-((_bx - 650) ** 2 + (_by - 480) ** 2) / (2 * 2.2 ** 2))
+        _bst = np.stack([_bbody + _bstar, _bbody * 0.8 + _bstar * 0.5, _bbody * 0.9 + _bstar * 0.4]).astype(np.float32) + 0.001
+        _bo, _bs, _bsh = F.rescue_object(np.full_like(_bst, 0.02), _bst)
+        _bd = np.hypot(_bx - 650, _by - 480)
+        _bkept = float((_bs[0] - 0.001)[_bd < 10].sum() / _bstar[_bd < 10].sum())
+        check(_bkept > 0.95 and _bsh > 0.5, f"a star on a planetary nebula's body stays a star ({_bkept:.0%} kept in the "
+                                           f"stars image), the body still goes back to the nebula ({_bsh:.0%} moved)")
+
         # an L master much noisier than R, G and B (one L frame against hours of colour - M101) is not suggested:
         # RGB is; a good L still makes LRGB the suggestion
         _lr = np.random.default_rng(1)

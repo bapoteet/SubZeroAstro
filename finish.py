@@ -1942,7 +1942,12 @@ def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     ks = np.ones((h, w), np.float32)
     ks[:min(h, keep.shape[0]), :min(w, keep.shape[1])] = keep[:h, :w]
     smooth = smooth + rest * (1 - ks)[None]
-    moved = np.maximum((fb[None] * stars + (1 - fb[None]) * smooth) - sky, 0) * full[None]
+    # inside the bright body the stars image moves whole - except the real stars on it (round and compact; a
+    # planetary's own core is wider than a star): a star moved into the nebula image is processed as nebula and
+    # came out as a coloured dot (the red dot on M27's edge)
+    ksw = np.clip(_blur(SpotFix._minmax(ks, 3, np.max).astype(np.float32), 1.0), 0, 1)   # the star's wings too
+    body_part = stars - rest * ksw[None]
+    moved = np.maximum((fb[None] * body_part + (1 - fb[None]) * smooth) - sky, 0) * full[None]
     moved = np.minimum(moved, np.maximum(stars, 0))       # never leave the stars image below nothing
     share = float(moved.sum() / max(float(stars.sum()), 1e-9))
     return (rgb + (moved if moved.shape[0] == rgb.shape[0] else moved.mean(0, keepdims=True))).astype(np.float32), \
