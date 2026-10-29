@@ -3237,10 +3237,31 @@ class Saturation(Tool):
     def possible(self, s):
         return s.is_color or (s.rgb is None and len(s.channels) >= 2)
 
+    @staticmethod
+    def colourfulness(rgb: np.ndarray, sky: float) -> float:
+        """How colourful the target already is: the typical (max - min) / max of its brighter half."""
+        sm = rgb[:, ::4, ::4]
+        y = _lum(sm)
+        obj = y > max(sky * 1.3, sky + 0.03)
+        if obj.sum() < 50:
+            return 0.0
+        thr = float(np.percentile(y[obj], 50))
+        sel = obj & (y >= thr)
+        mx, mn = sm.max(0)[sel], sm.min(0)[sel]
+        return float(np.median((mx - mn) / np.maximum(mx, 1e-6)))
+
     def variants(self, s):
         sky = float(np.median(_lum(s.rgb)[::3, ::3]))
-        return [Variant(n, {"amount": a, "protect": 0.8, "sky": sky}, "", i == 2) for i, (n, a) in
-                enumerate((("Calmer", 0.85), ("Slight", 1.15), ("Rich", 1.35), ("Vivid", 1.6), ("Bold", 1.9)))]
+        col = self.colourfulness(s.rgb, sky)
+        # narrowband (or anything already this colourful) gets 'Slight': a stronger boost on top of mapped
+        # filter colours looks neon; ordinary colour data gets 'Rich'
+        strong = s.kind in NARROWBAND_KINDS or col >= 0.45
+        pick = 1 if strong else 2
+        why = (f"suggested: the colours are already strong ({'narrowband' if s.kind in NARROWBAND_KINDS else 'colourful'}"
+               f" data, {col:.0%} colour) - more looks unnatural" if strong else "")
+        return [Variant(n, {"amount": a, "protect": 0.8, "sky": sky}, why if i == pick else "", i == pick)
+                for i, (n, a) in enumerate((("Calmer", 0.85), ("Slight", 1.15), ("Rich", 1.35), ("Vivid", 1.6),
+                                            ("Bold", 1.9)))]
 
     def sliders(self, s, params):
         return [Slider("amount", "Colour intensity", 0.5, 2.5, params["amount"], "Grey <-> vivid", 0.05),

@@ -475,6 +475,17 @@ def run(app, out_dir: Path) -> int:
     check(len(_dfound) == 1 and not _dnone and _dleft < 0.006 and float(np.abs(_dout - _dclean)[:, :, :300].max()) == 0,
           f"Clean Bright-Star Leftovers: a small leftover star core in one colour inside nebula (the red dot on "
           f"M27) is found and removed (left {_dleft:.4f} of 0.04); nebula without a dot is left alone")
+    # Colour Intensity: narrowband (or already very colourful) data gets 'Slight', ordinary colour data 'Rich'
+    _cy3, _cx3 = np.mgrid[:200, :200].astype(np.float32)
+    _cneb = 0.1 + 0.5 * np.exp(-((_cx3 - 100) ** 2 + (_cy3 - 100) ** 2) / (2 * 40 ** 2))
+    _sat = []
+    for _kind, _tint in (("mono_nb", (1.0, 0.45, 0.15)), ("osc", (1.0, 0.9, 0.8)), ("osc", (1.0, 0.35, 0.1))):
+        _cs = _fnc.State.__new__(_fnc.State)
+        _cs.kind, _cs.linear = _kind, False
+        _cs.rgb = np.stack([_cneb * t for t in _tint]).astype(np.float32)
+        _sat.append(next(v.label for v in _fnc.TOOLS["saturation"].variants(_cs) if v.recommended))
+    check(_sat == ["Slight", "Rich", "Slight"], f"Colour Intensity suggests 'Slight' for narrowband or already "
+                                                f"strong colours, 'Rich' for ordinary colour data ({_sat})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
