@@ -4563,15 +4563,70 @@ class CometTail(_CometTool):
         return s
 
 
+class ResolveClusterCore(Tool):
+    key = "cluster_core"
+    title = "Resolve the Cluster Core"
+    tip = ("For a globular cluster: its centre is thousands of stars whose light blends into one bright glow, which "
+           "hides the stars in it. This takes away the top of that smooth glow (measured between the stars) and "
+           "leaves every star as it is - so the core is resolved into stars instead of a bright haze. Unlike Tame "
+           "Bright Core it smooths nothing. (PixInsight: a star mask + HDRMultiscaleTransform / curves)")
+
+    def applicable(self, s):
+        if s.rgb is None:
+            return False, "Combine the colour channels first"
+        if s.linear:
+            return False, "Brighten the image first"
+        return True, ""
+
+    def is_optional(self, s):
+        return target_type(s) != "star cluster"
+
+    def why(self, s):
+        return ("A star cluster: its centre's blended glow hides the stars in it. This lowers that glow and keeps the "
+                "stars, so the core shows as stars.")
+
+    def variants(self, s):
+        return [Variant("Gentle", {"amount": 0.5, "top": 0.5}, "only the brightest part of the glow", False),
+                Variant("Medium", {"amount": 0.7, "top": 0.4}, "", True),
+                Variant("Strong", {"amount": 0.85, "top": 0.3}, "more of the glow - stars stand out most", False)]
+
+    def sliders(self, s, params):
+        return [Slider("amount", "Amount", 0.0, 1.0, params["amount"], "How much of the glow above the limit is taken"),
+                Slider("top", "From brightness", 0.1, 0.9, params["top"], "Only the glow brighter than this share of "
+                                                                         "the core's is touched")]
+
+    @staticmethod
+    def glow(img: np.ndarray) -> np.ndarray:
+        """The smooth glow between the stars, per colour (stars taken out by an opening, then smoothed)."""
+        out = []
+        for c in img:
+            sm_, _f = _small_plane(c.astype(np.float32), 600)
+            g = _blur(_opening(sm_, 3), 6)
+            out.append(_resize(g.astype(np.float32), c.shape[0], c.shape[1]))
+        return np.stack(out)
+
+    def apply(self, s, params):
+        s = s.copy()
+        k, top = float(params.get("amount", 0.7)), float(params.get("top", 0.4))
+        gs = self.glow(s.rgb)
+        gl = gs.mean(0)
+        sky = float(np.percentile(gl, 10))
+        pk = float(gl.max())
+        ex = np.clip(gl - (sky + top * (pk - sky)), 0, None)
+        s.rgb = np.clip(s.rgb - k * gs * (ex / np.maximum(gl, 1e-6))[None], 0, 1).astype(np.float32)
+        s.done.append(self.key)
+        return s
+
+
 TOOLS = {t.key: t for t in (HaGlow(), CombineChannels(), DualBandPalette(), BalanceColours(), RemoveGreen(), TakeStarsOut(),
                             CleanStarLeftovers(), Brighten(),
                             TameCore(), Curves(), Saturation(), AdjustColours(), LocalContrast(), BrightenStars(), ShrinkStars(),
-                            StarColours(), PutStarsBack(), CometTail(), CometJets(),
+                            StarColours(), PutStarsBack(), CometTail(), CometJets(), ResolveClusterCore(),
                             DustDonuts(), DarkenSky(), FinalNoise(), FlipPicture(), FinalCrop(), SpotFix(), SignPicture())}
 
 # steps that can sensibly be run again on their own result ("Do It Again"); one-way steps (combining,
 # brightening, taking the stars out or putting them back, signing …) are not on the list
-REPEATABLE = ("balance", "scnr", "core", "curves", "saturation", "colours", "local", "shrink", "star_color", "dust",
+REPEATABLE = ("balance", "scnr", "core", "cluster_core", "curves", "saturation", "colours", "local", "shrink", "star_color", "dust",
               "sky", "denoise", "flip", "final_crop", "spotfix")
 for _k in REPEATABLE:
     TOOLS[_k].repeatable = True
@@ -4634,6 +4689,7 @@ WHY = {
     "stars_back": "Last step: put the stars back over the processed image.",
     "curves": "Now shape the tones: a little contrast or lifting the faint parts makes a big difference.",
     "saturation": "Bring the colours out - the sky is protected from colour noise.",
+    "cluster_core": "A star cluster: lower the blended glow of its centre so the stars in it show.",
     "colours": "Optional: bring out (or calm) one colour at a time - e.g. the blue of OIII next to the red of Ha.",
     "ha_glow": "You have an Ha image with your RGB - add its glow to the red channel before combining.",
 }
@@ -4676,8 +4732,7 @@ TYPE_WHY = {
                          "if the core already shows its detail."),
     ("comet", "sky"): "A comet: a darker, even sky lets the faint tail show.",
     ("star cluster", "core"): ("A star cluster: its bright centre is many overlapping stars, not a burnt-out glow - "
-                               "taming it tends to leave dark holes between the stars. Use it only if the centre "
-                               "is a solid white blob."),
+                               "taming it smudges them. Use 'Resolve the Cluster Core' instead."),
     ("comet", "comet_tail"): "A comet: take away some of the round glow of the head so the tail stands out.",
     ("comet", "comet_jets"): "A comet: bring out jets and shells near the nucleus (best with the stars out).",
 }
@@ -4697,6 +4752,8 @@ def workflow(s: State) -> list:
     if target_type(s) == "comet" and "stretch" in steps:
         i = steps.index("stretch") + 1
         steps[i:i] = ["comet_tail", "comet_jets"]
+    if target_type(s) == "star cluster" and "curves" in steps:
+        steps.insert(steps.index("curves") + 1, "cluster_core")          # a globular's centre: resolve it
     if target_type(s) == "planetary nebula" and "core" in steps and "curves" in steps:
         # a planetary's ring is tamed after Curves (whose contrast would make it white again), before Saturation
         steps.remove("core")
@@ -5096,6 +5153,7 @@ def export(s: State, base: Path, formats=("tif", "jpg"), save_rgb8=None, credit=
 # ==========================================================================
 
 PI_EQUIVALENT = {
+    "cluster_core": "star mask + HDRMultiscaleTransform (or CurvesTransformation) on the cluster's glow",
     "combine": "ChannelCombination (RGB / SHO / HOO) or LRGBCombination - or PixelMath for custom palettes",
     "palette": "Split channels (Ha = R, OIII = (G+B)/2), then PixelMath / ChannelCombination for HOO, Foraxx ...",
     "balance": "SpectrophotometricColorCalibration (SPCC) - plate solve first (ImageSolver); "

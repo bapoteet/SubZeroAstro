@@ -605,6 +605,28 @@ def run(app, out_dir: Path) -> int:
     check(_gv5.label == "Cluster glow warm white" and _gc5[2] < _gc5[0] and _gc5[1] > 0.9 * _gc5[0],
           f"a star cluster's glow is balanced to a warm white (was R 0.78 G 0.69 B 1.00, now "
           f"R {_gc5[0]:.2f} G {_gc5[1]:.2f} B {_gc5[2]:.2f})")
+    # a globular's core: the blended glow between its stars is lowered, the stars kept (M28's core was a bright haze)
+    _qy, _qx = np.mgrid[:600, :600].astype(np.float32)
+    _qglow = 0.6 * np.exp(-((_qx - 300) ** 2 + (_qy - 300) ** 2) / (2 * 60 ** 2))
+    _qst = np.zeros((600, 600), np.float32)
+    _qr = np.random.default_rng(12)
+    for _ in range(500):
+        _x, _y = _qr.uniform(10, 590), _qr.uniform(10, 590)
+        _y0, _x0 = int(_y) - 6, int(_x) - 6
+        _qst[_y0:_y0 + 13, _x0:_x0 + 13] += 0.3 * np.exp(-((_qx[_y0:_y0 + 13, _x0:_x0 + 13] - _x) ** 2 +
+                                                           (_qy[_y0:_y0 + 13, _x0:_x0 + 13] - _y) ** 2) / (2 * 1.5 ** 2))
+    _qimg = np.clip(0.05 + _qglow + _qst, 0, 1)
+    _qs = _fnc.State(rgb=np.stack([_qimg] * 3).astype(np.float32), kind="mono_rgb", target="M28", linear=False,
+                     done=["combine", "balance", "stretch", "curves"])
+    _qv = next(v for v in _fnc.TOOLS["cluster_core"].variants(_qs) if v.recommended)
+    _qo = _fnc.TOOLS["cluster_core"].apply(_qs, _qv.params).rgb[0]
+    _qc = (np.abs(_qx - 300) < 25) & (np.abs(_qy - 300) < 25)
+    _qglow_after = float(np.median(_qo[_qc]))
+    _qstar = float(np.mean((_qo - _fnc.TOOLS["cluster_core"].glow(_qo[None])[0])[_qc & (_qst > 0.2)]))
+    _qnext = dict((t.key, st) for t, st in _fnc.workflow(_qs)).get("cluster_core")
+    check(_qglow_after < 0.45 and _qstar > 0.2 and _qnext == "next",
+          f"Resolve the Cluster Core lowers a globular's blended glow (core {float(np.median(_qimg[_qc])):.2f} -> "
+          f"{_qglow_after:.2f}) and keeps its stars ({_qstar:.2f} above the glow); recommended for a star cluster")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
