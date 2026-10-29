@@ -2717,12 +2717,25 @@ def run(app, out_dir: Path) -> int:
         fw.sign_corner.setCurrentText("Bottom right")          # back to the corner for the next check
         fw._sign_changed()
         QApplication.processEvents()
+        _sig_params = dict(fw.current_params())
+        _sig_pre = fw.state.rgb.copy()
         fw.apply_choice()
         QApplication.processEvents()
         h_, w_ = fw.state.rgb.shape[1:]
         corner_ = (fw.state.rgb[:, int(h_ * 0.75):, int(w_ * 0.5):] - before_sig[:, int(h_ * 0.75):, int(w_ * 0.5):])
         top_ = (fw.state.rgb[:, :int(h_ * 0.5), :] - before_sig[:, :int(h_ * 0.5), :])
         _tz = np.argwhere(np.abs(top_).max(0) > 0)
+        if len(_tz):
+            try:
+                from PySide6.QtGui import QImage
+                _dimg = np.clip(np.abs(fw.state.rgb - before_sig).max(0) * 20, 0, 1)
+                _qi = QImage((_dimg * 255).astype(np.uint8).copy().data, _dimg.shape[1], _dimg.shape[0],
+                             _dimg.shape[1], QImage.Format_Grayscale8)
+                _qi.save(str(out_dir / "21c_signature_diff.png"))
+                log(f"signature diagnostics: params {_sig_params}; change before the drag/apply "
+                    f"{float(np.abs(_sig_pre - before_sig).max()):.4f}")
+            except Exception as _e:  # noqa: BLE001
+                log(f"signature diagnostics failed: {_e}")
         check("signature" in fw.state.done and float(abs(corner_).max()) > 0.2 and float(abs(top_).max()) == 0.0,
               f"the signature is drawn in the bottom-right corner only (corner change {float(abs(corner_).max()):.3f}, "
               f"top change {float(abs(top_).max()):.4f}"
