@@ -2707,8 +2707,12 @@ def run(app, out_dir: Path) -> int:
         h_, w_ = fw.state.rgb.shape[1:]
         corner_ = (fw.state.rgb[:, int(h_ * 0.75):, int(w_ * 0.5):] - before_sig[:, int(h_ * 0.75):, int(w_ * 0.5):])
         top_ = (fw.state.rgb[:, :int(h_ * 0.5), :] - before_sig[:, :int(h_ * 0.5), :])
+        _tz = np.argwhere(np.abs(top_).max(0) > 0)
         check("signature" in fw.state.done and float(abs(corner_).max()) > 0.2 and float(abs(top_).max()) == 0.0,
-              "the signature is drawn in the bottom-right corner only")
+              f"the signature is drawn in the bottom-right corner only (corner change {float(abs(corner_).max()):.3f}, "
+              f"top change {float(abs(top_).max()):.4f}"
+              + (f" at rows {_tz[:, 0].min()}-{_tz[:, 0].max()}, cols {_tz[:, 1].min()}-{_tz[:, 1].max()} of {h_}x{w_}"
+                 if len(_tz) else "") + f"; steps end {fw.state.done[-3:]})")
         # flipping / turning a signed picture keeps the signature the right way round, in its place
         _nsig = len(fw.project.steps)
         _sigp = dict(fw.project.steps[-1]["params"])
