@@ -1650,8 +1650,8 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0, keep=0.0) -> np
 def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_stars: int = 40) -> list:
     """Small leftover star cores star removal left in the starless picture (a close double star, or a core in
     one colour only - the red dot on M27), where no painted square is to be cleaned (often inside bright
-    nebula). Looked for at the bright stars' places, and at star-like peaks of the starless picture itself (a
-    star StarXTerminator left in whole). A core is a compact bump clearly above its close surroundings and the
+    nebula). Looked for at the bright stars' places only - a compact peak elsewhere may be a whole star star
+    removal left in, or a small emission knot (an HII region in a galaxy), which must stay. A core is a compact bump clearly above its close surroundings and the
     grain, with no broad bump around it (so nebula structure is not taken for one). Returns [(fx, fy, fr)] as
     fractions of the picture's width/height and width (radius of the patch)."""
     c, h, w = starless.shape
@@ -1682,15 +1682,6 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
         rcs.append(rc)
         cands.append((cy, cx, rc, True))
     rc0 = float(np.median(rcs)) if rcs else 2.5
-    # star-like peaks left in the starless picture itself (each colour): compact, far above the grain
-    for k in range(c):
-        P, fp = _small_plane(starless[k].astype(np.float32), 2400)
-        hp = P - _blur(P, max(2.0, 3 * rc0 / fp))
-        nz = float(np.median(np.abs(hp - np.median(hp)))) * 1.4826 + 1e-12
-        lm = (hp >= SpotFix._minmax(hp, 3, np.max) - 1e-12) & (hp > 12 * nz)
-        py, px = np.nonzero(lm)
-        for j in np.argsort(-hp[py, px])[:60]:
-            cands.append((int(py[j] * fp + fp // 2), int(px[j] * fp + fp // 2), rc0, False))
     out, taken = [], []
     s_noise = float(np.median(np.abs(Ssm - np.median(Ssm)))) * 1.4826 + 1e-12
     for cy, cx, rc, at_star in cands:
@@ -1726,12 +1717,6 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
                 half = (P - base > 0.5 * pk_) & (d <= 3 * rc)
                 if pk_ > 0 and np.sqrt(half.sum() / np.pi) <= 1.3 * rc:
                     found = True
-        if found and not at_star:
-            # a peak with no star of the stars image under it may be a whole star star removal left in: that
-            # stays (removing it would lose the star) - unless it is in one colour only, which no star is
-            y_, x_ = min(Ssm.shape[0] - 1, cy // f), min(Ssm.shape[1] - 1, cx // f)
-            ex = sorted(excs, reverse=True)
-            found = c == 3 and ex[0] > 3 * max(ex[1], 1e-12)
         if found:
             taken.append((cy, cx))
             out.append((cx / w, cy / h, 2.2 * rc / w))

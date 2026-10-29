@@ -481,15 +481,15 @@ def run(app, out_dir: Path) -> int:
     check(len(_dfound) == 1 and not _dnone and _dleft < 0.006 and float(np.abs(_dout - _dclean)[:, :, :300].max()) == 0,
           f"Clean Bright-Star Leftovers: a small leftover star core in one colour inside nebula (the red dot on "
           f"M27) is found and removed (left {_dleft:.4f} of 0.04); nebula without a dot is left alone")
-    # ... also a one-colour dot with no star under it (StarXTerminator moved the star, left a coloured core); a whole
-    # white star left in the starless picture and a small elongated galaxy stay (removing them would lose them)
+    # ... and only at stars' places: a whole star left in the starless picture, a small galaxy and a small
+    # one-colour emission knot (an HII region in a galaxy) are kept
     _o = _dclean.copy()
     _o[0] += 0.05 * np.exp(-((_dx2 - 500) ** 2 + (_dy2 - 280) ** 2) / (2 * 1.8 ** 2))
     _o += 0.05 * np.exp(-((_dx2 - 200) ** 2 + (_dy2 - 400) ** 2) / (2 * 1.8 ** 2))
     _o += 0.03 * np.exp(-(((_dx2 - 650) / 9) ** 2 + ((_dy2 - 150) / 3.5) ** 2) / 2)
-    _of = [(round(a * 800), round(b * 600)) for a, b, _c in _fnc.find_leftover_cores(_o, _dst2)]
-    check(_of == [(500, 280)], f"Clean Bright-Star Leftovers: a one-colour dot with no star under it is found; a whole "
-                               f"star left in the starless picture and a small galaxy are kept ({_of})")
+    _of = _fnc.find_leftover_cores(_o, _dst2)
+    check(not _of, f"Clean Bright-Star Leftovers keeps a whole star left in the starless picture, a small galaxy and "
+                   f"an emission knot ({len(_of)} taken)")
     # Colour Intensity: narrowband (or already very colourful) data gets 'Slight', ordinary colour data 'Rich'
     _cy3, _cx3 = np.mgrid[:200, :200].astype(np.float32)
     _cneb = 0.1 + 0.5 * np.exp(-((_cx3 - 100) ** 2 + (_cy3 - 100) ** 2) / (2 * 40 ** 2))
