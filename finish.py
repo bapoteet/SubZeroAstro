@@ -3253,12 +3253,17 @@ class Saturation(Tool):
     def variants(self, s):
         sky = float(np.median(_lum(s.rgb)[::3, ::3]))
         col = self.colourfulness(s.rgb, sky)
-        # narrowband (or anything already this colourful) gets 'Slight': a stronger boost on top of mapped
-        # filter colours looks neon; ordinary colour data gets 'Rich'
-        strong = s.kind in NARROWBAND_KINDS or col >= 0.45
-        pick = 1 if strong else 2
-        why = (f"suggested: the colours are already strong ({'narrowband' if s.kind in NARROWBAND_KINDS else 'colourful'}"
-               f" data, {col:.0%} colour) - more looks unnatural" if strong else "")
+        typ = target_type(s)
+        nb = s.kind in NARROWBAND_KINDS
+        # the suggested boost by kind of target and data (SAT_DEFAULT); whatever the table says, data that is
+        # already this colourful gets no more than 'Slight' - mapped filter colours plus 'Rich' look neon
+        pick = SAT_DEFAULT.get((typ, nb), SAT_DEFAULT[("unknown", nb)])
+        strong = col >= 0.45
+        if strong:
+            pick = min(pick, 1)
+        names = ("Calmer", "Slight", "Rich", "Vivid", "Bold")
+        why = (f"suggested for {targets_describe(typ)} with {'narrowband' if nb else 'colour (broadband)'} data"
+               + (f"; the colours are already strong ({col:.0%})" if strong else ""))
         return [Variant(n, {"amount": a, "protect": 0.8, "sky": sky}, why if i == pick else "", i == pick)
                 for i, (n, a) in enumerate((("Calmer", 0.85), ("Slight", 1.15), ("Rich", 1.35), ("Vivid", 1.6),
                                             ("Bold", 1.9)))]
@@ -4407,6 +4412,25 @@ WHY = {
 
 
 # What kind of object it is changes only what is RECOMMENDED - every step stays available
+# Colour Intensity's suggested strength (0 Calmer, 1 Slight, 2 Rich, 3 Vivid, 4 Bold) by kind of target and
+# (narrowband?) - tuned on well-calibrated data (Telescope Live) so defaults alone give a natural picture:
+# galaxies and broadband nebulae start with weak colour and take 'Rich'; narrowband colours come out strong once
+# mapped, and planetaries, clusters (the star colours have their own step) and comets look neon with more
+SAT_DEFAULT = {
+    ("galaxy", False): 2, ("galaxy", True): 1,
+    ("nebula", False): 2, ("nebula", True): 1,
+    ("planetary nebula", False): 1, ("planetary nebula", True): 1,
+    ("star cluster", False): 1, ("star cluster", True): 1,
+    ("comet", False): 1, ("comet", True): 1,
+    ("unknown", False): 2, ("unknown", True): 1,
+}
+
+
+def targets_describe(typ: str) -> str:
+    import targets
+    return targets.DESCRIBE.get(typ) or "this target"
+
+
 TYPE_TUNING = {
     "galaxy": {"recommend": {"local", "core"}, "optional": set()},
     "planetary nebula": {"recommend": {"core"}, "optional": set()},

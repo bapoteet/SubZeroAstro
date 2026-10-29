@@ -479,13 +479,16 @@ def run(app, out_dir: Path) -> int:
     _cy3, _cx3 = np.mgrid[:200, :200].astype(np.float32)
     _cneb = 0.1 + 0.5 * np.exp(-((_cx3 - 100) ** 2 + (_cy3 - 100) ** 2) / (2 * 40 ** 2))
     _sat = []
-    for _kind, _tint in (("mono_nb", (1.0, 0.45, 0.15)), ("osc", (1.0, 0.9, 0.8)), ("osc", (1.0, 0.35, 0.1))):
+    for _kind, _tint, _tgt in (("mono_nb", (1.0, 0.45, 0.15), "NGC 7000"), ("osc", (1.0, 0.9, 0.8), "M31"),
+                               ("osc", (1.0, 0.35, 0.1), "M42"), ("mono_lrgb", (1.0, 0.9, 0.8), "M27"),
+                               ("osc", (1.0, 0.9, 0.8), "M45")):
         _cs = _fnc.State.__new__(_fnc.State)
-        _cs.kind, _cs.linear = _kind, False
+        _cs.kind, _cs.linear, _cs.target = _kind, False, _tgt
         _cs.rgb = np.stack([_cneb * t for t in _tint]).astype(np.float32)
         _sat.append(next(v.label for v in _fnc.TOOLS["saturation"].variants(_cs) if v.recommended))
-    check(_sat == ["Slight", "Rich", "Slight"], f"Colour Intensity suggests 'Slight' for narrowband or already "
-                                                f"strong colours, 'Rich' for ordinary colour data ({_sat})")
+    check(_sat == ["Slight", "Rich", "Slight", "Slight", "Slight"],
+          f"Colour Intensity's suggestion follows the target and the data: narrowband, already strong colours, "
+          f"planetaries and clusters 'Slight'; a galaxy in colour 'Rich' ({_sat})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
