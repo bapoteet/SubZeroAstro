@@ -1265,6 +1265,22 @@ def _star_colour_factors(img: np.ndarray):
     return float(np.median(rs)), float(np.median(bs)), len(rs)
 
 
+def cluster_glow_colour(rgb: np.ndarray, bgs) -> "tuple | None":
+    """The colour of a star cluster's integrated glow above the sky: (R, G, B) of its brightest smooth area, or None."""
+    if rgb is None or rgb.shape[0] != 3:
+        return None
+    small, f = _small_plane(_lum(rgb).astype(np.float32), 400)
+    sm = _blur(small, 4.0)
+    cy, cx = np.unravel_index(int(np.argmax(sm)), sm.shape)
+    h, w = rgb.shape[1:]
+    r = max(8, min(h, w) // 40)
+    y0, y1, x0, x1 = max(0, cy * f - r), min(h, cy * f + r), max(0, cx * f - r), min(w, cx * f + r)
+    ex = [float(np.median(rgb[k, y0:y1, x0:x1])) - float(bgs[k]) for k in range(3)]
+    if min(ex) <= 0:
+        return None
+    return tuple(ex)
+
+
 class BalanceColours(Tool):
     key = "balance"
 
@@ -1297,7 +1313,20 @@ class BalanceColours(Tool):
         else:
             out[0].recommended = True
             out[0].note += " (not enough clean stars to judge star colour)"
+        if target_type(s) == "star cluster":
+            glow = cluster_glow_colour(s.rgb, bgs)
+            if glow is not None:
+                # a globular's glow is the light of its old red and yellow stars: a warm white. Balanced on its
+                # stars (or the sky alone) M28's centre came out blue-violet
+                r_, g_, b_ = glow
+                wh = [self.CLUSTER_WARM[0] * g_ / r_, 1.0, self.CLUSTER_WARM[2] * g_ / b_]
+                for v in out:
+                    v.recommended = False
+                out.insert(0, Variant("Cluster glow warm white", {**base, "white": wh},
+                                      "the cluster's own light made a warm white, as its old stars are", True))
         return out
+
+    CLUSTER_WARM = (1.0, 0.95, 0.85)        # R : G : B of a globular cluster's integrated light
 
     def sliders(self, s, params):
         return [Slider("warmth", "Warmth", -1.0, 1.0, params.get("warmth", 0.0), "Cooler (bluer) <-> warmer (redder)"),

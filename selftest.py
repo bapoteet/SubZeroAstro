@@ -593,6 +593,18 @@ def run(app, out_dir: Path) -> int:
         _cl.append((_st1, next(v.label for v in _fnc.TOOLS["curves"].variants(_cls) if v.recommended)))
     check(_cl[0][1] == "Darker background" and _cl[0][0] != _cl[1][0] and _cl[1][1] == "More contrast",
           f"a star cluster gets a gentler stretch and 'Darker background' curves, a galaxy 'Medium' and 'More contrast' ({_cl})")
+    # a star cluster's glow is balanced to a warm white (M28's centre came out blue-violet)
+    _gy4, _gx4 = np.mgrid[:400, :400].astype(np.float32)
+    _gg = 0.3 * np.exp(-((_gx4 - 200) ** 2 + (_gy4 - 200) ** 2) / (2 * 40 ** 2))
+    _gimg = np.stack([0.05 + 0.78 * _gg, 0.05 + 0.69 * _gg, 0.05 + 1.0 * _gg]).astype(np.float32)
+    _gs5 = _fnc.State(rgb=_gimg, kind="mono_rgb", target="M28", linear=True)
+    _gv5 = next(v for v in _fnc.TOOLS["balance"].variants(_gs5) if v.recommended)
+    _go5 = _fnc.TOOLS["balance"].apply(_gs5, _gv5.params).rgb
+    _gc5 = np.array(_fnc.cluster_glow_colour(_go5, [float(np.median(c[:40, :40])) for c in _go5]))
+    _gc5 = _gc5 / _gc5.max()
+    check(_gv5.label == "Cluster glow warm white" and _gc5[2] < _gc5[0] and _gc5[1] > 0.9 * _gc5[0],
+          f"a star cluster's glow is balanced to a warm white (was R 0.78 G 0.69 B 1.00, now "
+          f"R {_gc5[0]:.2f} G {_gc5[1]:.2f} B {_gc5[2]:.2f})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
