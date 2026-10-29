@@ -2337,7 +2337,12 @@ def object_mask(plane: np.ndarray, block: int) -> np.ndarray:
         med = float(np.median(v))
         sig = float(np.median(np.abs(v - med))) * 1.4826 + 1e-9
         m = sm > med + 3 * sig
-        m = _box(m.astype(np.float32), max(2, block // 32)) > 0          # widen: the faint edge of the glow too
+        # stars are not the target (and hardly move a block median): opening - shrink away everything star-sized,
+        # grow back what is left - keeps the nebula / galaxy and its glow, drops the stars (M27's dense star field
+        # otherwise covered over half the picture)
+        re = 4
+        core = _box(m.astype(np.float32), re) > 0.999
+        m = _box(core.astype(np.float32), re + max(2, block // 32)) > 0  # grown back and widened: the glow's edge
     if m.mean() > 0.6:                    # the whole field is nebula: nothing to tell sky from target by
         return np.zeros(sub.shape, bool)
     return m

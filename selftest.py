@@ -475,6 +475,15 @@ def run(app, out_dir: Path) -> int:
     check(len(_dfound) == 1 and not _dnone and _dleft < 0.006 and float(np.abs(_dout - _dclean)[:, :, :300].max()) == 0,
           f"Clean Bright-Star Leftovers: a small leftover star core in one colour inside nebula (the red dot on "
           f"M27) is found and removed (left {_dleft:.4f} of 0.04); nebula without a dot is left alone")
+    # ... also a one-colour dot with no star under it (StarXTerminator moved the star, left a coloured core); a whole
+    # white star left in the starless picture and a small elongated galaxy stay (removing them would lose them)
+    _o = _dclean.copy()
+    _o[0] += 0.05 * np.exp(-((_dx2 - 500) ** 2 + (_dy2 - 280) ** 2) / (2 * 1.8 ** 2))
+    _o += 0.05 * np.exp(-((_dx2 - 200) ** 2 + (_dy2 - 400) ** 2) / (2 * 1.8 ** 2))
+    _o += 0.03 * np.exp(-(((_dx2 - 650) / 9) ** 2 + ((_dy2 - 150) / 3.5) ** 2) / 2)
+    _of = [(round(a * 800), round(b * 600)) for a, b, _c in _fnc.find_leftover_cores(_o, _dst2)]
+    check(_of == [(500, 280)], f"Clean Bright-Star Leftovers: a one-colour dot with no star under it is found; a whole "
+                               f"star left in the starless picture and a small galaxy are kept ({_of})")
     # Colour Intensity: narrowband (or already very colourful) data gets 'Slight', ordinary colour data 'Rich'
     _cy3, _cx3 = np.mgrid[:200, :200].astype(np.float32)
     _cneb = 0.1 + 0.5 * np.exp(-((_cx3 - 100) ** 2 + (_cy3 - 100) ** 2) / (2 * 40 ** 2))
@@ -747,6 +756,22 @@ def run(app, out_dir: Path) -> int:
     check(0.03 < _om.mean() < 0.4 and abs(_ob1 - 500) < 15 and _ob0 > 600,
           f"Even out the sky: a bright target is left out of the sky estimate (sky under it {_ob0:.0f} -> {_ob1:.0f}, "
           f"true 500; {100 * _om.mean():.0f}% of the picture left out)")
+    # ... also in a dense star field: the stars are not taken for the target (M27: the mask covered over half the
+    # picture in Ha and the whole of it - so none - in SII)
+    _sfr = np.random.default_rng(6)
+    _sy, _sx = np.mgrid[:1200, :1600].astype(np.float32)
+    _srr = np.hypot(_sx - 800, _sy - 600)
+    _sim = 500 + 300 * np.exp(-(_srr / 110) ** 2) + _sfr.normal(0, 8, (1200, 1600))
+    for _ in range(1500):
+        _x, _y, _f = _sfr.uniform(0, 1600), _sfr.uniform(0, 1200), _sfr.uniform(30, 3000)
+        _x0, _y0 = int(_x), int(_y)
+        _sl = (slice(max(0, _y0 - 6), _y0 + 7), slice(max(0, _x0 - 6), _x0 + 7))
+        _sim[_sl] += _f * np.exp(-((_sx[_sl] - _x) ** 2 + (_sy[_sl] - _y) ** 2) / (2 * 1.8 ** 2))
+    _smk = _stk.object_mask(_sim.astype(np.float32), 100)
+    _sbg = float(_stk.background_map(_sim.astype(np.float32), 100, _smk)[600, 800])
+    check(0.01 < _smk.mean() < 0.25 and abs(_sbg - 500) < 25,
+          f"Even out the sky in a dense star field: the target is left out, the stars are not "
+          f"({100 * _smk.mean():.0f}% left out; sky under the target {_sbg:.0f}, true 500)")
     # --- 2x drizzle: undersampled (blocky) stars from dithered frames come out finer than in the regular stack
     _dr = np.random.default_rng(31)
     _DH, _DW = 200, 260

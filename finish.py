@@ -1650,7 +1650,8 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0, keep=0.0) -> np
 def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_stars: int = 40) -> list:
     """Small leftover star cores star removal left in the starless picture (a close double star, or a core in
     one colour only - the red dot on M27), where no painted square is to be cleaned (often inside bright
-    nebula). A core is a compact bump at a bright star's place, clearly above its close surroundings and the
+    nebula). Looked for at the bright stars' places, and at star-like peaks of the starless picture itself (a
+    star StarXTerminator left in whole). A core is a compact bump clearly above its close surroundings and the
     grain, with no broad bump around it (so nebula structure is not taken for one). Returns [(fx, fy, fr)] as
     fractions of the picture's width/height and width (radius of the patch)."""
     c, h, w = starless.shape
@@ -1662,11 +1663,10 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
     pk = sm >= SpotFix._minmax(sm, 7, np.max) - 1e-12
     ys, xs = np.nonzero(pk & (sm > 0))
     order = np.argsort(-sm[ys, xs])[:max_stars]
-    out = []
+    cands = []                                     # (cy, cx, rc)
+    rcs = []
     for i in order:
         cy0, cx0 = int(ys[i] * f + f // 2), int(xs[i] * f + f // 2)
-        if any(a0 <= cx0 < a1 and b0 <= cy0 < b1 for a0, b0, a1, b1 in skip):
-            continue
         q = max(4, f)
         y0, y1, x0, x1 = max(0, cy0 - q), min(h, cy0 + q + 1), max(0, cx0 - q), min(w, cx0 + q + 1)
         win = S[y0:y1, x0:x1]
@@ -1677,27 +1677,63 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
         peak = float(S[cy, cx])
         if peak <= 0:
             continue
-        R0 = 24
-        a0, a1, b0, b1 = max(0, cy - R0), min(h, cy + R0 + 1), max(0, cx - R0), min(w, cx + R0 + 1)
-        sw = S[a0:a1, b0:b1]
+        sw = S[max(0, cy - 24):cy + 25, max(0, cx - 24):cx + 25]
         rc = max(2.0, float(np.sqrt((sw > 0.5 * peak).sum() / np.pi)))      # the star's core radius
+        rcs.append(rc)
+        cands.append((cy, cx, rc, True))
+    rc0 = float(np.median(rcs)) if rcs else 2.5
+    # star-like peaks left in the starless picture itself (each colour): compact, far above the grain
+    for k in range(c):
+        P, fp = _small_plane(starless[k].astype(np.float32), 2400)
+        hp = P - _blur(P, max(2.0, 3 * rc0 / fp))
+        nz = float(np.median(np.abs(hp - np.median(hp)))) * 1.4826 + 1e-12
+        lm = (hp >= SpotFix._minmax(hp, 3, np.max) - 1e-12) & (hp > 12 * nz)
+        py, px = np.nonzero(lm)
+        for j in np.argsort(-hp[py, px])[:60]:
+            cands.append((int(py[j] * fp + fp // 2), int(px[j] * fp + fp // 2), rc0, False))
+    out, taken = [], []
+    s_noise = float(np.median(np.abs(Ssm - np.median(Ssm)))) * 1.4826 + 1e-12
+    for cy, cx, rc, at_star in cands:
+        if any(a0 <= cx < a1 and b0 <= cy < b1 for a0, b0, a1, b1 in skip):
+            continue
+        if any((cy - ty) ** 2 + (cx - tx) ** 2 < (3 * rc) ** 2 for ty, tx in taken):
+            continue
         Rw = int(6 * rc) + 2
         a0, a1, b0, b1 = max(0, cy - Rw), min(h, cy + Rw + 1), max(0, cx - Rw), min(w, cx + Rw + 1)
         yy, xx = np.mgrid[a0:a1, b0:b1]
+        # the brightest pixel near the candidate in any colour is its centre
+        P3 = starless[:, a0:a1, b0:b1].astype(np.float64)
+        near = np.hypot(yy - cy, xx - cx) <= max(2.0, rc)
+        if near.any():
+            kk = np.argmax(np.where(near[None], P3 - np.median(P3, axis=(1, 2), keepdims=True), -np.inf))
+            _k, iy, ix = np.unravel_index(int(kk), P3.shape)
+            cy, cx = a0 + iy, b0 + ix
         d = np.hypot(yy - cy, xx - cx)
         core_m, ann, outer = d <= rc, (d > 2 * rc) & (d <= 3.5 * rc), (d > 3.5 * rc) & (d <= 5.5 * rc)
         if not (core_m.any() and ann.sum() > 8 and outer.sum() > 8):
             continue
-        found = False
+        found, excs = False, []
         for k in range(c):
-            P = starless[k, a0:a1, b0:b1].astype(np.float64)
+            P = P3[k]
             exc = float(P[core_m].mean() - np.median(P[ann]))
             broad = abs(float(np.median(P[ann]) - np.median(P[outer])))
             gr = SpotFix._grain(P, ann | outer) + 1e-12
+            excs.append(max(exc, 0.0))
             if exc > 6 * gr and broad < 0.35 * exc:
-                found = True
-                break
+                # no bigger than a star's core: a small galaxy or a nebula knot is wider (and often elongated)
+                base = float(np.median(P[ann]))
+                pk_ = float(P[d <= rc].max()) - base
+                half = (P - base > 0.5 * pk_) & (d <= 3 * rc)
+                if pk_ > 0 and np.sqrt(half.sum() / np.pi) <= 1.3 * rc:
+                    found = True
+        if found and not at_star:
+            # a peak with no star of the stars image under it may be a whole star star removal left in: that
+            # stays (removing it would lose the star) - unless it is in one colour only, which no star is
+            y_, x_ = min(Ssm.shape[0] - 1, cy // f), min(Ssm.shape[1] - 1, cx // f)
+            ex = sorted(excs, reverse=True)
+            found = c == 3 and ex[0] > 3 * max(ex[1], 1e-12)
         if found:
+            taken.append((cy, cx))
             out.append((cx / w, cy / h, 2.2 * rc / w))
     return out
 
