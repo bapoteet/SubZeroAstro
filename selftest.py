@@ -627,6 +627,19 @@ def run(app, out_dir: Path) -> int:
     check(_qglow_after < 0.45 and _qstar > 0.2 and _qnext == "next",
           f"Resolve the Cluster Core lowers a globular's blended glow (core {float(np.median(_qimg[_qc])):.2f} -> "
           f"{_qglow_after:.2f}) and keeps its stars ({_qstar:.2f} above the glow); recommended for a star cluster")
+    # the colour-preserving stretch keeps a bright red star red to its centre (its red was cut first and the centre
+    # turned yellow-white - M28)
+    _ry, _rx = np.mgrid[:200, :200].astype(np.float32)
+    _rst = np.exp(-((_rx - 100) ** 2 + (_ry - 100) ** 2) / (2 * 2.0 ** 2))
+    _rimg = (np.stack([0.02 + 3.0 * _rst, 0.02 + 1.6 * _rst, 0.02 + 1.0 * _rst])
+             + np.random.default_rng(0).normal(0, 0.002, (3, 200, 200))).astype(np.float32)
+    _rs6 = _fnc.State(rgb=_rimg, kind="osc", target="M28", linear=True)
+    _rv6 = next(v for v in _fnc.TOOLS["stretch"].variants(_rs6) if v.recommended)
+    _ro6 = _fnc.TOOLS["stretch"].apply(_rs6, _rv6.params).rgb
+    _rc6, _rr6 = _ro6[:, 100, 100], _ro6[:, 100, 103]
+    check(abs(float(_rc6[1] / _rc6[0]) - float(_rr6[1] / _rr6[0])) < 0.08 and float(_rc6[2]) < 0.6,
+          f"a bright red star stays red to its centre when brightened (centre {np.round(_rc6, 2).tolist()}, "
+          f"edge {np.round(_rr6, 2).tolist()})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

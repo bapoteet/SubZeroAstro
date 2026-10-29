@@ -2219,7 +2219,10 @@ class Brighten(Tool):
             lo, hi, med = stt[0] if linked else stt[c]
             if shifts:
                 plane = plane + np.float32(shifts[c])
-            n = np.clip((plane - lo) / (hi - lo), 0, 1)
+            n = (plane - lo) / (hi - lo)
+            # colour-preserving: nothing is cut at the top per colour before the colours are kept together - a bright
+            # red star's red was cut first and its centre turned yellow-white (M28); the top is handled after
+            n = np.clip(n, 0, None) if method == "colour" else np.clip(n, 0, 1)
             nm = min(max((med - lo) / (hi - lo), 1e-6), 0.5)
             if method == "auto":
                 t = params["target"]
