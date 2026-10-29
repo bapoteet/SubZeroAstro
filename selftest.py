@@ -504,6 +504,16 @@ def run(app, out_dir: Path) -> int:
     check(_gsc == [("None needed", True), ("75%", False)],
           f"Remove Green Cast suggests nothing on balanced colour data (no pink cast) and removes a real green "
           f"cast ({_gsc})")
+    # a globular cluster's core is overlapping stars: Tame Bright Core is only offered (it punched dark holes in
+    # M28), a galaxy still gets it recommended
+    _wf = {}
+    for _tg in ("M28", "M51"):
+        _ws = _fnc.State(rgb=np.clip(np.random.default_rng(0).normal(0.2, 0.02, (3, 64, 64)), 0, 1).astype(np.float32),
+                         kind="mono_lrgb", target=_tg, done=["combine", "balance", "scnr", "stretch"], linear=False)
+        _wf[_tg] = dict((t.key, st) for t, st in _fnc.workflow(_ws)).get("core")
+    check(_wf == {"M28": "optional", "M51": "next"},
+          f"Tame Bright Core is only offered for a star cluster (dark holes between the core's stars), "
+          f"recommended for a galaxy ({_wf})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

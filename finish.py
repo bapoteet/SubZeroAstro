@@ -4464,7 +4464,9 @@ def targets_describe(typ: str) -> str:
 TYPE_TUNING = {
     "galaxy": {"recommend": {"local", "core"}, "optional": set()},
     "planetary nebula": {"recommend": {"core"}, "optional": set()},
-    "star cluster": {"recommend": set(), "optional": {"stars_out", "shrink", "local"}},
+    # a globular's core is thousands of overlapping stars, not a burnt-out glow: Tame Bright Core punches dark
+    # holes between them (M28), so it is only offered
+    "star cluster": {"recommend": set(), "optional": {"stars_out", "shrink", "local", "core"}},
     "comet": {"recommend": {"sky"}, "optional": {"stars_out", "shrink", "local"}},
 }
 TYPE_WHY = {
@@ -4473,6 +4475,9 @@ TYPE_WHY = {
                          "burnt out. Tame it now, before Curves and Saturation brighten it further - or Skip it "
                          "if the core already shows its detail."),
     ("comet", "sky"): "A comet: a darker, even sky lets the faint tail show.",
+    ("star cluster", "core"): ("A star cluster: its bright centre is many overlapping stars, not a burnt-out glow - "
+                               "taming it tends to leave dark holes between the stars. Use it only if the centre "
+                               "is a solid white blob."),
     ("comet", "comet_tail"): "A comet: take away some of the round glow of the head so the tail stands out.",
     ("comet", "comet_jets"): "A comet: bring out jets and shells near the nucleus (best with the stars out).",
 }
