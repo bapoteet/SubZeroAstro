@@ -2122,9 +2122,13 @@ def run(app, out_dir: Path) -> int:
                 QApplication.processEvents()
                 r2 = fw.tool is not None and fw.tool.key == "dust" and len(fw.project.steps) == n0 + 2
                 fw.done_tool()
+                _nx = F.next_step(fw.state)
                 check(r1 and r2 and (fw.tool is None or fw.tool.key == "stretch") and "dust" in fw.state.done
-                      and F.next_step(fw.state) is not None and F.next_step(fw.state).key == "stretch",
-                      "Mote Buster can be run again on the fixed picture; ✓ Applied – Next Step opens the next step")
+                      and _nx is not None and _nx.key == "stretch",
+                      "Mote Buster can be run again on the fixed picture; ✓ Applied – Next Step opens the next step"
+                      + ("" if (r1 and r2 and _nx is not None and _nx.key == "stretch") else
+                         f" (r1 {r1}, r2 {r2}, tool {fw.tool.key if fw.tool else None}, next {_nx.key if _nx else None}, "
+                         f"done {fw.state.done})"))
                 again_ok = fw.btn_again.isVisibleTo(fw) and "Mote Buster" in fw.btn_again.toolTip()
                 fw.do_again()
                 QApplication.processEvents()
