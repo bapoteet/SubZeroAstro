@@ -1939,6 +1939,34 @@ def _round_star_mask(R: np.ndarray, noise: float, limit: int = 4000) -> np.ndarr
     return np.maximum(m, _blur(m, 1.5))
 
 
+def _label(m: np.ndarray):
+    """Connected areas of a boolean mask (4-neighbours): (labels, count) - numpy only (no scipy in the app)."""
+    h, w = m.shape
+    parent = np.arange(h * w + 1, dtype=np.int64)
+    idx = np.zeros((h, w), np.int64)
+    idx[m] = np.arange(1, int(m.sum()) + 1)
+    lab = np.zeros(h * w + 1, np.int64)
+    n = int(m.sum())
+    par = np.arange(n + 1, dtype=np.int64)
+
+    def find(a):
+        while par[a] != a:
+            par[a] = par[par[a]]
+            a = par[a]
+        return a
+    for a, b in ((idx[:, :-1], idx[:, 1:]), (idx[:-1, :], idx[1:, :])):
+        pa, pb = a[(a > 0) & (b > 0)], b[(a > 0) & (b > 0)]
+        for x, y in zip(pa.tolist(), pb.tolist()):
+            rx, ry = find(x), find(y)
+            if rx != ry:
+                par[max(rx, ry)] = min(rx, ry)
+    roots = np.array([find(i) for i in range(n + 1)], np.int64)
+    uniq, inv = np.unique(roots[1:], return_inverse=True)
+    out = np.zeros((h, w), np.int32)
+    out[m] = inv + 1
+    return out, len(uniq)
+
+
 def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     """Star removal (StarXTerminator) can take a small, bright nebula - a planetary nebula like M57 - for a
     star and put (part of) it in the stars-only image, where no nebula step reaches it and Put Stars Back
@@ -1960,8 +1988,7 @@ def rescue_object(rgb: np.ndarray, stars: np.ndarray):
     box[int(sh * 0.3):int(sh * 0.7), int(sw * 0.3):int(sw * 0.7)] = True   # the target sits near the middle
     # the planetary is ONE blob near the middle, clearly bigger than the biggest star elsewhere: bright stars
     # (with their spikes) also survive the opening, and the Helix's were moved into the nebula image as blobs
-    from scipy import ndimage as _ndi
-    lab, nlab = _ndi.label(m)
+    lab, nlab = _label(m)
     if nlab == 0:
         return rgb, stars, 0.0
     areas = np.bincount(lab.ravel(), minlength=nlab + 1)
