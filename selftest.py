@@ -3607,12 +3607,13 @@ def run(app, out_dir: Path) -> int:
         _bad_t = {k: _tg.classify(k) for k, v in _names_t.items() if _tg.classify(k) != v}
         _wf_neb = F.workflow(F.State(rgb=np.zeros((3, 4, 4), np.float32), kind="osc", target="NGC 7000"))
         _wf_cl = F.workflow(F.State(rgb=np.zeros((3, 4, 4), np.float32), kind="osc", target="M45"))
-        check(not _bad_t and [t.key for t, _ in _wf_neb] == [t.key for t, _ in _wf_cl]
+        check(not _bad_t and [t.key for t, _ in _wf_neb] == [t.key for t, _ in _wf_cl if t.key != "cluster_core"]
+              and "cluster_core" in [t.key for t, _ in _wf_cl]
               and F.target_type(F.State(target="M45")) == "star cluster"
               and "stars_out" in F.TYPE_TUNING["star cluster"]["optional"]
               and "sky" in F.TYPE_TUNING["comet"]["recommend"],
-              f"target types recognised ({_bad_t or 'all right'}); a star cluster keeps every step, with star "
-              "removal made optional")
+              f"target types recognised ({_bad_t or 'all right'}); a star cluster keeps every step (plus Resolve the "
+              "Cluster Core), with star removal made optional")
         # a galaxy gets Tame Bright Core as a recommended step (right after brightening); other targets
         # only when a burnt-out core is found
         _st_g = F.State(rgb=np.full((3, 40, 40), 0.3, np.float32), kind="osc", target="M31", linear=False,
