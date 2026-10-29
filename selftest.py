@@ -3558,7 +3558,8 @@ def run(app, out_dir: Path) -> int:
         import targets as _tg
         _names_t = {"M31": "galaxy", "NGC 7000": "nebula", "M57": "planetary nebula", "M45": "star cluster",
                     "161P/Hartley-IRAS": "comet", "C/2023 A3": "comet", "Elephant's Trunk Nebula": "nebula",
-                    "Whirlpool Galaxy": "galaxy", "Sh2-155": "nebula", "my target": ""}
+                    "Whirlpool Galaxy": "galaxy", "Sh2-155": "nebula", "my target": "", "NGC 1097": "galaxy",
+                    "M83": "galaxy", "NGC 281": "nebula", "C_2025_Panstarrs": "comet", "C2025 PANSTARRS": "comet"}
         _bad_t = {k: _tg.classify(k) for k, v in _names_t.items() if _tg.classify(k) != v}
         _wf_neb = F.workflow(F.State(rgb=np.zeros((3, 4, 4), np.float32), kind="osc", target="NGC 7000"))
         _wf_cl = F.workflow(F.State(rgb=np.zeros((3, 4, 4), np.float32), kind="osc", target="M45"))
