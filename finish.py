@@ -1008,7 +1008,12 @@ class CombineChannels(Tool):
                                "L" not in f or weak_l))
         nb_first = not ({"R", "G", "B"} <= f)          # with RGB too, the broadband mix is the suggestion
         if {"Ha", "OIII", "SII"} <= f:
-            out += [Variant(*PALETTE_INFO[k][:1], {"palette": k}, PALETTE_INFO[k][1], k == "SHO" and nb_first)
+            # a planetary nebula: natural-looking red and teal (Ha red, OIII teal, a little SII in the red), as most
+            # pictures of them are; other targets: the Hubble palette
+            sug = "HOO+S" if target_type(s) == "planetary nebula" else "SHO"
+            out += [Variant(*PALETTE_INFO[k][:1], {"palette": k}, PALETTE_INFO[k][1]
+                            + (" - suggested for a planetary nebula" if (k == sug and sug != "SHO") else ""),
+                            k == sug and nb_first)
                     for k in ("SHO", "FORAXX", "HSO", "HOO+S", "HOO")]
         elif {"Ha", "OIII"} <= f:
             out += [Variant(PALETTE_INFO[k][0], {"palette": k}, PALETTE_INFO[k][1], k == "HOO" and nb_first)
@@ -1282,6 +1287,15 @@ class RemoveGreen(Tool):
     GOLD_PALETTES = ("SHO", "HHO")         # palettes whose green is the Ha
 
     def variants(self, s):
+        if self._narrowband(s) and s.palette == "HSO":
+            # HSO's green is the SII signal, not a cast: taking it away leaves Ha + OIII = purple
+            return ([Variant("None needed", {"amount": 0.0}, "the green here is your SII - removing it turns the "
+                             "picture purple", True)]
+                    + [Variant(f"{int(a * 100)}%", {"amount": a}, "", False) for a in (0.25, 0.5, 0.75, 1.0)])
+        if self._narrowband(s) and s.palette in ("HOO", "HOO+S"):
+            # HOO's green is OIII (with blue it makes the teal): only a light touch, or the teal turns blue
+            return [Variant(f"{int(a * 100)}%", {"amount": a}, "keeps the OIII teal" if a == 0.25 else "", a == 0.25)
+                    for a in (0.25, 0.5, 0.75, 1.0)]
         if self._narrowband(s) and s.palette not in self.GOLD_PALETTES:
             return [Variant(f"{int(a * 100)}%", {"amount": a}, "", a == 1.0) for a in (0.25, 0.5, 0.75, 1.0)]
         if self._narrowband(s):
@@ -1315,6 +1329,8 @@ class RemoveGreen(Tool):
         return float(np.median(g) / max(float(np.median(y[sel])), 1e-6))
 
     def is_optional(self, s):
+        if self._narrowband(s) and s.palette == "HSO":
+            return True
         if self._narrowband(s) or s.rgb is None or not s.is_color:
             return False
         try:

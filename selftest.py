@@ -529,6 +529,17 @@ def run(app, out_dir: Path) -> int:
     check(_wf == {"M28": "optional", "M51": "next"},
           f"Tame Bright Core is only offered for a star cluster (dark holes between the core's stars), "
           f"recommended for a galaxy ({_wf})")
+    # narrowband palettes: a planetary gets 'HOO + SII' (red and teal, like most pictures of them), other targets
+    # the Hubble palette; HSO's green is SII signal (removing it turned M27 purple), HOO's green is the OIII teal
+    _pch = {k: (np.random.default_rng(1).random((64, 64)) * 0.1 + 0.05).astype(np.float32) for k in ("Ha", "OIII", "SII")}
+    _psug = [next(v.label for v in _fnc.TOOLS["combine"].variants(_fnc.State(channels=dict(_pch), kind="mono_nb", target=_t))
+                  if v.recommended) for _t in ("M27", "NGC 7000")]
+    _pgr = [next(v.label for v in _fnc.TOOLS["scnr"].variants(_fnc.State(rgb=np.full((3, 32, 32), 0.3, np.float32),
+                                                                       kind="mono_nb", palette=_p, linear=False))
+                 if v.recommended) for _p in ("HSO", "HOO+S", "SHO")]
+    check(_psug == ["HOO + SII", "Hubble (SHO)"] and _pgr == ["None needed", "25%", "Gold 100%"],
+          f"narrowband: a planetary nebula gets 'HOO + SII', other targets the Hubble palette ({_psug}); Remove Green "
+          f"Cast leaves HSO's SII and HOO's teal alone, turns SHO gold ({_pgr})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
