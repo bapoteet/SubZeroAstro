@@ -2317,23 +2317,61 @@ def sensor_pattern(frames_cal, model_planes, transforms, ks, bgs_list, ref_bg, b
     return pat, int((cnt >= 5).mean() * 100)
 
 
-def background_map(plane: np.ndarray, block: int) -> np.ndarray:
+def object_mask(plane: np.ndarray, block: int) -> np.ndarray:
+    """Where the target and its glow are (and bright stars), on the same 4x-thinned grid background_map
+    samples: anything clearly above the smooth sky, a little widened. Leaving it out of the sky estimate keeps
+    the target out of 'Even out the sky' - otherwise a bright target (a planetary nebula, a galaxy) that is not
+    scaled exactly like the stars leaves block-shaped dark or bright borders around itself in the stack."""
+    sub = np.asarray(plane[::4, ::4], np.float32)
+    m = np.zeros(sub.shape, bool)
+    fin = np.isfinite(sub)
+    if fin.sum() < 100:
+        return m
+    for _ in range(2):
+        bg = background_map(plane, block, m)[::4, ::4][:sub.shape[0], :sub.shape[1]]
+        r = np.where(fin, sub - bg, 0).astype(np.float32)
+        sm = _box(r, 2)
+        v = sm[fin & ~m]
+        if v.size < 100:
+            break
+        med = float(np.median(v))
+        sig = float(np.median(np.abs(v - med))) * 1.4826 + 1e-9
+        m = sm > med + 3 * sig
+        m = _box(m.astype(np.float32), max(2, block // 32)) > 0          # widen: the faint edge of the glow too
+    if m.mean() > 0.6:                    # the whole field is nebula: nothing to tell sky from target by
+        return np.zeros(sub.shape, bool)
+    return m
+
+
+def background_map(plane: np.ndarray, block: int, mask: np.ndarray | None = None, want_grid=False) -> np.ndarray:
     """The smooth background of an aligned frame (NaN outside it): the median of large blocks, gently smoothed
-    and spread back to full size. Stars hardly move a block median; a nebula is the same in every frame, so it
-    drops out when two frames' maps are compared."""
+    and spread back to full size. Stars hardly move a block median. mask (from object_mask, the same for every
+    frame) leaves the target out; a block that is mostly target takes its neighbours' sky."""
     h, w = plane.shape
     nby, nbx = -(-h // block), -(-w // block)
     pad = np.full((nby * block, nbx * block), np.nan, np.float32)
     pad[:h, :w] = plane
     blocks = pad.reshape(nby, block, nbx, block)[:, ::4, :, ::4]
+    if mask is not None and mask.any():
+        bh, bw = blocks.shape[1], blocks.shape[3]
+        mp = np.zeros((nby * bh, nbx * bw), bool)
+        mh, mw = min(mask.shape[0], mp.shape[0]), min(mask.shape[1], mp.shape[1])
+        mp[:mh, :mw] = mask[:mh, :mw]
+        mb = mp.reshape(nby, bh, nbx, bw)
+        blocks = np.where(mb, np.nan, blocks)
+        keep = (~mb & np.isfinite(blocks)).mean(axis=(1, 3))
+    else:
+        keep = None
     with np.errstate(all="ignore"):
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             grid = np.nanmedian(blocks, axis=(1, 3)).astype(np.float32)
+    if keep is not None:
+        grid = np.where(keep >= 0.25, grid, np.nan).astype(np.float32)   # mostly target: from the neighbours
     ok = np.isfinite(grid)
     if not ok.any():
-        return np.zeros((h, w), np.float32)
+        return np.zeros((nby, nbx) if want_grid else (h, w), np.float32)
     for _ in range(max(nby, nbx)):                       # empty blocks (outside the frame): from their neighbours
         if ok.all():
             break
@@ -2347,6 +2385,14 @@ def background_map(plane: np.ndarray, block: int) -> np.ndarray:
     if nby >= 3 and nbx >= 3:                             # a little smoothing between blocks
         p = np.pad(grid, 1, mode="edge")
         grid = sum(p[1 + dy:1 + dy + nby, 1 + dx:1 + dx + nbx] for dy in (-1, 0, 1) for dx in (-1, 0, 1)) / 9.0
+    if want_grid:
+        return grid.astype(np.float32)
+    return _upsample(grid.astype(np.float32), nby * block, nbx * block)[:h, :w]
+
+
+def grid_to_map(grid: np.ndarray, block: int, h: int, w: int) -> np.ndarray:
+    """A background_map grid spread to full size (h, w)."""
+    nby, nbx = grid.shape
     return _upsample(grid.astype(np.float32), nby * block, nbx * block)[:h, :w]
 
 
@@ -2620,14 +2666,20 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
 
     ln_block = max(64, int(max(out_h, out_w) / 16))
     ref_maps = []
+    ln_masks = []
+    last_grids = []                     # this frame's sky (block grid, reference coordinates)
+    frame_grids = []
 
     def normalize(aligned, k_phot, bgs):
         if getattr(opts, "local_norm", True) and ref_maps:
             # local normalization: this frame's own background (gradients from the moon, haze, light pollution
             # that change through the night) is replaced by the reference frame's, so every frame matches it
             # everywhere - outlier rejection then sees only real outliers
-            return [((a - background_map(a, ln_block)) * np.float32(k_phot) + ref_maps[c])
-                    for c, a in enumerate(aligned)]
+            grids = [background_map(a, ln_block, ln_masks[c], want_grid=True) for c, a in enumerate(aligned)]
+            last_grids[:] = grids
+            return [((a - grid_to_map(gr, ln_block, *a.shape)) * np.float32(k_phot) + ref_maps[c])
+                    for c, (a, gr) in enumerate(zip(aligned, grids))]
+        last_grids[:] = []
         return [((a - bgs[c]) * np.float32(k_phot) + np.float32(ref_bg[c])) for c, a in enumerate(aligned)]
 
     n = len(frames)
@@ -2647,13 +2699,17 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         if ref_bg is None:
             ref_bg = bgs
             if getattr(opts, "local_norm", True):
-                ref_maps = [background_map(a, ln_block) for a in aligned]
+                ln_masks[:] = [object_mask(a, ln_block) for a in aligned]
+                ref_maps = [background_map(a, ln_block, ln_masks[c]) for c, a in enumerate(aligned)]
+                _mpct = 100.0 * float(np.mean([m.mean() for m in ln_masks]))
                 log.append(f"Even out the sky between frames: every frame's sky matched to the reference frame's, "
-                           f"in {ln_block} px areas (PixInsight: LocalNormalization)")
+                           f"in {ln_block} px areas (PixInsight: LocalNormalization); the target and its glow "
+                           f"({_mpct:.0f}% of the picture) are left out of the sky")
         normed = normalize(aligned, k_phot, bgs)
         noise = float(np.mean(noises)) * k_phot
         weight = 1.0 / noise ** 2 if opts.weighting else 1.0
         entries.append((lf.info, T, k_phot, bgs, weight))
+        frame_grids.append(list(last_grids))
         frame_models.append(last_model[0])
         frame_noise.append(noise)
         mir = is_mirrored(T)
@@ -2725,8 +2781,11 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             prog(f"{g.label()}: drizzle {j + 1}/{len(dz)}", 0.9 + 0.08 * j / max(len(dz), 1))
             pls = planes(calibrated(info))
             cached = np.load(cache_files[i], mmap_mode="r")
-            bmaps = [background_map(p_.astype(np.float32), max(64, int(max(p_.shape) / 16))) for p_ in pls] \
-                if (getattr(opts, "local_norm", True) and ref_maps) else None
+            # this frame's own sky, measured in reference coordinates (target left out) when the frames were
+            # aligned - taken off after drizzling, so the sky blocks line up with the reference's (sky blocks
+            # measured on the turned frame left box-shaped borders around a bright target)
+            fg = frame_grids[i] if (getattr(opts, "local_norm", True) and ref_maps and i < len(frame_grids)
+                                     and frame_grids[i]) else None
             sig = max(frame_noise[i], 1e-6) * opts.kappa
 
             # rejection at reference resolution once per frame (each reference pixel = sc x sc output pixels)
@@ -2744,14 +2803,18 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             def keep_of(r0, r1):
                 return up_rows(okr, r0, r1)
             # each plane scaled and with its own sky taken off once; the reference's sky is added back per row
-            if bmaps is not None:
-                pn = [(p_.astype(np.float32) - bmaps[c]) * np.float32(k_phot) for c, p_ in enumerate(pls)]
+            if fg is not None:
+                pn = [p_.astype(np.float32) * np.float32(k_phot) for p_ in pls]
+                sky_add = [ref_maps[c] - grid_to_map(fg[c], ln_block, out_h, out_w) * np.float32(k_phot)
+                           for c in range(len(pls))]
+
+                def add_of(c, r0, r1):
+                    return up_rows(sky_add[c], r0, r1)
             else:
                 pn = [(p_.astype(np.float32) - np.float32(bgs[c])) * np.float32(k_phot) for c, p_ in enumerate(pls)]
-            del bmaps
 
-            def add_of(c, r0, r1):
-                return up_rows(ref_maps[c], r0, r1) if ref_maps else np.float32(ref_bg[c])
+                def add_of(c, r0, r1):
+                    return up_rows(ref_maps[c], r0, r1) if ref_maps else np.float32(ref_bg[c])
             drizzle_add(acc, wacc, pn, T, add_of, keep_of, sc, pf, float(weights[i]))
             del pls, cached
         cover = wacc > 0

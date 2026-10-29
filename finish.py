@@ -1617,6 +1617,61 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0, keep=0.0) -> np
     return out
 
 
+def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_stars: int = 40) -> list:
+    """Small leftover star cores star removal left in the starless picture (a close double star, or a core in
+    one colour only - the red dot on M27), where no painted square is to be cleaned (often inside bright
+    nebula). A core is a compact bump at a bright star's place, clearly above its close surroundings and the
+    grain, with no broad bump around it (so nebula structure is not taken for one). Returns [(fx, fy, fr)] as
+    fractions of the picture's width/height and width (radius of the patch)."""
+    c, h, w = starless.shape
+    if min(h, w) < 64:
+        return []
+    S = _lum(stars).astype(np.float32)
+    Ssm, f = _small_plane(S, 1600)
+    sm = _box_blur(Ssm, 1)
+    pk = sm >= SpotFix._minmax(sm, 7, np.max) - 1e-12
+    ys, xs = np.nonzero(pk & (sm > 0))
+    order = np.argsort(-sm[ys, xs])[:max_stars]
+    out = []
+    for i in order:
+        cy0, cx0 = int(ys[i] * f + f // 2), int(xs[i] * f + f // 2)
+        if any(a0 <= cx0 < a1 and b0 <= cy0 < b1 for a0, b0, a1, b1 in skip):
+            continue
+        q = max(4, f)
+        y0, y1, x0, x1 = max(0, cy0 - q), min(h, cy0 + q + 1), max(0, cx0 - q), min(w, cx0 + q + 1)
+        win = S[y0:y1, x0:x1]
+        if win.size == 0:
+            continue
+        iy, ix = np.unravel_index(int(np.argmax(win)), win.shape)
+        cy, cx = y0 + iy, x0 + ix
+        peak = float(S[cy, cx])
+        if peak <= 0:
+            continue
+        R0 = 24
+        a0, a1, b0, b1 = max(0, cy - R0), min(h, cy + R0 + 1), max(0, cx - R0), min(w, cx + R0 + 1)
+        sw = S[a0:a1, b0:b1]
+        rc = max(2.0, float(np.sqrt((sw > 0.5 * peak).sum() / np.pi)))      # the star's core radius
+        Rw = int(6 * rc) + 2
+        a0, a1, b0, b1 = max(0, cy - Rw), min(h, cy + Rw + 1), max(0, cx - Rw), min(w, cx + Rw + 1)
+        yy, xx = np.mgrid[a0:a1, b0:b1]
+        d = np.hypot(yy - cy, xx - cx)
+        core_m, ann, outer = d <= rc, (d > 2 * rc) & (d <= 3.5 * rc), (d > 3.5 * rc) & (d <= 5.5 * rc)
+        if not (core_m.any() and ann.sum() > 8 and outer.sum() > 8):
+            continue
+        found = False
+        for k in range(c):
+            P = starless[k, a0:a1, b0:b1].astype(np.float64)
+            exc = float(P[core_m].mean() - np.median(P[ann]))
+            broad = abs(float(np.median(P[ann]) - np.median(P[outer])))
+            gr = SpotFix._grain(P, ann | outer) + 1e-12
+            if exc > 6 * gr and broad < 0.35 * exc:
+                found = True
+                break
+        if found:
+            out.append((cx / w, cy / h, 2.2 * rc / w))
+    return out
+
+
 class CleanStarLeftovers(Tool):
     key = "leftovers"
     title = "Clean Bright-Star Leftovers"
@@ -1627,7 +1682,8 @@ class CleanStarLeftovers(Tool):
            "bars around it are taken away (keeping the nebula's own detail), with a choice of how much round "
            "glow to leave. Squares inside bright, structured nebula are "
            "left alone (patching would smooth the nebula) - use Spot "
-           "Fix on those if they show. (PixInsight: CloneStamp)")
+           "Fix on those if they show. Small leftover star cores (dots) are removed too, also inside nebula. "
+           "(PixInsight: CloneStamp)")
     pick = True
 
     def possible(self, s):
@@ -1644,17 +1700,29 @@ class CleanStarLeftovers(Tool):
         key = (id(s.rgb), id(s.stars))
         if getattr(self, "_cache_key", None) != key:
             try:
-                self._cache = find_star_leftovers(s.rgb, s.stars)
+                boxes, busy = find_star_leftovers(s.rgb, s.stars)
             except Exception:  # noqa: BLE001 - nothing found is the safe answer
-                self._cache = ([], 0)
+                boxes, busy = [], 0
+            try:
+                h, w = s.rgb.shape[1:]
+                skip = [(fx0 * w, fy0 * h, fx1 * w, fy1 * h) for fx0, fy0, fx1, fy1 in boxes]
+                dots = find_leftover_cores(s.rgb, s.stars, skip)
+            except Exception:  # noqa: BLE001
+                dots = []
+            self._cache = (boxes, busy, dots)
             self._cache_key = key
         return self._cache
 
     def is_optional(self, s):
-        return not self._found(s)[0]
+        boxes, _busy, dots = self._found(s)
+        return not boxes and not dots
 
     def why(self, s):
-        boxes, busy = self._found(s)
+        boxes, busy, dots = self._found(s)
+        if not boxes and dots:
+            return (f"<b>Cleaning is recommended for this picture.</b> Star removal left {len(dots)} small "
+                    "leftover star core(s) - dots that show once the picture is brightened. Press <b>Do It</b> "
+                    "to remove them now.")
         if boxes:
             return (f"<b>Cleaning is recommended for this picture.</b> Star removal left {len(boxes)} painted "
                     "square(s) around bright stars - they show once the picture is brightened. Press <b>Do It</b> "
@@ -1663,19 +1731,25 @@ class CleanStarLeftovers(Tool):
         return self.tip
 
     def variants(self, s):
-        boxes, busy = self._found(s)
+        boxes, busy, dots = self._found(s)
         note = f"{busy} inside bright nebula left alone" if busy else ""
+        dt = [list(d) for d in dots]
+        dnote = f"; {len(dots)} leftover dot(s) removed" if dots else ""
         if not boxes:
+            if dots:
+                return [Variant(f"Remove the dots ({len(dots)})", {"boxes": [], "dots": dt},
+                                "small leftover star cores patched from their surroundings", True),
+                        Variant("Don't clean", {"boxes": []}, "leave the picture as it is", False)]
             return [Variant("Nothing to clean - next step", {"boxes": []},
                             "no painted squares found around the bright stars" + (f"; {note}" if note else ""), True)]
         bx = [list(b) for b in boxes]
-        tail = f"; {note}" if note else ""
-        return [Variant(f"Clean, no glow ({len(boxes)})", {"boxes": bx, "keep": 0.0},
+        tail = (f"; {note}" if note else "") + dnote
+        return [Variant(f"Clean, no glow ({len(boxes)})", {"boxes": bx, "keep": 0.0, "dots": dt},
                         "squares and the glow star removal left are taken away; the star's own glow comes back "
                         "with the stars" + tail, True),
-                Variant("Clean, faint glow", {"boxes": bx, "keep": 0.25},
+                Variant("Clean, faint glow", {"boxes": bx, "keep": 0.25, "dots": dt},
                         "squares taken away; a quarter of the leftover glow kept, made round" + tail, False),
-                Variant("Clean, soft glow", {"boxes": bx, "keep": 0.5},
+                Variant("Clean, soft glow", {"boxes": bx, "keep": 0.5, "dots": dt},
                         "squares taken away; half of the leftover glow kept, made round" + tail, False),
                 Variant("Don't clean", {"boxes": []}, "leave the picture as it is", False)]
 
@@ -1689,6 +1763,11 @@ class CleanStarLeftovers(Tool):
             fx0, fy0, fx1, fy1 = b
             img = heal_box(img, int(fx0 * w), int(fy0 * h), int(np.ceil(fx1 * w)), int(np.ceil(fy1 * h)), seed=i,
                            keep=float(params.get("keep", 0.0)))
+        for i, d in enumerate(params.get("dots") or []):
+            if len(d) != 3:
+                continue
+            fx, fy, fr = d
+            img = SpotFix.heal(img, fx * w, fy * h, max(2.0, fr * w), seed=100 + i, keep_stars=False)
         s.rgb = img.astype(np.float32)
         s.done.append(self.key)
         return s

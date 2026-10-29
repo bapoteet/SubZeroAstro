@@ -451,6 +451,30 @@ def run(app, out_dir: Path) -> int:
     check(_nc > 0.8 and abs(_nres) < 0.0015 and 0.0003 < _nkept < 0.004,
           f"Clean Bright-Star Leftovers: the nebula's own detail around the box is kept (match {_nc:.2f}), the "
           f"glow is taken away (left {_nres:.4f} of 0.01), 'faint glow' keeps a little ({_nkept:.4f})")
+    # ... and a small leftover star core in one colour inside bright nebula (the red dot on M27) is removed, while
+    # nebula structure without a dot is left alone
+    _dr2 = np.random.default_rng(3)
+    _dy2, _dx2 = np.mgrid[:600, :800].astype(np.float32)
+    _dneb = 0.1 + 0.05 * np.exp(-((_dx2 - 400) ** 2 + (_dy2 - 300) ** 2) / (2 * 150 ** 2)) * (
+        1 + 0.5 * np.sin(_dx2 / 7) * np.sin(_dy2 / 9))
+    _dclean = np.stack([_dneb + _dr2.normal(0, 0.002, (600, 800)) for _ in range(3)]).astype(np.float32)
+    _dst2 = np.zeros((3, 600, 800), np.float32)
+    for _x, _y, _f in [(420, 310, 1.0), (200, 150, 0.8), (650, 450, 0.6)] + [
+            (_dr2.uniform(20, 780), _dr2.uniform(20, 580), _dr2.uniform(0.05, 0.3)) for _ in range(60)]:
+        _dst2 += _f * np.exp(-((_dx2 - _x) ** 2 + (_dy2 - _y) ** 2) / (2 * 2.0 ** 2))
+    _ddirty = _dclean.copy()
+    _ddirty[0] += 0.04 * np.exp(-((_dx2 - 420) ** 2 + (_dy2 - 310) ** 2) / (2 * 1.5 ** 2))
+    _dfound = _fnc.find_leftover_cores(_ddirty, _dst2)
+    _dnone = _fnc.find_leftover_cores(_dclean, _dst2)
+    _ds2 = _fnc.State.__new__(_fnc.State)
+    _ds2.rgb, _ds2.stars, _ds2.stars_out, _ds2.stars_hidden, _ds2.done, _ds2.linear = _ddirty.copy(), _dst2, True, False, [], True
+    _ds2.copy = lambda: _ds2
+    _dv2 = next(v for v in _fnc.TOOLS["leftovers"].variants(_ds2) if v.recommended)
+    _dout = _fnc.TOOLS["leftovers"].apply(_ds2, _dv2.params).rgb
+    _dleft = float(_fnc._box_blur((_dout - _dclean)[0], 1)[305:316, 415:426].max())
+    check(len(_dfound) == 1 and not _dnone and _dleft < 0.006 and float(np.abs(_dout - _dclean)[:, :, :300].max()) == 0,
+          f"Clean Bright-Star Leftovers: a small leftover star core in one colour inside nebula (the red dot on "
+          f"M27) is found and removed (left {_dleft:.4f} of 0.04); nebula without a dot is left alone")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
@@ -672,6 +696,18 @@ def run(app, out_dir: Path) -> int:
           f"Even out the sky between frames: frames whose gradients change through the night are matched to the reference frame "
           f"everywhere (background mismatch {_t0:.1f} -> {_t1:.1f} ADU)")
 
+    # ... and a bright target (a planetary nebula) is left out of the sky estimate, so it leaves no block-shaped
+    # border around itself in the stack (M27 from Telescope Live)
+    _oy, _ox = np.mgrid[:600, :800].astype(np.float32)
+    _orr = np.hypot(_ox - 400, _oy - 300)
+    _oim = (500 + 400 * np.clip(1 - (_orr / 130) ** 2, 0, 1) ** 0.5
+            + np.random.default_rng(4).normal(0, 8, (600, 800))).astype(np.float32)
+    _om = _stk.object_mask(_oim, 64)
+    _ob0 = float(_stk.background_map(_oim, 64)[300, 400])
+    _ob1 = float(_stk.background_map(_oim, 64, _om)[300, 400])
+    check(0.03 < _om.mean() < 0.4 and abs(_ob1 - 500) < 15 and _ob0 > 600,
+          f"Even out the sky: a bright target is left out of the sky estimate (sky under it {_ob0:.0f} -> {_ob1:.0f}, "
+          f"true 500; {100 * _om.mean():.0f}% of the picture left out)")
     # --- 2x drizzle: undersampled (blocky) stars from dithered frames come out finer than in the regular stack
     _dr = np.random.default_rng(31)
     _DH, _DW = 200, 260
