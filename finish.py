@@ -1290,10 +1290,37 @@ class RemoveGreen(Tool):
             return ([Variant(f"Gold {int(a * 100)}%", {"amount": a, "gold": True}, "", a == 1.0) for a in (0.5, 0.75, 1.0)]
                     + [Variant("Remove only", {"amount": 1.0, "gold": False},
                                "plain SCNR: takes the green away - darker, more blue and magenta")])
-        g = s.rgb[1] - np.maximum(s.rgb[0], s.rgb[2])
-        excess = float(np.mean(g[::3, ::3] > 0))
-        best = 0.75 if excess > 0.5 else 0.5
-        return [Variant(f"{int(a * 100)}%", {"amount": a}, "", a == best) for a in (0.25, 0.5, 0.75, 1.0)]
+        cast = self.green_cast(s.rgb)
+        if cast < 0.01:
+            # colour data that is already balanced: SCNR would only bite on the noise (every pixel where green
+            # happens to be a little high) and leave the picture pink / magenta - so nothing is suggested
+            return ([Variant("None needed", {"amount": 0.0},
+                             f"no green cast found ({cast:+.1%} of the brightness) - removing green here would "
+                             "turn the picture pink", True)]
+                    + [Variant(f"{int(a * 100)}%", {"amount": a}, "", False) for a in (0.25, 0.5, 0.75, 1.0)])
+        best = 0.75 if cast > 0.04 else 0.5
+        return [Variant(f"{int(a * 100)}%", {"amount": a}, f"green cast {cast:.1%} of the brightness" if a == best
+                        else "", a == best) for a in (0.25, 0.5, 0.75, 1.0)]
+
+    @staticmethod
+    def green_cast(rgb: np.ndarray) -> float:
+        """How much greener than neutral the picture is: the median of green minus the mean of red and blue,
+        over its brighter half (sky and target, not the darkest noise), as a share of the brightness there."""
+        sm = rgb[:, ::3, ::3].astype(np.float32)
+        y = sm.mean(0)
+        sel = y >= np.median(y)
+        if sel.sum() < 50:
+            return 0.0
+        g = sm[1][sel] - 0.5 * (sm[0][sel] + sm[2][sel])
+        return float(np.median(g) / max(float(np.median(y[sel])), 1e-6))
+
+    def is_optional(self, s):
+        if self._narrowband(s) or s.rgb is None or not s.is_color:
+            return False
+        try:
+            return self.green_cast(s.rgb) < 0.01
+        except Exception:  # noqa: BLE001
+            return False
 
     def sliders(self, s, params):
         return [Slider("amount", "Amount", 0.0, 1.0, params["amount"], "How much of the green cast to remove")]
@@ -1319,6 +1346,9 @@ class RemoveGreen(Tool):
                 return ("The green here is your Ha - the strongest signal. Gold turns it gold instead of removing it, "
                         "so the bright structure keeps its brightness: the classic Hubble gold and blue.")
             return "Narrowband palettes are very green straight out of combination - this tames it."
+        if s.rgb is not None and not self._narrowband(s) and self.green_cast(s.rgb) < 0.01:
+            return ("No green cast found - the colours are already balanced, so this is not needed (removing "
+                    "green anyway would turn the picture pink).")
         return "Colour cameras usually leave a slight green tint after colour balancing."
 
 

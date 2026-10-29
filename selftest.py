@@ -489,6 +489,21 @@ def run(app, out_dir: Path) -> int:
     check(_sat == ["Slight", "Rich", "Slight", "Slight", "Slight"],
           f"Colour Intensity's suggestion follows the target and the data: narrowband, already strong colours, "
           f"planetaries and clusters 'Slight'; a galaxy in colour 'Rich' ({_sat})")
+    # Remove Green Cast on balanced colour data: nothing suggested (SCNR on noise turns a picture pink); a real
+    # green cast still gets removed
+    _gr3 = np.random.default_rng(8)
+    _gbal = np.clip(0.15 + _gr3.normal(0, 0.02, (3, 300, 300)), 0, 1).astype(np.float32)
+    _ggrn = _gbal.copy()
+    _ggrn[1] += 0.02
+    _gsc = []
+    for _im in (_gbal, _ggrn):
+        _gs3 = _fnc.State.__new__(_fnc.State)
+        _gs3.kind, _gs3.palette, _gs3.rgb, _gs3.linear = "osc", None, _im, False
+        _gsc.append((next(v.label for v in _fnc.TOOLS["scnr"].variants(_gs3) if v.recommended),
+                     _fnc.TOOLS["scnr"].is_optional(_gs3)))
+    check(_gsc == [("None needed", True), ("75%", False)],
+          f"Remove Green Cast suggests nothing on balanced colour data (no pink cast) and removes a real green "
+          f"cast ({_gsc})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
