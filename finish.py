@@ -918,7 +918,7 @@ PALETTE_INFO = {
                                    "a popular modern palette"),
     "SHO": ("Hubble (SHO)", "SII red, Ha green, OIII blue - the classic Hubble look (green is tamed later)"),
     "HSO": ("HSO", "Ha red, SII green, OIII blue"),
-    "HOO+S": ("HOO + SII", "Natural-looking reds and teals"),
+    "HOO+S": ("HOO + SII", "Natural-looking reds, pinks and teals"),
 }
 
 
@@ -953,7 +953,9 @@ def build_palette(pal: str, n: dict) -> np.ndarray:
     if pal == "HSO":
         return np.stack([h, sii, o])
     if pal == "HOO+S":
-        return np.stack([0.7 * h + 0.3 * sii, o, o])
+        # some Ha in green and blue too: Ha-rich areas fade from red through pink to white where OIII is strong as
+        # well, as in most pictures of planetaries - with Ha in red alone M27's lobes were a hard, flat red
+        return np.stack([0.7 * h + 0.3 * sii, o + 0.45 * h, o + 0.35 * h])
     if pal == "HOO+":
         return np.stack([h, 0.5 * h + 0.5 * o, o])
     if pal == "HHO":
@@ -4569,7 +4571,7 @@ WHY = {
 SAT_DEFAULT = {
     ("galaxy", False): 2, ("galaxy", True): 1,
     ("nebula", False): 2, ("nebula", True): 1,
-    ("planetary nebula", False): 1, ("planetary nebula", True): 1,
+    ("planetary nebula", False): 1, ("planetary nebula", True): 0,
     ("star cluster", False): 1, ("star cluster", True): 1,
     ("comet", False): 1, ("comet", True): 1,
     ("unknown", False): 2, ("unknown", True): 1,

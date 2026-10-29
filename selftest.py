@@ -560,6 +560,16 @@ def run(app, out_dir: Path) -> int:
     check(_a0 is not None and _a0[0] < 0.3 and _a1 is not None and 1.2 < _a1[0] < 1.8,
           f"page 4's alignment check reads star centres: matching faint stars are found to match ({_a0 and round(_a0[0], 2)} px), "
           f"a real 1.5 px shift shows ({_a1 and round(_a1[0], 2)} px)")
+    # HOO + SII: an Ha-rich area fades to pink and white, not a flat red (M27 vs the Telescope Live picture); a narrowband
+    # planetary gets 'Calmer' colour
+    _hp = _fnc.build_palette("HOO+S", {"Ha": np.float32([0.8]), "OIII": np.float32([0.3]), "SII": np.float32([0.2])})
+    _hs = _fnc.State.__new__(_fnc.State)
+    _hs.kind, _hs.linear, _hs.target = "mono_nb", False, "M27"
+    _hs.rgb = np.stack([_cneb * t for t in (1.0, 0.8, 0.8)]).astype(np.float32)
+    _hsat = next(v.label for v in _fnc.TOOLS["saturation"].variants(_hs) if v.recommended)
+    check(float(_hp[1, 0]) > 0.5 * float(_hp[0, 0]) and _hsat == "Calmer",
+          f"HOO + SII: an Ha-rich area is pink, not flat red (R {float(_hp[0, 0]):.2f} G {float(_hp[1, 0]):.2f} B "
+          f"{float(_hp[2, 0]):.2f}); a narrowband planetary gets '{_hsat}' colour")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
