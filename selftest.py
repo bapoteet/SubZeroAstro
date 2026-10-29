@@ -2123,10 +2123,13 @@ def run(app, out_dir: Path) -> int:
                 r2 = fw.tool is not None and fw.tool.key == "dust" and len(fw.project.steps) == n0 + 2
                 fw.done_tool()
                 _nx = F.next_step(fw.state)
-                check(r1 and r2 and (fw.tool is None or fw.tool.key == "stretch") and "dust" in fw.state.done
-                      and _nx is not None and _nx.key == "stretch",
+                # ✓ Applied – Next Step opens whatever is recommended next (Brighten, or Clean Bright-Star Leftovers
+                # when star removal left something in the test picture)
+                _ok_next = _nx is not None and _nx.key in ("stretch", "leftovers")
+                check(r1 and r2 and (fw.tool is None or (_nx is not None and fw.tool.key == _nx.key))
+                      and "dust" in fw.state.done and _ok_next,
                       "Mote Buster can be run again on the fixed picture; ✓ Applied – Next Step opens the next step"
-                      + ("" if (r1 and r2 and _nx is not None and _nx.key == "stretch") else
+                      + ("" if (r1 and r2 and _ok_next) else
                          f" (r1 {r1}, r2 {r2}, tool {fw.tool.key if fw.tool else None}, next {_nx.key if _nx else None}, "
                          f"done {fw.state.done})"))
                 again_ok = fw.btn_again.isVisibleTo(fw) and "Mote Buster" in fw.btn_again.toolTip()
