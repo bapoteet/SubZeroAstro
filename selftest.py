@@ -538,9 +538,9 @@ def run(app, out_dir: Path) -> int:
     _pgr = [next(v.label for v in _fnc.TOOLS["scnr"].variants(_fnc.State(rgb=np.full((3, 32, 32), 0.3, np.float32),
                                                                        kind="mono_nb", palette=_p, linear=False))
                  if v.recommended) for _p in ("HSO", "HOO+S", "SHO")]
-    check(_psug == ["HOO + SII", "Hubble (SHO)"] and _pgr == ["None needed", "25%", "Gold 100%"],
+    check(_psug == ["HOO + SII", "Hubble (SHO)"] and _pgr == ["None needed", "25%", "Remove only"],
           f"narrowband: a planetary nebula gets 'HOO + SII', other targets the Hubble palette ({_psug}); Remove Green "
-          f"Cast leaves HSO's SII and HOO's teal alone, turns SHO gold ({_pgr})")
+          f"Cast leaves HSO's SII and HOO's teal alone, plain SCNR for SHO ({_pgr})")
     # the page-4 alignment check reads star centres in the stars-only images: two filters with the same stars but a
     # different nebula and faint stars (OIII) match (M27 was reported 1.9 px off while it matched to 0.1 px), and a
     # real 1.5 px shift still shows
@@ -2985,12 +2985,13 @@ def run(app, out_dir: Path) -> int:
         _sg = F.State()
         _sg.rgb = np.ones((3, 8, 8), np.float32) * np.array([0.1, 0.8, 0.1], np.float32)[:, None, None]
         _sg.kind, _sg.palette = "osc_sho", "SHO"
-        _gv = [v for v in _rgt.variants(_sg) if v.recommended][0]
+        _gr = [v for v in _rgt.variants(_sg) if v.recommended][0]
+        _gv = [v for v in _rgt.variants(_sg) if v.label == "Gold 100%"][0]
         _gp = _rgt.apply(_sg, _gv.params).rgb[:, 0, 0]
         _sg.palette = "HOO"
-        check(_gv.label == "Gold 100%" and _gp[0] > _gp[1] > 0.4 and _gp[2] < 0.15
+        check(_gr.label == "Remove only" and _gp[0] > _gp[1] > 0.4 and _gp[2] < 0.15
               and all("Gold" not in v.label for v in _rgt.variants(_sg)),
-              f"SHO green (Ha) turned gold, not deleted ({_gv.label}: {np.round(_gp, 2).tolist()}); HOO keeps plain removal")
+              f"SHO: plain SCNR suggested ({_gr.label}); Gold turns the green (Ha) gold, not deleted ({np.round(_gp, 2).tolist()}); HOO keeps plain removal")
         _names = {n: _fc.normalize_filter(n) for n in ("D1", "Askar D2", "D1 Ha/OIII", "SII-OIII", "Ha/OIII")}
         check(abs(float((_oc - _O3)[_hm].mean())) < 0.004 and "leakage" in _on
               and _names == {"D1": "Askar D1", "Askar D2": "Askar D2", "D1 Ha/OIII": "Askar D1",

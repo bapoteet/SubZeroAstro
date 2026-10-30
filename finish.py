@@ -1486,11 +1486,15 @@ class RemoveGreen(Tool):
         if self._narrowband(s) and s.palette not in self.GOLD_PALETTES:
             return [Variant(f"{int(a * 100)}%", {"amount": a}, "", a == 1.0) for a in (0.25, 0.5, 0.75, 1.0)]
         if self._narrowband(s):
-            # narrowband: the green is real signal (Ha in SHO) - turn it gold instead of deleting it, so the
-            # brightest structure keeps its brightness and the classic gold and blue appears
-            return ([Variant(f"Gold {int(a * 100)}%", {"amount": a, "gold": True}, "", a == 1.0) for a in (0.5, 0.75, 1.0)]
+            # narrowband: the green is real signal (Ha in SHO). Gold turns it gold instead of deleting it (the
+            # brightest structure keeps its brightness); for the Hubble palette itself plain SCNR is the typical look -
+            # NGC 281 (Pacman) came out the familiar gold and blue with 'Remove only'
+            sho = s.palette == "SHO"
+            return ([Variant(f"Gold {int(a * 100)}%", {"amount": a, "gold": True}, "", a == 1.0 and not sho)
+                     for a in (0.5, 0.75, 1.0)]
                     + [Variant("Remove only", {"amount": 1.0, "gold": False},
-                               "plain SCNR: takes the green away - darker, more blue and magenta")])
+                               "plain SCNR: takes the green away - the typical Hubble-palette gold and blue" if sho else
+                               "plain SCNR: takes the green away - darker, more blue and magenta", sho)])
         cast = self.green_cast(s.rgb)
         if cast < 0.01:
             # colour data that is already balanced: SCNR would only bite on the noise (every pixel where green

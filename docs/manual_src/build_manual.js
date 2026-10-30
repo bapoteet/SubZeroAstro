@@ -516,7 +516,7 @@ sec("10.3", "Mono camera: LRGB", ["LRGB recipe", "RGB + Ha galaxies", "HII regio
 p("**RGB (or LRGB) + Ha of a galaxy**: SubZeroAstro recognises galaxies by name (M31, M33, M51, M81, M101, NGC 891, IC 342… or names like *Andromeda* or *Pinwheel*). **Add Hydrogen Glow** then recommends **HII regions**: the starlight - and the galaxy's own smooth light - is subtracted from the Ha, and only the compact hydrogen knots that clearly stand out are added to red. They stand out crisply against the blue arms without tinting the whole galaxy pink. Tick **Show the hydrogen regions** to see exactly what is added; *All hydrogen glow* adds everything, for galaxies set inside nebulosity.");
 p("Each filter is stacked separately on page 2 (one row each; keep *Line up all filters* on). Load all masters together on page 3 - they must appear as **one row**. Page 4 starts with **Combine Colour Channels** (RGB or LRGB).");
 sec("10.4", "Mono camera: narrowband (SHO)", ["SHO recipe", "Narrowband recipe", "Hubble palette"]);
-p("As 10.3 with Ha, OIII and SII. Filter names from filter wheels such as *Ha 7nm*, *H-alpha*, *O*, *S* or *Antlia Ha 3nm Pro* are recognised. Page 4: **Combine Colour Channels** › Hubble (SHO), Foraxx or HOO; then Remove Green Cast - for Hubble (SHO) and Gold & blue it offers **Gold 50 / 75 / 100%**, which turn the green (your Ha, the strongest signal) gold instead of deleting it, so the bright structure keeps its brightness; *Remove only* is plain SCNR (darker, bluer, more magenta) - and **Star Colours** before Put Stars Back.");
+p("As 10.3 with Ha, OIII and SII. Filter names from filter wheels such as *Ha 7nm*, *H-alpha*, *O*, *S* or *Antlia Ha 3nm Pro* are recognised. Page 4: **Combine Colour Channels** › Hubble (SHO), Foraxx or HOO; then Remove Green Cast - for Hubble (SHO) and Gold & blue it suggests **Remove only** for Hubble (SHO) - plain SCNR, the typical gold and blue - and also offers **Gold 50 / 75 / 100%**, which turn the green (your Ha, the strongest signal) gold instead of deleting it, so the bright structure keeps its brightness (suggested for Gold & blue) - and **Star Colours** before Put Stars Back.");
 sec("10.5", "Smart telescopes (Seestar, DWARF, Vespera)", ["Smart telescopes", "Seestar", "DWARF", "Vespera", "Alt-az"]);
 p("Raw subs are recognised as lights automatically, with no calibration needed (the telescope calibrates on board). Alt-az field rotation is handled during alignment and the rotated edges are cropped. Because the frames turn against each other, the camera's own fixed pattern (warm pixels and colour blotches that stay put on the sensor) would stack into circular swirls; without darks the stacker measures that pattern from the lights themselves and takes it out of every frame (it says so in the stack log). Dithering, if your telescope offers it, helps even more. Seestar *Stacked_…* files from several nights can be combined on page 2, or a single stack can go straight to page 3.");
 sec("10.6", "Comets", ["Comets", "Comet stack", "_Comet master", "_Stars master"]);
@@ -575,7 +575,7 @@ steps([
   "Stack each filter on page 2 (one row each); load both masters together on page 3 - **one row**.",
   "**Combine Colour Channels › Hubble (SHO)** (or *Foraxx*, *HOO + SII*).",
   "**Mote Buster** ◇, **Take Stars Out**, **Brighten the Image (Stretch) › Medium**.",
-  "**Remove Green Cast › Gold 100 %** - the green is your Ha; *Gold* turns it gold instead of deleting it, which gives the classic gold and blue.",
+  "**Remove Green Cast › Remove only** - plain SCNR, the typical Hubble-palette gold and blue; *Gold 100 %* turns the green (your Ha) gold instead of deleting it, for a brighter, warmer look.",
   "**Tame Bright Core** ◇, **Curves › More contrast**.",
   "**Colour Intensity › Slight** - the SII and OIII from a colour camera are weak, and stronger saturation turns their noise into speckle.",
   "**Adjust Colours**: Blues about 1.2-1.3, *Smooth colour transitions* **0.4-0.6** (this is what keeps the background calm).",
@@ -617,7 +617,7 @@ steps([
   "**Combine Colour Channels › Hubble (SHO)** - or *HOO* with only Ha and OIII, *Foraxx (dynamic)*, *HOO + SII*, *HSO*.",
   "**Mote Buster** ◇ - with filters, each has its own dust: bright rings or coloured halos are fixed per colour.",
   "**Take Stars Out**, **Brighten the Image (Stretch) › Medium**.",
-  "**Remove Green Cast › Gold 100 %** for SHO (the classic gold and blue); plain removal for HOO.",
+  "**Remove Green Cast › Remove only** for SHO (the typical gold and blue; *Gold* for a warmer look); plain removal for HOO.",
   "**Tame Bright Core** ◇ for a bright centre, **Curves › More contrast**.",
   "**Colour Intensity › Rich**; **Adjust Colours › Blues and reds** to separate the gold and blue; *Smooth colour transitions* 0.2-0.3.",
   "**Bring Out Hidden Structure › Moderate**.",
