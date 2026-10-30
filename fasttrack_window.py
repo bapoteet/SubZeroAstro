@@ -124,6 +124,11 @@ def frame_filter(f, cache=None) -> str:
     return core.normalize_filter(v)
 
 
+def core_is_dual(name) -> bool:
+    import fits_core as core
+    return core.is_dual_band(name)
+
+
 def is_calibration(f, cache=None) -> bool:
     """A bias, dark or flat frame among the files page 1 opened."""
     import fits_core as core
@@ -734,6 +739,13 @@ class FastTrackWindow(QMainWindow):
             note = ("No calibration frames (darks, flats, bias) are among the files on this page: the masters in your "
                     "calibration library are used if they match, otherwise the lights are stacked as they are "
                     "(fine for data that is already calibrated, like Telescope Live's).")
+        KNOWN = {"Ha", "OIII", "SII", "Hβ", "L", "R", "G", "B", "No filter"}
+        odd = sorted({x for fs in filters.values() for x in fs if x not in KNOWN and not core_is_dual(x)})
+        if odd:
+            note = ((note + "<br><br>") if note else "") + (
+                "<b>Filter name" + ("s" if len(odd) > 1 else "") + " not recognised: " + ", ".join(odd) + "</b> - "
+                "those frames would be left out of the colour picture. If one is SII, OIII, Ha, L, R, G or B, "
+                "Cancel, select its frames and use <i>Frame › Set Filter Name</i>, then start Fast Track again.")
         if not self.ask(names, counts, note, filters):
             return False
         self._lights = [f for f in lights if frame_target(f, cache) == self.target]
@@ -966,6 +978,9 @@ class FastTrackWindow(QMainWindow):
             QTimer.singleShot(300, self._wait_loaded)
             return
         fw.fresh_load = False
+        ln = getattr(fw.state, "load_note", "") or ""
+        if "not recognised" in ln:
+            self.note_step(next(x for x in ln.split("; ") if "not recognised" in x), "warn")
         self.add_frame(self._display(), "Masters loaded on page 4", "linear (not brightened yet)")
         QTimer.singleShot(600, self.finish_loop)
 
