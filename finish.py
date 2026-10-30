@@ -4729,7 +4729,7 @@ SAT_DEFAULT = {
     ("galaxy", False): 2, ("galaxy", True): 1,
     ("nebula", False): 2, ("nebula", True): 1,
     ("planetary nebula", False): 1, ("planetary nebula", True): 0,
-    ("star cluster", False): 2, ("star cluster", True): 1,
+    ("star cluster", False): 0, ("star cluster", True): 1,   # Calmer: Rich made M28 too strong
     ("comet", False): 1, ("comet", True): 1,
     ("unknown", False): 2, ("unknown", True): 1,
 }
