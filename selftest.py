@@ -723,46 +723,46 @@ def run(app, out_dir: Path) -> int:
     # IC 1396 (a nebula filling a crowded Milky Way field): glows and rings left by star removal are found, the
     # sky level comes from the darkest part, tiny stars are shrunk gently, and stars are labelled fast
     try:
-        _rg = np.random.default_rng(7)
-        _m = _rg.random((120, 160)) > 0.55
-        _lab = np.where(_m, np.arange(1, _m.size + 1).reshape(_m.shape), 0)
+        _ic_rg = np.random.default_rng(7)
+        _ic_m = _ic_rg.random((120, 160)) > 0.55
+        _ic_lab = np.where(_ic_m, np.arange(1, _ic_m.size + 1).reshape(_ic_m.shape), 0)
         for _ in range(2000):
-            _g2 = _fnc.SpotFix._minmax(_lab.astype(np.float64), 3, np.max).astype(np.int64) * _m
-            if np.array_equal(_g2, _lab):
+            _ic_g2 = _fnc.SpotFix._minmax(_ic_lab.astype(np.float64), 3, np.max).astype(np.int64) * _ic_m
+            if np.array_equal(_ic_g2, _ic_lab):
                 break
-            _lab = _g2
-        _cc = _fnc._components(_m)
-        _same = len(set(zip(_lab[_m].tolist(), _cc[_m].tolist()))) == len(np.unique(_lab[_m])) == len(np.unique(_cc[_m]))
-        _H = 1000
-        _yy, _xx = np.mgrid[:_H, :_H]
-        _sl = 0.10 + _rg.normal(0, 0.004, (3, _H, _H)).astype(np.float32)
-        _st = np.zeros((3, _H, _H), np.float32)
-        for (_cy, _cx), _amp in (((200, 760), 0.12), ((500, 500), 0.12), ((820, 180), 0.0)):
-            _d2 = (_yy - _cy) ** 2 + (_xx - _cx) ** 2
-            _sl += (_amp * np.exp(-_d2 / (2 * 16.0 ** 2)) * np.array([0.6, 1.0, 1.1])[:, None, None]).astype(np.float32)
-            _st += (50.0 * np.exp(-_d2 / (2 * 1.5 ** 2))).astype(np.float32)
-        _gl = _fnc.find_star_glows(_sl, _st)
-        _gc = [((a + c) / 2 * _H, (b + d) / 2 * _H) for a, b, c, d in _gl]
-        _hit = len(_gc) == 1 and abs(_gc[0][0] - 760) < 6 and abs(_gc[0][1] - 200) < 6
-        _hb = _gl[0] if _gl else (0, 0, 0, 0)
-        _healed = _fnc.heal_box(_sl, int(_hb[0] * _H), int(_hb[1] * _H), int(_hb[2] * _H), int(_hb[3] * _H))
-        _ex0 = float(_sl[1, 190:210, 750:770].mean() - 0.10)
-        _ex1 = float(_healed[1, 190:210, 750:770].mean() - 0.10)
-        _neb = np.full((3, 400, 400), 0.1, np.float32)
-        _neb[0, :, 120:] += 0.4                            # red nebula over 70 % of the frame
-        _neb += _rg.normal(0, 0.003, _neb.shape).astype(np.float32)
-        _dk = _fnc.dark_sky_levels(_neb)
-        _ts2 = _fnc.State(stars=np.zeros((3, 8, 8), np.float32), star_fwhm=1.4)
-        _ts3 = _fnc.State(stars=np.zeros((3, 8, 8), np.float32), star_fwhm=None)
-        _am = lambda s_: next(v.params["a"] for v in _fnc.TOOLS["shrink"].variants(s_) if v.recommended)  # noqa: E731
-        check(_same and _hit and _ex1 < 0.3 * _ex0 and _dk is not None and abs(_dk[0] - _dk[1]) < 0.02
-              and _am(_ts2) < 0.2 and abs(_am(_ts3) - 0.6) < 1e-6,
-              f"IC 1396 fixes: stars labelled the fast way give the same areas ({_same}); a round glow left by star "
-              f"removal is found away from the middle and the target's own star is kept ({len(_gl)} found at "
-              f"{[(round(x), round(y)) for x, y in _gc]}), and cleaned (glow {_ex0:.3f} -> {_ex1:.3f}); a nebula "
-              f"filling the frame gets its sky level from the darkest part (R {_dk[0] if _dk else 0:.3f}, G "
-              f"{_dk[1] if _dk else 0:.3f}); stars 1.4 px wide are shrunk gently (Moderate {_am(_ts2):.2f} instead "
-              f"of {_am(_ts3):.2f})")
+            _ic_lab = _ic_g2
+        _ic_cc = _fnc._components(_ic_m)
+        _ic_same = len(set(zip(_ic_lab[_ic_m].tolist(), _ic_cc[_ic_m].tolist()))) == len(np.unique(_ic_lab[_ic_m])) == len(np.unique(_ic_cc[_ic_m]))
+        _ic_H = 1000
+        _ic_yy, _ic_xx = np.mgrid[:_ic_H, :_ic_H]
+        _ic_sl = 0.10 + _ic_rg.normal(0, 0.004, (3, _ic_H, _ic_H)).astype(np.float32)
+        _ic_st = np.zeros((3, _ic_H, _ic_H), np.float32)
+        for (_ic_cy, _ic_cx), _ic_amp in (((200, 760), 0.12), ((500, 500), 0.12), ((820, 180), 0.0)):
+            _ic_d2 = (_ic_yy - _ic_cy) ** 2 + (_ic_xx - _ic_cx) ** 2
+            _ic_sl += (_ic_amp * np.exp(-_ic_d2 / (2 * 16.0 ** 2)) * np.array([0.6, 1.0, 1.1])[:, None, None]).astype(np.float32)
+            _ic_st += (50.0 * np.exp(-_ic_d2 / (2 * 1.5 ** 2))).astype(np.float32)
+        _ic_gl = _fnc.find_star_glows(_ic_sl, _ic_st)
+        _ic_gc = [((a + c) / 2 * _ic_H, (b + d) / 2 * _ic_H) for a, b, c, d in _ic_gl]
+        _ic_hit = len(_ic_gc) == 1 and abs(_ic_gc[0][0] - 760) < 6 and abs(_ic_gc[0][1] - 200) < 6
+        _ic_hb = _ic_gl[0] if _ic_gl else (0, 0, 0, 0)
+        _ic_healed = _fnc.heal_box(_ic_sl, int(_ic_hb[0] * _ic_H), int(_ic_hb[1] * _ic_H), int(_ic_hb[2] * _ic_H), int(_ic_hb[3] * _ic_H))
+        _ic_ex0 = float(_ic_sl[1, 190:210, 750:770].mean() - 0.10)
+        _ic_ex1 = float(_ic_healed[1, 190:210, 750:770].mean() - 0.10)
+        _ic_neb = np.full((3, 400, 400), 0.1, np.float32)
+        _ic_neb[0, :, 120:] += 0.4                            # red nebula over 70 % of the frame
+        _ic_neb += _ic_rg.normal(0, 0.003, _ic_neb.shape).astype(np.float32)
+        _ic_dk = _fnc.dark_sky_levels(_ic_neb)
+        _ic_ts2 = _fnc.State(stars=np.zeros((3, 8, 8), np.float32), star_fwhm=1.4)
+        _ic_ts3 = _fnc.State(stars=np.zeros((3, 8, 8), np.float32), star_fwhm=None)
+        _ic_am = lambda s_: next(v.params["a"] for v in _fnc.TOOLS["shrink"].variants(s_) if v.recommended)  # noqa: E731
+        check(_ic_same and _ic_hit and _ic_ex1 < 0.3 * _ic_ex0 and _ic_dk is not None and abs(_ic_dk[0] - _ic_dk[1]) < 0.02
+              and _ic_am(_ic_ts2) < 0.2 and abs(_ic_am(_ic_ts3) - 0.6) < 1e-6,
+              f"IC 1396 fixes: stars labelled the fast way give the same areas ({_ic_same}); a round glow left by star "
+              f"removal is found away from the middle and the target's own star is kept ({len(_ic_gl)} found at "
+              f"{[(round(x), round(y)) for x, y in _ic_gc]}), and cleaned (glow {_ic_ex0:.3f} -> {_ic_ex1:.3f}); a nebula "
+              f"filling the frame gets its sky level from the darkest part (R {_ic_dk[0] if _ic_dk else 0:.3f}, G "
+              f"{_ic_dk[1] if _ic_dk else 0:.3f}); stars 1.4 px wide are shrunk gently (Moderate {_ic_am(_ic_ts2):.2f} instead "
+              f"of {_ic_am(_ic_ts3):.2f})")
     except Exception as e:  # noqa: BLE001
         check(False, f"IC 1396 fixes: {e}")
 
