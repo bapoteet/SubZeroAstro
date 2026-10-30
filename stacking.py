@@ -2477,6 +2477,23 @@ def dither_report(transforms, fwhms) -> dict:
             "fwhm": fwhm, "small_stars": fwhm is None or fwhm < 2.2, "frames": n}   # 2.2 px: really undersampled
 
 
+def frame_workers(h: int, w: int, nc: int = 1) -> int:
+    """How many frames to calibrate and line up at once: about half the processor cores (the warp already
+    uses several), at most 6, and only as many as the free memory holds (a frame in flight needs about seven
+    copies of itself)."""
+    cpus = os.cpu_count() or 2
+    if cpus < 4:
+        return 1
+    per = float(h) * w * 4 * max(nc, 1) * 7
+    try:
+        import session_log
+        free = session_log.memory().get("free")
+    except Exception:  # noqa: BLE001
+        free = None
+    by_mem = int(free * 1e9 * 0.45 // per) if free else 2
+    return max(1, min(cpus // 2, 6, by_mem))
+
+
 def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=None, cancel=None,
                 common: dict | None = None) -> StackResult:
     """Calibrate, align and combine one group. Calibration masters in g.plan must
@@ -2665,9 +2682,6 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         if info is not ref_info:
             model = distortion_model(ref_pts, pts, T, final_T(np.array([[1.0, 0, 0], [0, 1.0, 0]])),
                                      C_half if half else None, (out_h, out_w))
-            if model is not None:
-                distortion_fixed.append(model["edge_affine"])
-        last_model[0] = model
         if model is not None:
             aligned = warp_poly(pls, model, (out_h, out_w))
         elif is_identity(Tout):
@@ -2679,7 +2693,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         for a in aligned:
             sm = a[::8, ::8]
             bgs.append(float(np.median(sm[~np.isnan(sm)])))
-        return aligned, Tout, k_phot, bgs, noises, inl, rms
+        return aligned, Tout, k_phot, bgs, noises, inl, rms, model
 
     ln_block = max(64, int(max(out_h, out_w) / 16))
     ref_maps = []
@@ -2693,11 +2707,9 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             # that change through the night) is replaced by the reference frame's, so every frame matches it
             # everywhere - outlier rejection then sees only real outliers
             grids = [background_map(a, ln_block, ln_masks[c], want_grid=True) for c, a in enumerate(aligned)]
-            last_grids[:] = grids
             return [((a - grid_to_map(gr, ln_block, *a.shape)) * np.float32(k_phot) + ref_maps[c])
-                    for c, (a, gr) in enumerate(zip(aligned, grids))]
-        last_grids[:] = []
-        return [((a - bgs[c]) * np.float32(k_phot) + np.float32(ref_bg[c])) for c, a in enumerate(aligned)]
+                    for c, (a, gr) in enumerate(zip(aligned, grids))], grids
+        return [((a - bgs[c]) * np.float32(k_phot) + np.float32(ref_bg[c])) for c, a in enumerate(aligned)], []
 
     n = len(frames)
     used = []
@@ -2705,14 +2717,31 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     frame_noise = []
     n_mirrored = 0
     welford = None
-    for idx, lf in enumerate(frames):
-        prog(f"{g.label()}: calibrating and aligning {idx + 1}/{n}", 0.05 + 0.6 * idx / n)
+    workers = 1                                   # decided once the reference frame shows how many planes
+
+    def work(lf):
+        """Calibrate, line up and (once the reference is in) normalise one frame - several frames at once
+        on computers with the cores and memory for it (numpy lets go of the interpreter lock)."""
         try:
-            aligned, T, k_phot, bgs, noises, inl, rms = prepare(idx, lf, True)
+            aligned, T, k_phot, bgs, noises, inl, rms, model = prepare(0, lf, True)
         except ValueError as e:
-            res.skipped.append((lf.info.path.name, str(e)))
-            log.append(f"SKIPPED {lf.info.path.name}: {e}")
-            continue
+            return lf, None, str(e)
+        normed, grids = None, None
+        if ref_bg is not None:
+            normed, grids = normalize(aligned, k_phot, bgs)
+            aligned = None
+        return lf, (aligned, T, k_phot, bgs, noises, inl, rms, model, normed, grids), None
+
+    def consume(lf, r, err):
+        """In frame order, on this thread: the reference's sky, the log, the weights, the stack itself."""
+        nonlocal ref_bg, ref_maps, welford, n_mirrored
+        if r is None:
+            res.skipped.append((lf.info.path.name, err))
+            log.append(f"SKIPPED {lf.info.path.name}: {err}")
+            return
+        aligned, T, k_phot, bgs, noises, inl, rms, model, normed, grids = r
+        if model is not None:
+            distortion_fixed.append(model["edge_affine"])
         if ref_bg is None:
             ref_bg = bgs
             if getattr(opts, "local_norm", True):
@@ -2722,12 +2751,14 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
                 log.append(f"Even out the sky between frames: every frame's sky matched to the reference frame's, "
                            f"in {ln_block} px areas (PixInsight: LocalNormalization); the target and its glow "
                            f"({_mpct:.0f}% of the picture) are left out of the sky")
-        normed = normalize(aligned, k_phot, bgs)
+        if normed is None:
+            normed, grids = normalize(aligned, k_phot, bgs)
+        del aligned
         noise = float(np.mean(noises)) * k_phot
         weight = 1.0 / noise ** 2 if opts.weighting else 1.0
         entries.append((lf.info, T, k_phot, bgs, weight))
-        frame_grids.append(list(last_grids))
-        frame_models.append(last_model[0])
+        frame_grids.append(list(grids or []))
+        frame_models.append(model)
         frame_noise.append(noise)
         mir = is_mirrored(T)
         n_mirrored += int(mir)
@@ -2741,6 +2772,41 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         else:
             welford = _welford_add(welford, normed)
         used.append(lf)
+
+    def step_text(idx):
+        return f"{g.label()}: calibrating and aligning {idx + 1}/{n}" + (f" ({workers} at a time)" if workers > 1 else "")
+    i = 0
+    while i < n and ref_bg is None:               # the reference first: every other frame is matched to it
+        prog(step_text(i), 0.05 + 0.6 * i / n)
+        consume(*work(frames[i]))
+        i += 1
+    rest = list(range(i, n))
+    workers = frame_workers(out_h, out_w, len(ref_bg or [0]))
+    if workers > 1 and len(rest) > 1:
+        from collections import deque
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            todo = iter(rest)
+            pending = deque()
+            for j in todo:
+                pending.append((j, ex.submit(work, frames[j])))
+                if len(pending) >= workers:
+                    break
+            try:
+                while pending:
+                    j, fut = pending.popleft()
+                    prog(step_text(j), 0.05 + 0.6 * j / n)
+                    consume(*fut.result())
+                    nxt = next(todo, None)
+                    if nxt is not None:
+                        pending.append((nxt, ex.submit(work, frames[nxt])))
+            finally:
+                for _j, fut in pending:
+                    fut.cancel()
+    else:
+        for j in rest:
+            prog(step_text(j), 0.05 + 0.6 * j / n)
+            consume(*work(frames[j]))
     if not entries:
         raise ValueError("No frames could be aligned")
     if distortion_fixed:
@@ -2927,7 +2993,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
                 aligned = warp_poly(pls, frame_models[i], (out_h, out_w))
             else:
                 aligned = pls if is_identity(T) else warp_planes(pls, T, (out_h, out_w))
-            normed = np.stack(normalize(aligned, k_phot, bgs))
+            normed = np.stack(normalize(aligned, k_phot, bgs)[0])
             valid = ~np.isnan(normed)
             keep = valid & ((np.abs(normed - mean) <= opts.kappa * sig) | (cnt < 5))
             w = np.float32(weights[i]) * keep

@@ -897,6 +897,22 @@ def run(app, out_dir: Path) -> int:
     check(_t1 < 0.25 * _t0 and any("Even out the sky" in l for l in _llog),
           f"Even out the sky between frames: frames whose gradients change through the night are matched to the reference frame "
           f"everywhere (background mismatch {_t0:.1f} -> {_t1:.1f} ADU)")
+    # several frames calibrated and lined up at once (fast computers): the master is exactly the same
+    _fw0 = _stk.frame_workers
+
+    def _pstack(nw):
+        _stk.frame_workers = lambda *a, **k: nw
+        try:
+            _g = _stk.LightGroup("LN", "L", "Cam", "rig", [_stk.LightFrame(_x) for _x in _linfo])
+            _g.plan = _stk.CalPlan()
+            return _stk.stack_group(_g, _stk.StackOptions(work_dir=str(session / f"par_work{nw}"), formats=("fits",)))
+        finally:
+            _stk.frame_workers = _fw0
+    _pa, _pb = _pstack(1), _pstack(3)
+    check(_pa.used == _pb.used == len(_linfo) and np.array_equal(_pa.data, _pb.data, equal_nan=True)
+          and _fw0(100, 100, 1) >= 1,
+          f"stacking several frames at once gives exactly the same master ({_pa.used} and {_pb.used} frames; "
+          f"{_fw0(6388, 9576, 1)} at a time for a 61-megapixel frame here)")
 
     # ... and a bright target (a planetary nebula) is left out of the sky estimate, so it leaves no block-shaped
     # border around itself in the stack (M27 from Telescope Live)
