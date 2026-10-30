@@ -668,6 +668,17 @@ def run(app, out_dir: Path) -> int:
           and abs(float((_gr - _gimg)[:, 200:400, 350:550].mean())) < 1e-4
           and abs(float((_gr - _gimg)[:, 470:491, 770:791].mean())) < 1e-4,
           f"a small galaxy beside a planetary is moved to the stars image ({_gn}); the nebula and a faint knot stay")
+    # star colour balance on linear data with page 3's stars added back (stars far above 1): still measured
+    _sr = np.random.default_rng(5)
+    _sy, _sx = np.mgrid[:300, :300].astype(np.float32)
+    _simg = np.full((3, 300, 300), 0.02, np.float32) + _sr.normal(0, 0.001, (3, 300, 300)).astype(np.float32)
+    for _k in range(60):
+        _cx, _cy = _sr.uniform(15, 285, 2)
+        _g = np.exp(-((_sx - _cx) ** 2 + (_sy - _cy) ** 2) / (2 * 1.5 ** 2)) * _sr.uniform(2, 40)
+        _simg += np.stack([_g * 1.3, _g, _g * 0.8])
+    _sf = _fnc._star_colour_factors(_simg)
+    check(_sf is not None and abs(_sf[0] - 1.3) < 0.1 and abs(_sf[1] - 0.8) < 0.1,
+          f"Balance Colours measures the stars on linear data whose stars run far above 1 ({_sf})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

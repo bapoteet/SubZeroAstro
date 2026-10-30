@@ -1261,12 +1261,15 @@ def _star_colour_factors(img: np.ndarray):
         return None
     h, w = lum.shape
     rs, bs = [], []
+    # saturated = near the top of the data: 0.9 on a 0-1 picture; on linear data with page 3's stars added back
+    # the stars run far above 1, and a fixed 0.9 threw them all out (M83 got no colour balance at all)
+    sat = 0.9 * max(1.0, float(np.max(img)))
     for x, y in pts:
         xi, yi = int(round(x)), int(round(y))
         if not (8 <= xi < w - 8 and 8 <= yi < h - 8):
             continue
         box = img[:, yi - 8:yi + 9, xi - 8:xi + 9]
-        if box.max() > 0.9:                       # saturated
+        if box.max() > sat:                       # saturated
             continue
         yy, xx = np.mgrid[-8:9, -8:9]
         rr = np.hypot(yy, xx)
@@ -1329,6 +1332,11 @@ class BalanceColours(Tool):
         else:
             out[0].recommended = True
             out[0].note += " (not enough clean stars to judge star colour)"
+        if target_type(s) == "planetary nebula" and fac:
+            # a planetary's colours are its gas, not starlight: balanced on the stars, the Helix's Ha (added to
+            # red) went all red and its teal centre grey-blue. The sky alone keeps the look tuned on M27 and the Helix
+            for v in out:
+                v.recommended = v.label == "Neutral sky only"
         if target_type(s) == "star cluster":
             glow = cluster_glow_colour(s.rgb, bgs)
             if glow is not None:
