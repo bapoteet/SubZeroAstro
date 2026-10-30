@@ -711,9 +711,14 @@ def _min_filter(a: np.ndarray, r: int) -> np.ndarray:
     """Grey-level erosion with a (2r+1)^2 square (separable)."""
     h, w = a.shape
     p = np.pad(a, ((0, 0), (r, r)), mode="edge")
-    b = np.min(np.stack([p[:, i:i + w] for i in range(2 * r + 1)]), axis=0)
+    b = p[:, 0:w].copy()
+    for i in range(1, 2 * r + 1):                  # running minimum: no (2r+1)-deep stack in memory
+        np.minimum(b, p[:, i:i + w], out=b)
     p = np.pad(b, ((r, r), (0, 0)), mode="edge")
-    return np.min(np.stack([p[i:i + h, :] for i in range(2 * r + 1)]), axis=0)
+    out = p[0:h, :].copy()
+    for i in range(1, 2 * r + 1):
+        np.minimum(out, p[i:i + h, :], out=out)
+    return out
 
 
 def display_rgb8(img: np.ndarray, linear: bool, linked=True) -> np.ndarray:
@@ -1511,6 +1516,10 @@ class TakeStarsOut(Tool):
             s.step_note = (f"moved {_moved:.0%} of the stars image's light - the part of the planetary nebula star "
                            "removal had taken for a star - back to the nebula" if _moved > 0.001 else
                            "checked the stars image for parts of the planetary nebula - none found")
+            s.rgb, s.stars, _ng = small_objects_to_stars(s.rgb, s.stars)
+            if _ng:
+                s.step_note += (f"; {_ng} small background galaxies or faint stars moved to the stars image, "
+                                "so they keep star colours")
         s.done.append(self.key)
         return s
 
@@ -2005,6 +2014,57 @@ def _label(m: np.ndarray):
     out = np.zeros((h, w), np.int32)
     out[m] = inv + 1
     return out, len(uniq)
+
+
+def small_objects_to_stars(rgb: np.ndarray, stars: np.ndarray):
+    """Star removal leaves small background galaxies (and the faintest stars) in the starless picture, where the
+    nebula's colour steps turn them its colour - teal or pink specks around the Helix. Small, compact things on
+    the empty sky around the nebula are moved to the stars image, so they are brightened and coloured as stars
+    (a galaxy's light is starlight). The nebula itself (and anything on it) is left alone.
+    Returns (rgb, stars, how many were moved)."""
+    L = _lum(rgb).astype(np.float32)
+    h, w = L.shape
+    if min(h, w) < 256 or stars is None:
+        return rgb, stars, 0
+    r = max(4, int(round(w / 320)))                       # wider than a small galaxy, narrower than nebula
+    top = L - _opening(L, r)
+    med = float(np.median(top))
+    noise = float(np.median(np.abs(top - med))) * 1.4826 + 1e-9
+    sm, _f = _small_plane(L, 600)
+    sm = _blur(sm, 3)
+    sky, pk = float(np.percentile(sm, 10)), float(np.percentile(sm, 99.5))
+    neb = _resize((sm > sky + 0.35 * (pk - sky)).astype(np.float32), h, w)[:h, :w] > 0.5
+    cand = (top > med + 8 * noise) & ~neb
+    if cand.sum() > 0.003 * h * w:                       # a crowded field: only the clearest ones
+        cand = (top > np.percentile(top[~neb], 99.7)) & ~neb
+    lab, n = _label(cand)
+    if n == 0:
+        return rgb, stars, 0
+    areas = np.bincount(lab.ravel(), minlength=n + 1)
+    sig = np.where(cand, top - med, 0).ravel()
+    peak = np.zeros(n + 1)
+    np.maximum.at(peak, lab.ravel(), sig)
+    mean = np.bincount(lab.ravel(), sig, minlength=n + 1) / np.maximum(areas, 1)
+    keep = np.zeros(n + 1, bool)
+    # a galaxy or a star: clearly above the noise and brighter in the middle. A faint, flat knot of the nebula's
+    # outer shell is not (moving those left dark holes in the Helix's red shell)
+    keep[1:] = ((areas[1:] >= 15) & (areas[1:] <= (3 * r) ** 2) & (peak[1:] >= 25 * noise)
+                & (peak[1:] >= 1.7 * mean[1:]))
+    if not keep.any():
+        return rgb, stars, 0
+    m = keep[lab].astype(np.float32)
+    m = -_min_filter(-m, max(2, r // 3))                  # take the faint edges too
+    m = np.clip(_blur(m, 1.5), 0, 1)[:h, :w]
+    sky_px = (m == 0) & ~neb
+    rgb, stars = rgb.copy(), stars.copy()
+    for i in range(rgb.shape[0]):
+        base = _blur(_opening(rgb[i], r), r / 2)[:h, :w]
+        d = rgb[i] - base
+        base = base + float(np.median(d[sky_px]))       # the opening sits low, in the noise's dips
+        moved = (rgb[i] - base) * m                        # noise and all: the patch left behind is not darker
+        rgb[i] -= moved
+        stars[min(i, stars.shape[0] - 1)] += moved
+    return rgb.astype(np.float32), stars.astype(np.float32), int(keep.sum())
 
 
 def rescue_object(rgb: np.ndarray, stars: np.ndarray):

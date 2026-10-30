@@ -654,6 +654,20 @@ def run(app, out_dir: Path) -> int:
     _hv8 = [v.params for v in _fnc.TOOLS["stretch"].variants(_fnc.merge_hidden_stars(_hs7))]
     check(repr(_hv7) == repr(_hv8), "Brighten's versions are measured on the picture with page 3's stars in, "
                                     "as it will be brightened")
+    # small background galaxies around a planetary go to the stars image (the nebula's colours turned the Helix's
+    # teal); the nebula and a faint, flat knot of its shell stay
+    _rg = np.random.default_rng(7)
+    _gy, _gx = np.mgrid[:600, :900].astype(np.float32)
+    _gneb = 0.6 * np.exp(-((_gx - 450) ** 2 + (_gy - 300) ** 2) / (2 * 110 ** 2))
+    _ggal = 0.25 * np.exp(-(((_gx - 120) / 2.5) ** 2 + ((_gy - 100) / 1.5) ** 2) / 2)
+    _gknot = 0.012 * np.exp(-((_gx - 780) ** 2 + (_gy - 480) ** 2) / (2 * 4 ** 2))
+    _gimg = np.stack([(0.02 + _gneb * t_ + _ggal * g_ + _gknot) for t_, g_ in ((0.3, 1.0), (1.0, 0.8), (0.8, 0.6))])
+    _gimg = (_gimg + _rg.normal(0, 0.001, _gimg.shape)).astype(np.float32)
+    _gr, _gs, _gn = _fnc.small_objects_to_stars(_gimg, np.zeros_like(_gimg))
+    check(_gn == 1 and float(_gs[:, 90:111, 105:136].sum()) > 0.8 * float(_ggal[90:111, 105:136].sum() * 2.4)
+          and abs(float((_gr - _gimg)[:, 200:400, 350:550].mean())) < 1e-4
+          and abs(float((_gr - _gimg)[:, 470:491, 770:791].mean())) < 1e-4,
+          f"a small galaxy beside a planetary is moved to the stars image ({_gn}); the nebula and a faint knot stay")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
