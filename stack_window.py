@@ -890,7 +890,13 @@ class StackWindow(QMainWindow):
         self.refresh_all()
 
     # ------------------------------------------------------------ run
-    def start(self, skip_preflight=False):
+    def start(self, skip_preflight=False, auto=False):
+        """auto: Fast Track - no questions; missing calibration is noted, a doubtful SkyFlat is used, masters
+        saved by an interrupted run are kept, and the masters go next to the lights when no folder is set."""
+        self.quiet = auto
+        skip_preflight = skip_preflight or auto
+        if auto and not self.masters_root.text().strip() and self.lights:
+            self.masters_root.setText(str(Path(self.lights[0].info.path).parent / "Master Lights"))
         groups = [g for g in self.groups if g.enabled]
         if not groups:
             QMessageBox.information(self, "Stacking", "Tick at least one group to stack.")
@@ -907,7 +913,7 @@ class StackWindow(QMainWindow):
             QMessageBox.information(self, "Stacking", "Choose where master lights should be saved "
                                     "(Master lights folder at the top).")
             return
-        if opts.save_cal_masters and not opts.cal_root and any(
+        if not auto and opts.save_cal_masters and not opts.cal_root and any(
                 c is not None and not c.master for g in groups
                 for c in g.plan.all_items()):
             if QMessageBox.question(self, "Stacking", "New calibration masters will be built, but no calibration "
@@ -932,7 +938,7 @@ class StackWindow(QMainWindow):
         done = [(g, runlog.done(g)) for g in groups]
         done = [(g, d) for g, d in done if d]
         if done:
-            r = self.ask_resume(done, len(groups))
+            r = True if auto else self.ask_resume(done, len(groups))
             if r is None:
                 return
             if r:
@@ -944,6 +950,8 @@ class StackWindow(QMainWindow):
         self.btn_cancel.setEnabled(True)
         self.log(f"Stacking {len(groups)} group(s)…" + (f" ({len(skip)} already saved, skipped)" if skip else ""))
         self.worker = StackWorker(groups, self.items, opts, self.rigs, runlog=runlog, skip=skip)
+        if auto:
+            self.worker.sky_answer = "use"
         self.worker.progress.connect(self.on_progress)
         self.worker.log.connect(self.log)
         self.worker.failed.connect(self.on_failed)
@@ -1020,7 +1028,7 @@ class StackWindow(QMainWindow):
                 if line.startswith("WARNING: the ") and " master " in line and line not in cal_warn:
                     cal_warn.append(line)
         self.last_cal_warnings = cal_warn
-        if cal_warn:
+        if cal_warn and not getattr(self, "quiet", False):
             box = QMessageBox(QMessageBox.Warning, "Check your calibration frames",
                               "<b>The masters were made, but a calibration frame does not match your lights:</b>"
                               "<br><br>" + "<br><br>".join(x.replace("WARNING: ", "• ") for x in cal_warn[:4])
@@ -1033,7 +1041,7 @@ class StackWindow(QMainWindow):
         tips = [(r.group.label(), line[len("TIP: drizzle - "):]) for r in ok for line in r.log
                 if line.startswith("TIP: drizzle - ")]
         self.last_drizzle_tips = tips
-        if tips and not cal_warn:
+        if tips and not cal_warn and not getattr(self, "quiet", False):
             box = QMessageBox(QMessageBox.Information, "Optional: finer detail with drizzle",
                               "<b>Your stack is done and fine as it is</b> - this is only a suggestion.<br><br>"
                               + "<br><br>".join(f"<b>{lbl}</b>: {t}" for lbl, t in tips[:4]), QMessageBox.NoButton, self)

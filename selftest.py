@@ -4146,7 +4146,52 @@ def run(app, out_dir: Path) -> int:
         check(ok_new and _before >= 2 and not left and not w.frames and w.list.count() == 0
               and getattr(w, "stack_win", None) is None and not w.isHidden(),
               f"Start New Project closes every page ({_before} open, still showing: {left}) and empties page 1")
-        QTimer.singleShot(900, lambda: (shot("19a_new_project.png"), finish(0 if not failures else 1)))
+        QTimer.singleShot(900, lambda: (shot("19a_new_project.png"), fast_track_test()))
+
+    def fast_track_test():
+        # ⚡ Fast Track from page 1: open the frames again, then one press runs measuring, stacking, page 3 and
+        # every page-4 step on the suggested settings, with a film of the steps; the pages are all there afterwards
+        import fasttrack_window as _ftw
+        w.open_folder(session, use_cache=True)
+        w._fast_auto = True
+        check(hasattr(w, "btn_fast") and "Fast Track" in w.btn_fast.text(), "page 1 has the ⚡ Fast Track button")
+        state["ft_open"] = time.time()
+
+        def _go():
+            if not w.frames and time.time() - state["ft_open"] < 60:
+                QTimer.singleShot(300, _go)
+                return
+            state["ft"] = _ftw.start(w, "frames")
+            state["ft_t"] = time.time()
+            QTimer.singleShot(800, fast_track_wait)
+        QTimer.singleShot(300, _go)
+
+    def fast_track_wait():
+        ft = state["ft"]
+        if ft is not None and not ft.finished_ok and not ft.cancelled and time.time() - state["ft_t"] < 600:
+            QTimer.singleShot(500, fast_track_wait)
+            return
+        shot("19b_fast_track.png", ft) if ft is not None else None
+        fw_ = getattr(ft, "fw", None) if ft is not None else None
+        steps = [s_["label"] for s_ in fw_.project.steps] if fw_ is not None and fw_.project else []
+        log(f"Fast Track: {time.time() - state['ft_t']:.0f} s, {len(ft.frames_shot) if ft else 0} film frames, "
+            f"steps: {steps}")
+        check(ft is not None and ft.finished_ok and ft.target == "M33",
+              f"Fast Track runs from page 1's frames to a finished picture "
+              f"({'finished' if ft and ft.finished_ok else 'not finished'}; "
+              f"{[ft.steps.item(i).text() for i in range(ft.steps.count())][-4:] if ft else None})")
+        check(ft is not None and len(ft.frames_shot) >= 5 and ft.cine._new is not None and ft.strip.count() == len(ft.frames_shot),
+              f"Fast Track shows each step as a frame of its film ({len(ft.frames_shot) if ft else 0} frames)")
+        check(fw_ is not None and len(steps) >= 4 and fw_.state is not None and "stretch" in fw_.state.done
+              and ft.btn_save.isVisibleTo(ft) and ft.btn_redo.isVisibleTo(ft),
+              f"after Fast Track page 4 holds every step (Go Back to Here works) and the picture can be saved or "
+              f"reprocessed step by step ({len(steps)} steps)")
+        if fw_ is not None and ft is not None:
+            ft.redo_by_hand()
+            QApplication.processEvents()
+            check(fw_.project is not None and len(fw_.project.steps) == 1 and fw_.state is not None
+                  and not fw_.state.done, "Reprocess Step by Step opens page 4 back at the masters as loaded")
+        finish(0 if not failures else 1)
 
     QTimer.singleShot(300, start)
     return app.exec()

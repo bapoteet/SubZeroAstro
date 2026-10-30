@@ -363,6 +363,21 @@ def open_page(owner, attr: str, key, make):
     return w
 
 
+def make_page(owner, attr: str, key, make):
+    """Like open_page, but the page is not shown (Fast Track works the pages behind its own window; they are
+    all there afterwards, with ◀ Back, to change anything by hand)."""
+    from PySide6.QtCore import Qt
+    old = getattr(owner, attr, None)
+    if alive(old):
+        old.close()
+    w = make()
+    w._page_key = key
+    w.setAttribute(Qt.WA_DeleteOnClose, True)
+    setattr(owner, attr, w)
+    remember(attr, key)
+    return w
+
+
 def remember(attr, key):
     """Note the page that was just opened, so start-up can bring you back to it."""
     try:

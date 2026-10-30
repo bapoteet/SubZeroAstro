@@ -530,6 +530,12 @@ class FinishWindow(QMainWindow):
                                         "Quality and Cull, then stacking. Nothing on disk is deleted.")
         self.btn_new_project.clicked.connect(lambda: self.end_project())
         self.app_header.right.addWidget(self.btn_new_project)
+        import fasttrack_window as _ftw
+        self.btn_fast = _ftw.fast_button()
+        self.btn_fast.setToolTip("Fast Track: SubZeroAstro does each remaining step on its suggested version and "
+                                 "shows every one as it happens. Click any step afterwards to change it.")
+        self.btn_fast.clicked.connect(lambda: _ftw.start(self, "finish"))
+        self.app_header.right.insertWidget(0, self.btn_fast)
         self._build_ui()
         self.resize(1500, 950)
         self.refresh()
@@ -949,7 +955,9 @@ class FinishWindow(QMainWindow):
         s, proj = res
         if proj.steps:
             last = proj.steps[-1]
-            if self.synchronous or QMessageBox.question(
+            if getattr(self, "fresh_load", False):
+                pass                                  # Fast Track: start again from the masters
+            elif self.synchronous or QMessageBox.question(
                     self, "Finish", f"You worked on {s.target} before ({len(proj.steps) - 1} step(s), last: "
                     f"{last['label']} at {last['time']}).\n\nCarry on where you left off?") == QMessageBox.Yes:
                 self.project = proj
@@ -1183,6 +1191,92 @@ class FinishWindow(QMainWindow):
         t = self.again_tool()
         if t is not None:
             self.open_tool(t.key)
+
+    # steps Fast Track leaves for you: they need your eye (crop, turn, spots) or your name (signature)
+    AUTO_STOP = ("final_crop", "flip", "spotfix", "signature")
+
+    def auto_next(self):
+        """The step Fast Track would do next, or None when the picture is finished."""
+        t = F.next_step(self.state) if self.state is not None else None
+        return None if t is None or t.key in self.AUTO_STOP else t
+
+    def auto_step(self, done):
+        """Fast Track: do the recommended next step with its suggested version, save it in the project and
+        show it. done(t, label) afterwards - t is None when nothing is left to do. done(t, None) when the step
+        could not be done (it is skipped, so the run carries on)."""
+        t = self.auto_next()
+        if t is None:
+            done(None, None)
+            return
+        s, proj = self.state, self.project
+
+        def work():
+            t0 = time.time()
+            vs = t.variants(s)
+            v = next((x for x in vs if x.recommended), None) or (vs[0] if vs else None)
+            if v is None:
+                new = s.copy()
+                new.skipped.append(t.key)
+                proj.save(new, t.key + "_skip", f"Skipped {t.title}")
+                return new, None, 0.0, ""
+            params = dict(v.params)
+            new = t.apply(s, params)
+            note = getattr(new, "step_note", "")
+            new.step_note = ""
+            proj.save(new, t.key, f"{t.title} — {v.label}", params)
+            return new, v.label, time.time() - t0, note
+
+        def ok(r):
+            new, label, secs, note = r
+            self.state = new
+            if label is None:
+                self.log(f"Fast Track skipped {t.title} (nothing to choose)")
+            else:
+                self.log(f"{t.title}: {label}  ({secs:.1f} s)")
+                if note:
+                    self.log(f"   {note}")
+            self.after_change()
+            done(t, label)
+
+        def bad(msg):
+            self.log(f"Fast Track: {t.title} failed - skipped ({msg.splitlines()[0] if msg else ''})")
+            s2 = s.copy()
+            s2.skipped.append(t.key)
+            try:
+                proj.save(s2, t.key + "_skip", f"Skipped {t.title} (it failed)")
+            except Exception:  # noqa: BLE001
+                pass
+            self.state = s2
+            self.after_change()
+            done(t, None)
+        if self.synchronous:
+            try:
+                ok(work())
+            except Exception as e:  # noqa: BLE001
+                bad(f"{e}\n\n{traceback.format_exc()[-1500:]}")
+            return
+        self.progress.setVisible(True)
+        self.progress.setFormat(f"{t.title}…")
+        self.setEnabled_all(False)
+        job = Job(work)
+        self._auto_job = job
+
+        def _ok(r):
+            self.progress.setVisible(False)
+            self.setEnabled_all(True)
+            ok(r)
+
+        def _bad(m):
+            self.progress.setVisible(False)
+            self.setEnabled_all(True)
+            bad(m)
+        job.ok.connect(_ok)
+        job.failed.connect(_bad)
+        job.start()
+
+    def busy(self) -> bool:
+        return bool((self.job and self.job.isRunning())
+                    or (getattr(self, "_auto_job", None) is not None and self._auto_job.isRunning()))
 
     def skip_next(self):
         t = F.next_step(self.state)

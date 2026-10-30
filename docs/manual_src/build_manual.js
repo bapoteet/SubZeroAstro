@@ -280,6 +280,16 @@ bullets([
 ]);
 sec("5.4", "Stop Here – Continue in PixInsight", ["Stop Here – Continue in PixInsight", "PixInsight hand-over"]);
 p("The purple **Stop Here – Continue in PixInsight** button (pages 2, 3 and 4) saves the image exactly as it is right now as PixInsight-ready XISF, writes a short note listing the PixInsight processes to use next, and opens the folder with the files selected.");
+sec("5.5", "⚡ Fast Track: the whole way in one go", ["Fast Track", "Automatic processing", "Defaults", "Film of the steps", "Reprocess Step by Step", "Fine-Tune on Page 4"]);
+p("**⚡ Fast Track** takes your data to a finished picture on SubZeroAstro's suggested settings for your kind of target - the same steps and the same versions the cards mark as *suggested* when you go step by step - and shows every step as it happens, like a short film.");
+steps([
+  "Open your light frames on page 1 (calibration frames can be in the same folder; your calibration library is used too) and press **⚡ Fast Track** at the top right. On page 3 or page 4 the same button starts from the masters there (on page 4 it carries on from the picture as it is).",
+  "Fast Track asks one thing: **what the target is** (galaxy, nebula, planetary nebula, star cluster, comet). It recognises most catalogue names; change it if it is wrong - the steps and their settings follow the kind of object.",
+  "Watch: page 1 measures the frames and leaves out the clearly bad ones (the gentlest cull, **Less aggressive** - nothing is moved or deleted), page 2 calibrates and stacks, page 3 runs its steps, page 4 does each recommended step. Each result fades in on the big picture with its name, and lands in the **film strip** underneath - click a frame to look at it again.",
+  "At the end: **Save the Picture…**, **Save Project…**, **▶ Play the Film Again**, **🔧 Fine-Tune on Page 4** (every Fast Track step is in page 4's list: click one and use *Go Back to Here* to try another version), or **↺ Reprocess Step by Step** (page 4 back at the masters as loaded - you pick each version yourself).",
+]);
+p("Fast Track leaves the steps that need your eye or your name for you: **Final Crop**, **Flip or Rotate**, **Spot Fix** and **Sign Your Picture**. **Stop** halts it after the current step; everything done so far stays on its page. All four pages are there afterwards with ◀ Back, exactly as if you had clicked through them.");
+tip("Fast Track is also the quickest way to compare: run it, look at the result, then **Reprocess Step by Step** and pick other versions where you like.");
 
 ch(6, "Page 1 – Astro Image Quality and Cull");
 img("1_main_window_fwhm.png", "Page 1: frame list (left), the selected frame, the session chart and the measurements (example data)");

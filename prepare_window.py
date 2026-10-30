@@ -880,7 +880,11 @@ class PrepareWindow(QMainWindow):
         self.btn_finish.setEnabled(False)
         self.btn_finish.clicked.connect(lambda: open_finish(self, self.last_results))
         brow.addWidget(self.btn_pi)
-        self.app_header.add_next(self.btn_finish, "Continue to Finishing Touches")          # top right, page-turn style
+        self.app_header.add_next(self.btn_finish, "Continue to Finishing Touches")
+        import fasttrack_window as _ftw
+        self.btn_fast = _ftw.fast_button()
+        self.btn_fast.clicked.connect(lambda: _ftw.start(self, "prepare"))
+        self.app_header.right.insertWidget(0, self.btn_fast)          # top right, page-turn style
         brow.addWidget(self.btn_cancel)
         brow.addWidget(self.btn_start)
         root.addLayout(brow)

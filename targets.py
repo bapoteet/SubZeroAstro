@@ -84,11 +84,32 @@ def is_comet(name: str) -> bool:
     return bool(_COMET_RE.match(n)) or "comet" in n.lower()
 
 
+# the kind of object the user picked for a target (Fast Track's "What is it?"), by name - wins over the catalogue
+OVERRIDES: dict = {}
+
+TYPE_CHOICES = [(GALAXY, "Galaxy"), (NEBULA, "Nebula (emission, reflection or dark)"),
+                (PLANETARY, "Planetary nebula"), (CLUSTER, "Star cluster"), (COMET, "Comet"),
+                (UNKNOWN, "Something else")]
+
+
+def _okey(name) -> str:
+    return re.sub(r"[\s_\-]+", "", str(name or "")).lower()
+
+
+def set_override(name, kind):
+    if kind is None:
+        OVERRIDES.pop(_okey(name), None)
+    else:
+        OVERRIDES[_okey(name)] = kind
+
+
 def classify(name: str) -> str:
     """The kind of object, or '' when the name doesn't tell."""
     n = (name or "").strip()
     if not n:
         return UNKNOWN
+    if _okey(n) in OVERRIDES:
+        return OVERRIDES[_okey(n)]
     if is_comet(n):
         return COMET
     c = _cat(n)
