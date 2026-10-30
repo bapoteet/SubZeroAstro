@@ -55,6 +55,7 @@ class State:
     stars_hidden: bool = False             # stars separated by Prepare but still shown in the picture:
                                            # "Take Stars Out" makes the separation visible
     step_note: str = ""                    # what the last step found out, for the log (not saved)
+    star_fwhm: float | None = None         # median star size (px) of the stars image, measured while linear
 
     def copy(self) -> "State":
         return replace(self, channels=dict(self.channels), channel_stars=dict(self.channel_stars),
@@ -683,6 +684,61 @@ def _stats(x: np.ndarray):
     return med, mad
 
 
+def dark_sky_levels(rgb: np.ndarray, frac: float = 0.2):
+    """Each channel's level in the darkest `frac` of the picture (smoothed, so stars and grain don't count):
+    the real sky behind a nebula that fills the frame. None if the picture is too small."""
+    c, h, w = rgb.shape
+    f = max(1, int(max(h, w) // 400))
+    hh, ww = h // f * f, w // f * f
+    if hh < 32 or ww < 32:
+        return None
+    sm = np.stack([np.median(np.stack([rgb[k, i:hh:f, j:ww:f] for i in range(0, f, max(1, f // 2))
+                                          for j in range(0, f, max(1, f // 2))]), axis=0) for k in range(c)])
+    sm = np.stack([_blur(p.astype(np.float32), 2.0) for p in sm])
+    L = sm.mean(axis=0)
+    m = L <= np.percentile(L, 100 * frac)
+    if m.sum() < 50:
+        return None
+    return [float(np.median(p[m])) for p in sm]
+
+
+def star_fwhm(stars, n: int = 300) -> float | None:
+    """Median size (FWHM, px) of the stars in a linear stars-only image, from second moments of a few hundred
+    mid-bright stars in the middle of the picture. None if it can't tell."""
+    try:
+        S = _lum(np.asarray(stars, np.float32)) if np.ndim(stars) == 3 else np.asarray(stars, np.float32)
+        h, w = S.shape
+        c = S[h // 4:3 * h // 4, w // 4:3 * w // 4]
+        if min(c.shape) < 40:
+            return None
+        pk = (c >= SpotFix._minmax(c, 11, np.max) - 1e-12) & (c > 0)
+        v = c[pk]
+        if v.size < 20:
+            return None
+        lo, hi = np.percentile(v, 90), np.percentile(v, 99.5)
+        ys, xs = np.nonzero(pk & (c > lo) & (c < hi))
+        if ys.size == 0:
+            return None
+        pick = np.random.default_rng(0).choice(ys.size, min(n, ys.size), replace=False)
+        yy, xx = np.mgrid[-6:7, -6:7]
+        out = []
+        for y, x in zip(ys[pick], xs[pick]):
+            if y < 7 or x < 7 or y >= c.shape[0] - 7 or x >= c.shape[1] - 7:
+                continue
+            win = c[y - 6:y + 7, x - 6:x + 7].astype(np.float64)
+            b = np.median(np.r_[win[0], win[-1], win[:, 0], win[:, -1]])
+            win = np.clip(win - b, 0, None)
+            win = np.where(win > 0.1 * win.max(), win, 0)
+            sw = win.sum()
+            if sw <= 0:
+                continue
+            my, mx = (win * yy).sum() / sw, (win * xx).sum() / sw
+            out.append(2.355 * np.sqrt((win * ((yy - my) ** 2 + (xx - mx) ** 2)).sum() / sw / 2))
+        return float(np.median(out)) if len(out) >= 10 else None
+    except Exception:  # noqa: BLE001 - only a hint
+        return None
+
+
 def _lum(img: np.ndarray) -> np.ndarray:
     return img.mean(axis=0) if img.shape[0] > 1 else img[0]
 
@@ -882,7 +938,10 @@ class Tool:
             origv = cls.__dict__["variants"]
 
             def variants(self, s, *a, _orig=origv, **k):
-                return _orig(self, merge_hidden_stars(s), *a, **k)
+                m = merge_hidden_stars(s)
+                if m is not s:
+                    m._starless_rgb = s.rgb          # the picture without page 3's stars, for its sky level
+                return _orig(self, m, *a, **k)
             variants.__doc__ = origv.__doc__
             cls.variants = variants
 
@@ -1332,6 +1391,13 @@ class BalanceColours(Tool):
 
     def variants(self, s):
         bgs = [_stats(c)[0] for c in s.rgb]
+        if target_type(s) in ("nebula", "unknown") and s.rgb.shape[0] == 3:
+            # a nebula that fills the frame: each channel's median is nebula, not sky (IC 1396's red median was
+            # its Ha glow) - set from it, the darkest sky came out cyan. Use the darkest part instead
+            # (measured without page 3's stars, which stay apart and are not shifted: a dense star field's
+            # light would otherwise count as sky)
+            bgs = dark_sky_levels(getattr(s, "_starless_rgb", None) if getattr(s, "_starless_rgb", None) is not None
+                                  else s.rgb) or bgs
         fac = _star_colour_factors(s.rgb)
         base = {"bgs": bgs}
         out = [Variant("Neutral sky only", {**base, "white": None}, "Only removes the background colour cast")]
@@ -1628,7 +1694,63 @@ def find_star_leftovers(starless: np.ndarray, stars: np.ndarray, max_stars: int 
     return out, busy
 
 
-def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0, keep=0.0) -> np.ndarray:
+def find_star_glows(starless: np.ndarray, stars: np.ndarray, skip=(), max_stars: int = 30) -> list:
+    """Round glows star removal left around bright stars, with no painted square to find them by: a big star's
+    halo (IC 1396's Garnet Star, with a coloured ring where the filters' halos differ) and the coloured halos
+    some filters add (teal blobs across the sky). A glow is a round, steadily fading brightening centred on a
+    bright star of the stars image, clearly above the level further out. Stars in the middle of the picture
+    (where the target is - a reflection nebula hugging its star) and glows with structure in them are left
+    alone. Returns [(fx0, fy0, fx1, fy1)] boxes for heal_box, as fractions of the picture's size; the box is
+    a quarter of the glow's size, heal_box takes the glow away out to five times that."""
+    L = _lum(starless).astype(np.float32)
+    h, w = L.shape
+    if min(h, w) < 256:
+        return []
+    Ssm, f = _small_plane(_lum(stars).astype(np.float32), 1600)
+    sm = _box_blur(Ssm, 2)
+    pk = sm >= SpotFix._minmax(sm, 15, np.max) - 1e-12
+    ys, xs = np.nonzero(pk & (sm > 0))
+    order = np.argsort(-sm[ys, xs])[:max_stars]
+    R = int(0.08 * max(h, w))
+    q = max(1, R // 150)
+    nb = 30
+    taken = [tuple(b) for b in skip]
+    out = []
+    for i in order:
+        cy, cx = int(ys[i] * f + f // 2), int(xs[i] * f + f // 2)
+        if abs(cy - h / 2) < 0.125 * h and abs(cx - w / 2) < 0.125 * w:
+            continue                                     # the target's own star
+        if any(a0 <= cx < a1 and b0 <= cy < b1 for a0, b0, a1, b1 in taken):
+            continue
+        y0, y1, x0, x1 = max(0, cy - R), min(h, cy + R), max(0, cx - R), min(w, cx + R)
+        C = L[y0:y1:q, x0:x1:q]
+        yy, xx = np.mgrid[y0:y1:q, x0:x1:q]
+        ri = (np.hypot(yy - cy, xx - cx) / R * nb).astype(int)
+        cnt = np.bincount(ri.ravel(), minlength=nb + 2)[:nb]
+        if (cnt < 3).any():
+            continue
+        prof = np.array([np.median(C[ri == k]) for k in range(nb)])
+        far = float(np.median(C[(ri >= 25) & (ri < nb)]))
+        k0 = int(np.argmax(prof[1:8])) + 1
+        ex = float(prof[k0]) - far
+        if ex <= 0.2 * max(far, 1e-6):
+            continue
+        mono = float((np.diff(prof[k0:25]) <= 0.03 * ex).mean())
+        below = np.nonzero(prof[k0:] - far < 0.15 * ex)[0]
+        gk = k0 + (int(below[0]) if below.size else nb - k0)
+        kh = int(np.clip((k0 + gk) // 2, 1, nb - 1))
+        ring = float(np.std(C[ri == kh])) / ex
+        if mono < 0.8 or ring > 0.4:
+            continue
+        gr = gk * R / nb
+        half = int(np.clip(gr / 4.5, 8, R / 4))
+        b = (cx - half, cy - half, cx + half, cy + half)
+        out.append(b)
+        taken.append((cx - int(gr), cy - int(gr), cx + int(gr), cy + int(gr)))
+    return [(max(0, x0_) / w, max(0, y0_) / h, min(w, x1_) / w, min(h, y1_) / h) for x0_, y0_, x1_, y1_ in out]
+
+
+def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0, keep=0.0, inplace=False) -> np.ndarray:
     """Clean one painted box and what star removal left around it. StarXTerminator leaves a big star's glow in
     the starless picture cut square: a plate with straight edges, bright bars along them, and a grain-free box
     in the middle (sometimes with a leftover core). Around the box, the smooth part of the picture is split into
@@ -1671,7 +1793,7 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0, keep=0.0) -> np
     cands = [(dx, dy) for dx, dy in cands if 0 <= dx and dx + pw <= w and 0 <= dy and dy + ph <= h]
     donor = cands[int(rng.integers(0, len(cands)))] if cands else None
     sig = max(3.0, min(pw, ph) / 12)
-    out = img.copy()
+    out = img if inplace else img.copy()
     Rh = None
     for k in range(c):
         W = out[k, wy0:wy1, wx0:wx1].astype(np.float64)
@@ -1788,7 +1910,8 @@ def heal_box(img: np.ndarray, x0, y0, x1, y1, grow=0.45, seed=0, keep=0.0) -> np
     return out
 
 
-def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_stars: int = 40) -> list:
+def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_stars: int = 40,
+                        rings: bool = False) -> list:
     """Small leftover star cores star removal left in the starless picture (a close double star, or a core in
     one colour only - the red dot on M27), where no painted square is to be cleaned (often inside bright
     nebula). Looked for at the bright stars' places only - a compact peak elsewhere may be a whole star star
@@ -1800,13 +1923,33 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
         return []
     S = _lum(stars).astype(np.float32)
     Ssm, f = _small_plane(S, 1600)
+    if rings:
+        # by peak, not by the block average: a sharp star the size of a pixel or two (a wide-field scope) still
+        # leaves a ring when its core is saturated
+        hh, ww = S.shape[0] // f * f, S.shape[1] // f * f
+        Ssm = S[:hh, :ww].reshape(hh // f, f, ww // f, f).max(axis=(1, 3))
+        max_stars = max(max_stars, 80)
     sm = _box_blur(Ssm, 1)
     pk = sm >= SpotFix._minmax(sm, 7, np.max) - 1e-12
     ys, xs = np.nonzero(pk & (sm > 0))
     order = np.argsort(-sm[ys, xs])[:max_stars]
+    if rings and ys.size:
+        # plus any star, however faint, where the starless picture is clearly brighter than just around it: a
+        # ring can be left around an ordinary star inside bright nebula (it was star no. 6854 at the Trunk's tip)
+        Lp, _f2 = _small_plane(_lum(starless).astype(np.float32), 1600)
+        Lp = Lp[:sm.shape[0], :sm.shape[1]]
+        ex = _box_blur(Lp, 1) - _box_blur(Lp, 6)
+        nz = float(np.median(np.abs(ex - np.median(ex)))) * 1.4826 + 1e-12
+        e = ex[np.minimum(ys, ex.shape[0] - 1), np.minimum(xs, ex.shape[1] - 1)]
+        more = np.nonzero(e > 6 * nz)[0]
+        more = more[np.argsort(-e[more])][:300]
+        n_bright = len(order)
+        order = np.concatenate([order, more[~np.isin(more, order)]])
+    else:
+        n_bright = len(order)
     cands = []                                     # (cy, cx, rc)
     rcs = []
-    for i in order:
+    for j, i in enumerate(order):
         cy0, cx0 = int(ys[i] * f + f // 2), int(xs[i] * f + f // 2)
         q = max(4, f)
         y0, y1, x0, x1 = max(0, cy0 - q), min(h, cy0 + q + 1), max(0, cx0 - q), min(w, cx0 + q + 1)
@@ -1820,8 +1963,9 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
             continue
         sw = S[max(0, cy - 24):cy + 25, max(0, cx - 24):cx + 25]
         rc = max(2.0, float(np.sqrt((sw > 0.5 * peak).sum() / np.pi)))      # the star's core radius
-        rcs.append(rc)
-        cands.append((cy, cx, rc, True))
+        if j < n_bright:
+            rcs.append(rc)
+        cands.append((cy, cx, rc, j < n_bright))
     rc0 = float(np.median(rcs)) if rcs else 2.5
     out, taken = [], []
     s_noise = float(np.median(np.abs(Ssm - np.median(Ssm)))) * 1.4826 + 1e-12
@@ -1830,7 +1974,7 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
             continue
         if any((cy - ty) ** 2 + (cx - tx) ** 2 < (3 * rc) ** 2 for ty, tx in taken):
             continue
-        Rw = int(6 * rc) + 2
+        Rw = int((10 if rings else 6) * rc) + 2
         a0, a1, b0, b1 = max(0, cy - Rw), min(h, cy + Rw + 1), max(0, cx - Rw), min(w, cx + Rw + 1)
         yy, xx = np.mgrid[a0:a1, b0:b1]
         # the brightest pixel near the candidate in any colour is its centre
@@ -1845,7 +1989,7 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
         if not (core_m.any() and ann.sum() > 8 and outer.sum() > 8):
             continue
         found, excs = False, []
-        for k in range(c):
+        for k in range(c if at_star else 0):          # dots: at the bright stars only
             P = P3[k]
             exc = float(P[core_m].mean() - np.median(P[ann]))
             broad = abs(float(np.median(P[ann]) - np.median(P[outer])))
@@ -1861,6 +2005,25 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
         if found:
             taken.append((cy, cx))
             out.append((cx / w, cy / h, 2.2 * rc / w))
+            continue
+        if rings:
+            # a ring star removal left around a bright (often double) star - the yellow ring at the tip of IC 1396's
+            # Elephant's Trunk: a bright, compact patch a few core radii wide over flat surroundings
+            inner, o1, o2 = d <= 4.5 * rc, (d > 5.5 * rc) & (d <= 8 * rc), (d > 8 * rc) & (d <= 10 * rc)
+            if inner.any() and o1.sum() > 8 and o2.sum() > 8:
+                hits = 0
+                for k in range(c):
+                    P = P3[k]
+                    lvl = float(np.median(P[o1]))
+                    exc = float(np.percentile(P[inner], 75)) - lvl
+                    broad = abs(lvl - float(np.median(P[o2])))
+                    gr = SpotFix._grain(P, o1 | o2) + 1e-12
+                    p10, p90 = np.percentile(P[o1], [10, 90])
+                    if exc > 8 * gr and exc > 0.3 * abs(lvl) and broad < 0.3 * exc and p90 - p10 < 0.6 * exc:
+                        hits += 1                # (flat all round: not the edge of a bright rim)
+                if hits == c:                    # in every colour: a red nebula knot is bright in red only
+                    taken.append((cy, cx))
+                    out.append((cx / w, cy / h, 5.5 * rc / w))
     return out
 
 
@@ -1895,10 +2058,19 @@ class CleanStarLeftovers(Tool):
                 boxes, busy = find_star_leftovers(s.rgb, s.stars)
             except Exception:  # noqa: BLE001 - nothing found is the safe answer
                 boxes, busy = [], 0
+            if target_type(s) == "nebula":
+                try:
+                    h, w = s.rgb.shape[1:]
+                    px = [(a * w, b * h, c * w, d * h) for a, b, c, d in boxes]
+                    glows = find_star_glows(s.rgb, s.stars, px)
+                    boxes = list(boxes) + glows
+                    busy = max(0, busy - len(glows))
+                except Exception:  # noqa: BLE001
+                    pass
             try:
                 h, w = s.rgb.shape[1:]
                 skip = [(fx0 * w, fy0 * h, fx1 * w, fy1 * h) for fx0, fy0, fx1, fy1 in boxes]
-                dots = find_leftover_cores(s.rgb, s.stars, skip)
+                dots = find_leftover_cores(s.rgb, s.stars, skip, rings=target_type(s) == "nebula")
             except Exception:  # noqa: BLE001
                 dots = []
             self._cache = (boxes, busy, dots)
@@ -1947,14 +2119,14 @@ class CleanStarLeftovers(Tool):
 
     def apply(self, s, params):
         s = s.copy()
-        img = s.rgb
+        img = s.rgb.copy()
         h, w = img.shape[1:]
         for i, b in enumerate(params.get("boxes") or []):
             if len(b) != 4:
                 continue
             fx0, fy0, fx1, fy1 = b
             img = heal_box(img, int(fx0 * w), int(fy0 * h), int(np.ceil(fx1 * w)), int(np.ceil(fy1 * h)), seed=i,
-                           keep=float(params.get("keep", 0.0)))
+                           keep=float(params.get("keep", 0.0)), inplace=True)
         for i, d in enumerate(params.get("dots") or []):
             if len(d) != 3:
                 continue
@@ -2008,6 +2180,34 @@ def _round_star_mask(R: np.ndarray, noise: float, limit: int = 4000) -> np.ndarr
             rr = min(max((float(low[0]) if low.size else float(q)) * 1.3 + 2.0, 4.5 * np.sqrt(l1) + 3.0), float(Q))
             m[y0:y1, x0:x1] = np.maximum(m[y0:y1, x0:x1], np.clip((rr - dd) / 2.0, 0, 1))
     return np.maximum(m, _blur(m, 1.5))
+
+
+def _components(m: np.ndarray) -> np.ndarray:
+    """Connected areas of a boolean mask (8-neighbours) as an int64 label image (0 outside; the labels are not
+    consecutive). numpy only: labels are merged along every neighbour pair by turns, with pointer jumping - a few
+    passes instead of one 3 x 3 max per pixel of the longest chain (a crowded Milky Way field took hundreds)."""
+    h, w = m.shape
+    n = int(m.sum())
+    idx = np.zeros((h, w), np.int64)
+    idx[m] = np.arange(1, n + 1)
+    pairs = [(idx[:, :-1], idx[:, 1:]), (idx[:-1, :], idx[1:, :]), (idx[:-1, :-1], idx[1:, 1:]),
+             (idx[:-1, 1:], idx[1:, :-1])]
+    A = np.concatenate([a[(a > 0) & (b > 0)] for a, b in pairs])
+    B = np.concatenate([b[(a > 0) & (b > 0)] for a, b in pairs])
+    par = np.arange(n + 1, dtype=np.int64)
+    for _ in range(200):
+        pa, pb = par[A], par[B]
+        lo = np.minimum(pa, pb)
+        np.minimum.at(par, pa, lo)
+        np.minimum.at(par, pb, lo)
+        while True:
+            nxt = par[par]
+            if np.array_equal(nxt, par):
+                break
+            par = nxt
+        if np.array_equal(par[A], par[B]):
+            break
+    return np.where(m, par[idx], 0)
 
 
 def _label(m: np.ndarray):
@@ -2391,6 +2591,8 @@ class BrightenStars(Tool):
 
     def apply(self, s, params):
         s = s.copy()
+        if s.star_fwhm is None:
+            s.star_fwhm = star_fwhm(s.stars)
         k = 3.0 ** float(params["s"])
         x = np.clip(np.stack([(c - b) for c, b in zip(s.stars, params["bgs"])]) / params["hi"], 0, 1)
         y = (k * x) / ((k - 1) * x + 1)
@@ -2451,7 +2653,14 @@ class ShrinkStars(Tool):
         return True, ""
 
     def variants(self, s):
-        return [Variant(n, {"a": a, "r": r}, "", i == 1) for i, (n, a, r) in
+        # stars only a couple of pixels wide (IC 1396 from a wide-field scope: about 1.5 px) are wiped out by the
+        # 3 x 3 minimum - Moderate left a handful of faint dots of a crowded Milky Way field. Shrink such small
+        # stars only as much as their size allows (full strength from 3 px)
+        fw = s.star_fwhm
+        k = 1.0 if fw is None else float(np.clip((fw - 1.5) / 1.5, 0.15, 1.0))
+        note = "" if k >= 1 else f"stars are already small (about {fw:.1f} px): shrunk gently"
+        return [Variant(n, {"a": a * k, "r": r if k >= 1 else 1, "halo": 0.6 * a * k}, note, i == 1)
+                for i, (n, a, r) in
                 enumerate((("Slight", 0.35, 1), ("Moderate", 0.6, 1), ("Strong", 0.8, 2), ("Very strong", 1.0, 2)))]
 
     def sliders(self, s, params):
@@ -2538,12 +2747,7 @@ def _one_colour_per_star(x, st_, lum, ok, thr, med, mad, spread, side=2000, min_
     m = small(lum) > thr
     if not m.any():
         return x
-    lab = np.where(m, np.arange(1, hs * ws + 1, dtype=np.int64).reshape(hs, ws), 0)
-    for _ in range(400):                                     # connected stars: spread the biggest label over each
-        grown = SpotFix._minmax(lab.astype(np.float64), 3, np.max).astype(np.int64) * m
-        if np.array_equal(grown, lab):
-            break
-        lab = grown
+    lab = _components(m)                                     # connected stars share one label
     ids, inv = np.unique(lab, return_inverse=True)
     inv = inv.reshape(lab.shape)
     area = np.bincount(inv.ravel())
@@ -5034,7 +5238,7 @@ class Project:
         meta = {"linear": s.linear, "stars_linear": s.stars_linear, "stars_out": s.stars_out, "done": s.done,
                 "skipped": s.skipped, "kind": s.kind, "target": s.target, "sources": s.sources,
                 "palette": s.palette, "sat_core": s.sat_core, "filter": s.filter,
-                "stars_hidden": s.stars_hidden}
+                "stars_hidden": s.stars_hidden, "star_fwhm": s.star_fwhm}
         cp.write_json(d / "meta.json", meta)
         thumb = state_display(s.small(700))
         np.save(d / "preview.npy", thumb, allow_pickle=False)
@@ -5061,7 +5265,7 @@ class Project:
                   sources=self.resolve_sources(meta.get("sources", [])), palette=meta.get("palette"),
                   lin_lum=z["lin_lum"].astype(np.float32) if "lin_lum" in z else None,
                   sat_core=bool(meta.get("sat_core", False)), filter=meta.get("filter"),
-                  stars_hidden=bool(meta.get("stars_hidden", False)))
+                  stars_hidden=bool(meta.get("stars_hidden", False)), star_fwhm=meta.get("star_fwhm"))
         return s
 
     def preview(self, n):
