@@ -112,6 +112,18 @@ def frame_target(f, cache=None) -> str:
     return cache[d] or n
 
 
+def frame_filter(f, cache=None) -> str:
+    """The filter a page-1 frame was taken with (normalised: Ha, OIII, SII, L, R …)."""
+    import fits_core as core
+    v = (f.info or {}).get("filter") if getattr(f, "info", None) else None
+    if not v and not getattr(f, "cards", None):
+        inf = _header_info(f, cache if cache is not None else {})
+        v = getattr(inf, "filter", None) if inf is not None else None
+    if getattr(f, "filter_override", None):
+        v = f.filter_override
+    return core.normalize_filter(v)
+
+
 def is_calibration(f, cache=None) -> bool:
     """A bias, dark or flat frame among the files page 1 opened."""
     import fits_core as core
@@ -307,8 +319,10 @@ class CineView(QWidget):
 # --------------------------------------------------------------------------
 
 class StartDialog(QDialog):
-    def __init__(self, parent, targets_found: list, counts: dict | None = None, note: str = ""):
+    def __init__(self, parent, targets_found: list, counts: dict | None = None, note: str = "",
+                 filters: dict | None = None):
         super().__init__(parent)
+        self.filters = filters or {}             # target -> the filters its frames were taken with
         import targets as tg
         self.setWindowTitle("Fast Track")
         lay = QVBoxLayout(self)
@@ -327,6 +341,13 @@ class StartDialog(QDialog):
         for key, label in tg.TYPE_CHOICES:
             self.kind.addItem(label, key)
         form.addRow("What is it?", self.kind)
+        # narrowband data: which colour palette (SHO, HSO, HOO …) - the one choice that changes the look most
+        self.pal = QComboBox()
+        self.pal.setToolTip("How the narrowband filters become colours. 'Suggested' follows the kind of object: "
+                            "Hubble (SHO) for nebulae, natural red and teal (HOO + SII) for planetary nebulae.")
+        form.addRow("Colour palette:", self.pal)
+        self._pal_row = form.rowCount() - 1
+        self._form = form
         lay.addLayout(form)
         self.why = QLabel("")
         self.why.setWordWrap(True)
@@ -345,6 +366,7 @@ class StartDialog(QDialog):
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
         self.target.currentIndexChanged.connect(self._guess)
+        self.kind.currentIndexChanged.connect(self._palettes)
         self._guess()
         self.resize(520, 260)
 
@@ -361,8 +383,31 @@ class StartDialog(QDialog):
                          f"SubZeroAstro does not know <b>{name or 'this target'}</b> by name - please pick what it "
                          "is, so the steps suit it.")
 
+        self._palettes()
+
+    def _palettes(self, *_a):
+        import finish as F
+        import targets as tg
+        name = self.target.currentData() or ""
+        opts = F.palette_options(self.filters.get(name, ()))
+        self.pal.clear()
+        if opts:
+            sug = F.suggested_palette(name, self.kind.currentData(), self.filters.get(name, ()))
+            known = F.POPULAR_PALETTE.get(F._target_key(name)) == sug
+            self.pal.addItem(f"Suggested - {dict(opts).get(sug, sug)}"
+                             + (" (the popular choice for this target)" if known else ""), None)
+            for k, label in opts:
+                self.pal.addItem(label, k)
+        try:
+            self._form.setRowVisible(self._pal_row, bool(opts))
+        except AttributeError:                         # older Qt: hide the box alone
+            self.pal.setVisible(bool(opts))
+
     def choice(self):
         return self.target.currentData(), self.kind.currentData()
+
+    def palette(self):
+        return self.pal.currentData() if self.pal.count() else None
 
 
 # --------------------------------------------------------------------------
@@ -644,10 +689,12 @@ class FastTrackWindow(QMainWindow):
         j.start()
 
     # ------------------------------------------------------------ starting points
-    def ask(self, names, counts=None, note=""):
-        """The one question: which target and what kind of object. False when cancelled."""
+    def ask(self, names, counts=None, note="", filters=None):
+        """The one question: which target, what kind of object (and for narrowband data, which palette).
+        False when cancelled."""
+        import finish as F
         import targets as tg
-        dlg = StartDialog(self.owner, names, counts, note)
+        dlg = StartDialog(self.owner, names, counts, note, filters)
         if getattr(self.owner, "_fast_auto", False):         # self-test: take the suggestion
             ok = True
         else:
@@ -657,6 +704,11 @@ class FastTrackWindow(QMainWindow):
         self.target, self.kind = dlg.choice()
         if self.kind != tg.classify(self.target) or tg._okey(self.target) in tg.OVERRIDES:
             tg.set_override(self.target, self.kind)
+        pal = dlg.palette()
+        if pal:
+            F.PALETTE_CHOICE[F._target_key(self.target)] = pal
+        else:
+            F.PALETTE_CHOICE.pop(F._target_key(self.target), None)
         self._tick()
         return True
 
@@ -665,13 +717,14 @@ class FastTrackWindow(QMainWindow):
         self.main = main
         cache = self._hdr = {}
         lights = [f for f in main.frames.values() if not f.rejected and not f.error and not is_calibration(f, cache)]
-        names, counts = [], {}
+        names, counts, filters = [], {}, {}
         for f in lights:
             t = frame_target(f, cache)
             if t:
                 counts[t] = counts.get(t, 0) + 1
                 if t not in names:
                     names.append(t)
+                filters.setdefault(t, set()).add(frame_filter(f, cache))
         if not names:
             QMessageBox.information(main, "Fast Track", "Open a folder of light frames first (File › Open Folder) - "
                                     "Fast Track starts from the frames on this page.")
@@ -681,7 +734,7 @@ class FastTrackWindow(QMainWindow):
             note = ("No calibration frames (darks, flats, bias) are among the files on this page: the masters in your "
                     "calibration library are used if they match, otherwise the lights are stacked as they are "
                     "(fine for data that is already calibrated, like Telescope Live's).")
-        if not self.ask(names, counts, note):
+        if not self.ask(names, counts, note, filters):
             return False
         self._lights = [f for f in lights if frame_target(f, cache) == self.target]
         self.show_me()
@@ -695,7 +748,9 @@ class FastTrackWindow(QMainWindow):
             return False
         self.pw = pw
         names = [s[0].target for s in pw.sets if s]
-        if not self.ask(names[:1]):
+        import fits_core as core
+        filt = {names[0]: {core.normalize_filter(m.filter) for m in pw.sets[0]}} if names else {}
+        if not self.ask(names[:1], filters=filt):
             return False
         for c in ("cull", "stack"):
             self._stage(c, "skip")
@@ -709,7 +764,8 @@ class FastTrackWindow(QMainWindow):
             QMessageBox.information(fw, "Fast Track", "Add the prepared masters of one target first.")
             return False
         self.fw = fw
-        if not self.ask([fw.state.target]):
+        ch = set(fw.state.channels) if fw.state.rgb is None else set()
+        if not self.ask([fw.state.target], filters={fw.state.target: ch}):
             return False
         for c in ("cull", "stack", "prepare"):
             self._stage(c, "skip")

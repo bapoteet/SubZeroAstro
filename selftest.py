@@ -680,6 +680,21 @@ def run(app, out_dir: Path) -> int:
     _sf = _fnc._star_colour_factors(_simg)
     check(_sf is not None and abs(_sf[0] - 1.3) < 0.1 and abs(_sf[1] - 0.8) < 0.1,
           f"Balance Colours measures the stars on linear data whose stars run far above 1 ({_sf})")
+    # 'S11' (ones for the roman numerals) is SII - NGC 281 lost its sulphur and came out HOO; the palette
+    # suggestion follows the popular choice for well-known targets, and a palette picked in Fast Track wins
+    import fits_core as _fcp
+    _nf = [_fcp.normalize_filter(x) for x in ("S11", "SI1", "O111", "0III", "SII 3nm")]
+    _cs9 = _fnc.State(channels={k: np.zeros((8, 8), np.float32) for k in ("Ha", "OIII", "SII")}, kind="mono_nb",
+                      target="NGC 281")
+    _pk1 = next(v.label for v in _fnc.TOOLS["combine"].variants(_cs9) if v.recommended)
+    _cs9.target = "NGC 6888"
+    _pk2 = next(v.label for v in _fnc.TOOLS["combine"].variants(_cs9) if v.recommended)
+    _fnc.PALETTE_CHOICE[_fnc._target_key("NGC 6888")] = "HSO"
+    _pk3 = next(v.label for v in _fnc.TOOLS["combine"].variants(_cs9) if v.recommended)
+    _fnc.PALETTE_CHOICE.clear()
+    check(_nf == ["SII", "SII", "OIII", "OIII", "SII"] and _pk1 == "Hubble (SHO)" and _pk2 == "HOO" and _pk3 == "HSO",
+          f"filter names typed with ones are recognised ({_nf}); the palette suggestion is the popular one for the "
+          f"target (NGC 281 {_pk1}, NGC 6888 {_pk2}) and a palette picked in Fast Track wins ({_pk3})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

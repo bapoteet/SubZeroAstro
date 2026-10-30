@@ -589,6 +589,12 @@ def normalize_filter(raw) -> str:
         return _FILTER_MAP[key]
     if key in _LETTER:
         return _LETTER[key]
+    # ones (and a zero) typed for the roman numerals: 'S11', 'SI1', 'O111', '0III' (NGC 281 came in as 'S11', so
+    # its sulphur was left out and the picture made in HOO instead of SHO)
+    if re.fullmatch(r"S[I1L]{2}", key):
+        return "SII"
+    if re.fullmatch(r"[O0][I1L]{3}", key):
+        return "OIII"
     # drop bandwidths (7nm, 6.5nm, 3NM) and brand / series words, then try again
     k2 = re.sub(r"\d+(?:[.,]\d+)?NM", "", re.sub(r"[\s_\-,()]", "", up))
     k2 = k2.replace(".", "")

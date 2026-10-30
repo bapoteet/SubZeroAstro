@@ -1077,17 +1077,24 @@ class CombineChannels(Tool):
                                                                           "than R, G and B)" if weak_l else ""),
                                "L" not in f or weak_l))
         nb_first = not ({"R", "G", "B"} <= f)          # with RGB too, the broadband mix is the suggestion
+        chosen = PALETTE_CHOICE.get(_target_key(s.target))   # picked at the start of Fast Track
         if {"Ha", "OIII", "SII"} <= f:
             # a planetary nebula: natural-looking red and teal (Ha red, OIII teal, a little SII in the red), as most
             # pictures of them are; other targets: the Hubble palette
-            sug = "HOO+S" if target_type(s) == "planetary nebula" else "SHO"
+            sug = suggested_palette(s.target, target_type(s), f)
+            keys = ("SHO", "FORAXX", "HSO", "HOO+S", "HOO")
+            if chosen in keys:
+                sug = chosen
             out += [Variant(*PALETTE_INFO[k][:1], {"palette": k}, PALETTE_INFO[k][1]
-                            + (" - suggested for a planetary nebula" if (k == sug and sug != "SHO") else ""),
+                            + (" - suggested for a planetary nebula" if (k == sug and sug != "SHO" and not chosen)
+                               else " - your choice" if (k == sug and chosen) else ""),
                             k == sug and nb_first)
-                    for k in ("SHO", "FORAXX", "HSO", "HOO+S", "HOO")]
+                    for k in keys]
         elif {"Ha", "OIII"} <= f:
-            out += [Variant(PALETTE_INFO[k][0], {"palette": k}, PALETTE_INFO[k][1], k == "HOO" and nb_first)
-                    for k in ("HOO", "HOO+", "HHO", "FORAXX")]
+            keys = ("HOO", "HOO+", "HHO", "FORAXX")
+            sug = chosen if chosen in keys else suggested_palette(s.target, target_type(s), f)
+            out += [Variant(PALETTE_INFO[k][0], {"palette": k}, PALETTE_INFO[k][1], k == sug and nb_first)
+                    for k in keys]
         if {"Ha", "OIII"} <= f:
             out.append(Variant("HOO + faint OIII", {"palette": "HOO", "o3boost": 1.0},
                                "HOO with the faint OIII-only glow lifted (e.g. the Squid in the Flying Bat): "
@@ -4838,6 +4845,58 @@ TYPE_WHY = {
     ("comet", "comet_tail"): "A comet: take away some of the round glow of the head so the tail stands out.",
     ("comet", "comet_jets"): "A comet: bring out jets and shells near the nucleus (best with the stars out).",
 }
+
+
+# the colour palette picked for a target at the start of Fast Track ("SHO", "HOO" …), by name; Combine Colour
+# Channels suggests it
+PALETTE_CHOICE: dict = {}
+
+
+def _target_key(name) -> str:
+    import targets
+    return targets._okey(name)
+
+
+# the palette most astrophotographers show these well-known narrowband targets in (by their catalogue name, as
+# targets._okey writes it) - the suggestion when the data has the filters for it; any other can still be picked
+POPULAR_PALETTE = {
+    "ngc281": "SHO", "pacman": "SHO", "pacmannebula": "SHO",
+    "m16": "SHO", "eaglenebula": "SHO", "ngc6611": "SHO",
+    "ic1396": "SHO", "elephantstrunk": "SHO", "ic1805": "SHO", "heartnebula": "SHO",
+    "ic1848": "SHO", "soulnebula": "SHO", "ngc2237": "SHO", "ngc2244": "SHO", "rosettenebula": "SHO",
+    "ic5070": "SHO", "pelicannebula": "SHO", "ngc7000": "SHO", "northamericanebula": "SHO",
+    "ngc7635": "SHO", "bubblenebula": "SHO", "ngc6188": "SHO", "ngc3324": "SHO", "ngc2359": "HOO",
+    "ngc6888": "HOO", "crescentnebula": "HOO", "ngc6960": "HOO", "ngc6992": "HOO", "ngc6995": "HOO",
+    "veilnebula": "HOO", "cygnusloop": "HOO", "sh2129": "HOO", "flyingbat": "HOO",
+    "m8": "SHO", "lagoonnebula": "SHO", "m17": "SHO", "swannebula": "SHO", "m20": "SHO", "trifidnebula": "SHO",
+    "ic443": "SHO", "jellyfishnebula": "SHO", "ngc6992veil": "HOO", "sh2240": "HOO", "simeis147": "HOO",
+}
+
+
+def suggested_palette(target, kind, filters) -> str:
+    """The palette suggested for a target: the popular one for well-known targets, else HOO + SII for a planetary
+    and the Hubble palette (SHO) for other targets with three filters, HOO with two."""
+    opts = dict(palette_options(filters))
+    if not opts:
+        return ""
+    pop = POPULAR_PALETTE.get(_target_key(target))
+    if pop in opts and kind != "planetary nebula":
+        return pop
+    if "SHO" in opts:
+        return "HOO+S" if kind == "planetary nebula" else "SHO"
+    return "HOO"
+
+
+def palette_options(filters) -> list:
+    """[(key, label)] the palettes a set of narrowband filters can make ([] for broadband data)."""
+    f = set(filters)
+    if {"Ha", "OIII", "SII"} <= f:
+        keys = ("SHO", "HSO", "HOO+S", "HOO", "FORAXX")
+    elif {"Ha", "OIII"} <= f:
+        keys = ("HOO", "HOO+", "HHO", "FORAXX")
+    else:
+        return []
+    return [(k, PALETTE_INFO[k][0]) for k in keys]
 
 
 def target_type(s: "State") -> str:
