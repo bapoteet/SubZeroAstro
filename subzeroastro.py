@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
                                QGraphicsView, QGridLayout, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QListView,
                                QListWidget, QListWidgetItem, QMainWindow,
-                               QMessageBox, QProgressBar, QPushButton, QScrollArea, QSpinBox, QSplitter,
+                               QMessageBox, QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSpinBox, QSplitter,
                                QStyle, QTableWidget, QTableWidgetItem,
                                QToolBar, QToolButton, QVBoxLayout, QWidget)
 
@@ -1253,6 +1253,11 @@ class MainWindow(QMainWindow):
         self.act_set_filter = act("Set Filter Name…", self.set_filter_dialog, None, None,
                                   "Tell SubZeroAstro which filter was used, for the selected frames or all frames "
                                   "(when the camera didn't record it). Your files are not changed.")
+        self.act_edit_headers = act("Edit FITS Headers…", self.edit_headers_dialog, "Ctrl+Shift+H", None,
+                                    "Change header keywords (OBJECT, FILTER, EXPTIME …) in the FITS files themselves, "
+                                    "for the selected frames or all of them - the old values are kept for Undo")
+        self.act_undo_headers = act("Undo Last Header Change", self.undo_headers, None, None,
+                                    "Put back the header values the last Edit FITS Headers replaced")
         self.act_show_image = QAction("Show Image", self, checkable=True)
         self.act_show_image.setChecked(True)
         self.act_show_image.setShortcut("Ctrl+I")
@@ -1377,6 +1382,8 @@ class MainWindow(QMainWindow):
         for a in (self.act_flag, self.act_autoflag, self.act_reject_flagged, self.act_clear_flags):
             m.addAction(a)
         m.addAction(self.act_set_filter)
+        m.addAction(self.act_edit_headers)
+        m.addAction(self.act_undo_headers)
         m.addAction(self.act_header)
         cm = m.addMenu("Auto-cull")
         for a in self.preset_actions.values():
@@ -2837,6 +2844,161 @@ class MainWindow(QMainWindow):
         self.rebuild_list()
         self.session_timer.start()
         self.statusBar().showMessage(f"Filter set to {name or 'as recorded'} for {len(uids)} frame(s)", 5000)
+
+    HEADER_KEYS = (("OBJECT", "Target name"), ("FILTER", "Filter"), ("IMAGETYP", "Frame type (Light, Dark, Flat, "
+                                                                                "Bias)"),
+                   ("EXPTIME", "Exposure (s)"), ("TELESCOP", "Telescope"), ("INSTRUME", "Camera"),
+                   ("FOCALLEN", "Focal length (mm)"), ("XPIXSZ", "Pixel size (µm)"), ("GAIN", "Gain"),
+                   ("OFFSET", "Offset"), ("CCD-TEMP", "Sensor temperature (°C)"))
+
+    def edit_headers_dialog(self, preset=None):
+        """Change keywords in the FITS files themselves, many frames at once (e.g. a filter typed 'S11')."""
+        import fits_edit as fe
+        if not self.frames:
+            QMessageBox.information(self, APP_NAME, "Load some frames first.")
+            return
+        sel = self.selected_uids()
+        frames_all = list(self.frames.values())
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit FITS Headers")
+        lay = QVBoxLayout(dlg)
+        intro = QLabel("Changes the keywords <b>in the files themselves</b>, so every program reads them the same "
+                       "(PixInsight, Siril, AstroBin…). Leave a box empty to keep what is there. The old values "
+                       "are kept in a small undo file in each folder: <i>Frame › Undo Last Header Change</i>.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        r_sel = QCheckBox(f"Only the {len(sel)} selected frame(s)") if len(sel) >= 1 and len(sel) < len(frames_all) \
+            else None
+        if r_sel:
+            r_sel.setChecked(len(sel) > 1)
+            lay.addWidget(r_sel)
+
+        def chosen():
+            return [self.frames[u] for u in sel] if (r_sel and r_sel.isChecked()) else frames_all
+
+        grid = QGridLayout()
+        grid.addWidget(QLabel("<b>Keyword</b>"), 0, 0)
+        grid.addWidget(QLabel("<b>Now in the files</b>"), 0, 1)
+        grid.addWidget(QLabel("<b>New value</b>"), 0, 2)
+        edits, nows = {}, {}
+        for i, (k, label) in enumerate(self.HEADER_KEYS, start=1):
+            lab = QLabel(f"{k}  <span style='color:#8a93a6'>{label}</span>")
+            grid.addWidget(lab, i, 0)
+            nows[k] = QLabel("")
+            nows[k].setStyleSheet("color:#aeb8cc;")
+            grid.addWidget(nows[k], i, 1)
+            e = QLineEdit()
+            e.setPlaceholderText("unchanged")
+            if preset and k in preset:
+                e.setText(str(preset[k]))
+            edits[k] = e
+            grid.addWidget(e, i, 2)
+        row = len(self.HEADER_KEYS) + 1
+        other_k = QLineEdit()
+        other_k.setPlaceholderText("other keyword")
+        other_v = QLineEdit()
+        other_v.setPlaceholderText("its value")
+        grid.addWidget(other_k, row, 0)
+        grid.addWidget(other_v, row, 2)
+        lay.addLayout(grid)
+
+        def fill_now():
+            fr = chosen()
+            for k, _l in self.HEADER_KEYS:
+                vals = []
+                for f in fr[:400]:
+                    d = core.cards_to_dict(f.cards) if f.cards else {}
+                    v = d.get(k)
+                    if v is not None and v not in vals:
+                        vals.append(v)
+                txt = ("—" if not vals else str(vals[0]) if len(vals) == 1 else
+                       "varies: " + ", ".join(str(v) for v in vals[:3]) + (" …" if len(vals) > 3 else ""))
+                nows[k].setText(txt)
+        if r_sel:
+            r_sel.toggled.connect(fill_now)
+        fill_now()
+        note = QLabel("")
+        note.setWordWrap(True)
+        note.setStyleSheet("color:#d9b45a;")
+        lay.addWidget(note)
+        n_x = sum(1 for f in frames_all if Path(f.path).suffix.lower() not in fe.FITS_EXT)
+        if n_x:
+            note.setText(f"{n_x} XISF file(s) among these frames are left as they are - only FITS headers are edited.")
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText("Change the Files")
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        dlg.resize(760, 520)
+        if not dlg.exec():
+            return
+        changes = {k: fe.typed(e.text()) for k, e in edits.items() if e.text().strip()}
+        if other_k.text().strip() and other_v.text().strip():
+            changes[other_k.text().strip().upper()[:8]] = fe.typed(other_v.text())
+        if not changes:
+            return
+        fr = [f for f in chosen() if Path(f.path).suffix.lower() in fe.FITS_EXT]
+        if not fr:
+            QMessageBox.information(self, APP_NAME, "None of these frames is a FITS file.")
+            return
+        what = ", ".join(f"{k} = {v}" for k, v in changes.items())
+        if QMessageBox.question(self, "Edit FITS Headers", f"Write {what}\ninto {len(fr)} file(s)?") \
+                != QMessageBox.StandardButton.Yes:
+            return
+        self._write_headers(fr, changes)
+
+    def _write_headers(self, frames, changes):
+        import fits_edit as fe
+        prog = QProgressDialog("Writing the headers…", None, 0, len(frames), self)
+        prog.setWindowTitle("Edit FITS Headers")
+        prog.setMinimumDuration(300)
+        done, failed = fe.edit_many([f.path for f in frames], changes,
+                                    progress=lambda i, n: (prog.setValue(i), QApplication.processEvents()))
+        prog.close()
+        self._reread_headers(frames)
+        msg = f"Changed {len(done)} file(s)" + (f"; {len(failed)} could not be changed" if failed else "")
+        self.statusBar().showMessage(msg, 8000)
+        if failed:
+            QMessageBox.warning(self, "Edit FITS Headers", msg + ":\n\n" + "\n".join(
+                f"{Path(p).name}: {e}" for p, e in failed[:8]))
+
+    def _reread_headers(self, frames):
+        """The frames' header details again from the files (filter, target, exposure)."""
+        for f in frames:
+            try:
+                _d, cards, look = core.read_fits(f.path, header_only=True)
+            except Exception:  # noqa: BLE001
+                continue
+            f.cards = cards
+            keep = {k: v for k, v in (f.info or {}).items() if k not in core.frame_info(look)}
+            f.info = {**keep, **core.frame_info(look)}
+            if getattr(f, "filter_override", None):
+                f.info["filter"] = f.filter_override
+        self.known_filters = sorted({f.info.get("filter") or "No filter" for f in self.frames.values() if f.loaded})
+        self.filter_combo.blockSignals(True)
+        self.filter_combo.clear()
+        self.filter_combo.addItem("All filters")
+        self.filter_combo.addItems(self.known_filters)
+        self.filter_combo.blockSignals(False)
+        self.refresh_stats()
+        self.rebuild_list()
+
+    def undo_headers(self):
+        import fits_edit as fe
+        folders = sorted({Path(f.path).parent for f in self.frames.values()})
+        if not folders:
+            return
+        out = []
+        for d in folders:
+            try:
+                n, what = fe.undo_last(d)
+            except Exception as e:  # noqa: BLE001
+                n, what = 0, str(e)
+            if n:
+                out.append(f"{d.name}: {n} file(s) - {what}")
+        self._reread_headers(list(self.frames.values()))
+        QMessageBox.information(self, "Undo Last Header Change", "\n".join(out) if out else
+                                "Nothing to undo - no header changes were recorded in these folders.")
 
     def toggle_image(self, on):
         self.view.setVisible(on)

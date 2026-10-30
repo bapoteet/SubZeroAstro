@@ -745,7 +745,7 @@ class FastTrackWindow(QMainWindow):
             note = ((note + "<br><br>") if note else "") + (
                 "<b>Filter name" + ("s" if len(odd) > 1 else "") + " not recognised: " + ", ".join(odd) + "</b> - "
                 "those frames would be left out of the colour picture. If one is SII, OIII, Ha, L, R, G or B, "
-                "Cancel, select its frames and use <i>Frame › Set Filter Name</i>, then start Fast Track again.")
+                "Cancel and fix it with <i>Frame › Edit FITS Headers…</i> (changes the files) or <i>Frame › Set Filter Name</i>, then start Fast Track again.")
         if not self.ask(names, counts, note, filters):
             return False
         self._lights = [f for f in lights if frame_target(f, cache) == self.target]

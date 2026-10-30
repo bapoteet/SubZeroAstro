@@ -695,6 +695,31 @@ def run(app, out_dir: Path) -> int:
     check(_nf == ["SII", "SII", "OIII", "OIII", "SII"] and _pk1 == "Hubble (SHO)" and _pk2 == "HOO" and _pk3 == "HSO",
           f"filter names typed with ones are recognised ({_nf}); the palette suggestion is the popular one for the "
           f"target (NGC 281 {_pk1}, NGC 6888 {_pk2}) and a palette picked in Fast Track wins ({_pk3})")
+    # Edit FITS Headers: keywords changed in the files (data untouched, even when the header grows), undo puts back
+    import fits_edit as _fe
+    import fits_core as _fce
+    import tempfile as _tfe
+    _hd = Path(_tfe.mkdtemp(prefix="sza_hdr_"))
+    _hdat = (np.random.default_rng(3).random((40, 50)) * 60000).astype(np.uint16)
+    for _i in range(3):
+        _fce.write_fits(_hd / f"f{_i}.fits", _hdat, {"IMAGETYP": "Light Frame", "FILTER": "S11", "OBJECT": "NGC281"},
+                        bitpix=16)
+    _hdone, _hfail = _fe.edit_many(sorted(_hd.glob("*.fits")), {"FILTER": "SII", "FOCALLEN": 530})
+    _fe.edit_many([_hd / "f1.fits"], {f"TK{_i:03d}": "x" * 20 for _i in range(60)})       # header grows a block
+    _hv = _fe.read_values(_hd / "f1.fits", ["FILTER", "FOCALLEN", "TK059"])
+    _hsame = np.array_equal(_fce.read_fits(_hd / "f1.fits")[0], _fce.read_fits(_hd / "f0.fits")[0])
+    _fe.undo_last(_hd)
+    _fe.undo_last(_hd)
+    _hu = _fe.read_values(_hd / "f0.fits", ["FILTER", "FOCALLEN"])
+    try:
+        _fe.edit_header(_hd / "f0.fits", {"NAXIS1": 5})
+        _hprot = False
+    except ValueError:
+        _hprot = True
+    check(len(_hdone) == 3 and not _hfail and _hv == {"FILTER": "SII", "FOCALLEN": 530, "TK059": "x" * 20} and _hsame
+          and _hu == {"FILTER": "S11", "FOCALLEN": None} and _hprot,
+          f"Edit FITS Headers writes keywords into the files (image data untouched, also when the header grows), "
+          f"Undo puts the old values back, and the data-describing keywords are protected ({_hv}, undo {_hu})")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

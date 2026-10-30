@@ -645,8 +645,8 @@ def load_state(paths) -> State:
         # NGC 281's SII came in as 'S11' and the Pacman was made in HOO. Say so.
         s.load_note = "; ".join(x for x in (getattr(s, "load_note", ""), (
             "Filter name" + ("s" if len(unknown) > 1 else "") + " not recognised: " + ", ".join(unknown)
-            + " - left out of the colour picture. If it is SII, OIII, Ha, L, R, G or B, set its name on the first "
-              "page (Frame > Set Filter Name) and stack again.")) if x)
+            + " - left out of the colour picture. If it is SII, OIII, Ha, L, R, G or B, correct it on the first "
+              "page (Frame > Edit FITS Headers…) and stack again.")) if x)
     broadband_galaxy = {"R", "G", "B"} <= f and is_galaxy_target(s.target)
     if {"Ha", "OIII"} <= f and not broadband_galaxy:
         s.kind = "mono_nb"

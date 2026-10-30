@@ -321,9 +321,10 @@ steps([
 ]);
 img("6_semi_aggressive_flagged.png", "After Semi-aggressive: suspect frames are flagged for review (example data)");
 p("**Auto-Flag** (Ctrl+F) lets you set your own limits. **X** rejects or restores the selected frame(s), **F** flags them, **D** clears all flags.");
-sec("6.4", "Filters and the FITS header", ["Set Filter Name", "FITS header", "Hide image"]);
+sec("6.4", "Filters and the FITS header", ["Set Filter Name", "FITS header", "Edit FITS Headers", "Undo Last Header Change", "Hide image"]);
 bullets([
   "**Frame › Set Filter Name…** changes the filter for the selected frames (your files are not changed). Use it when the filter is missing or wrong - flats are matched by filter.",
+  "**Frame › Edit FITS Headers…** (Ctrl+Shift+H) changes keywords **in the files themselves**, for the selected frames or all of them: OBJECT, FILTER (a filter typed *S11* instead of *SII*), IMAGETYP, EXPTIME, telescope, camera, focal length, pixel size, gain, offset, temperature, or any other keyword. The image data is not touched. The old values are kept in a small undo file in each folder: **Frame › Undo Last Header Change** puts them back. Only FITS files are edited; XISF files are left as they are.",
   "**Ctrl+H** opens the full **FITS header** of the selected file, with search and Copy All.",
   "**Ctrl+I** hides or shows the image - useful on a slow network drive.",
 ]);
