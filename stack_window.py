@@ -293,6 +293,11 @@ class StackWindow(QMainWindow):
                      + (" …" if len(skipped) > 10 else ""))
 
     # ------------------------------------------------------------ settings
+    def current_target(self):
+        """For the banner: the target(s) of the lights being stacked."""
+        src = getattr(self, "groups", None) or getattr(self, "lights", None) or []
+        return [getattr(g, "target", None) for g in src]
+
     def _load_json(self, key, default):
         try:
             return json.loads(self.settings.value(key, "") or "null") or default

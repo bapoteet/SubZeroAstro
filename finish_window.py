@@ -537,6 +537,11 @@ class FinishWindow(QMainWindow):
             self.load_masters(master_files)
 
     # ------------------------------------------------------------------ UI
+    def current_target(self):
+        """For the banner: the target being finished."""
+        st_ = getattr(self, "state", None)
+        return [st_.target] if st_ is not None else []
+
     def _build_ui(self):
         central = QWidget()
         root = QVBoxLayout(central)

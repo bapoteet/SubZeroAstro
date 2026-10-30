@@ -582,6 +582,10 @@ class PrepareWindow(QMainWindow):
             self.add_master_paths(master_files)
 
     # ------------------------------------------------------------------ UI
+    def current_target(self):
+        """For the banner: the target(s) of the masters loaded here."""
+        return [s[0].target for s in getattr(self, "sets", None) or [] if s]
+
     def _tool_row(self, form, label, key, finder, tip, extra=()):
         row = QHBoxLayout()
         edit = QLineEdit(self.settings.value(key, "") or "")

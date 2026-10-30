@@ -74,6 +74,31 @@ BACK_STYLE = ("QPushButton { background:#262b36; color:#c3cad8; font-size:9.5pt;
               "QPushButton:hover { background:#2f3644; color:#e4e9f2; }")
 
 
+def _unique(names) -> list:
+    if names is None:
+        return []
+    if isinstance(names, str):
+        names = [names]
+    out = []
+    for n in names:
+        n = str(n or "").strip()
+        if n and n not in out:
+            out.append(n)
+    return out
+
+
+def targets_text(names) -> str:
+    """'Target: M28', 'Targets: M27, M28' or 'Targets: M27, M28 + 3 more' ('' when none)."""
+    u = _unique(names)
+    if not u:
+        return ""
+    if len(u) == 1:
+        return f"Target: {u[0]}"
+    if len(u) <= 3:
+        return "Targets: " + ", ".join(u)
+    return f"Targets: {u[0]}, {u[1]} + {len(u) - 2} more"
+
+
 class AppHeader(QWidget):
     def __init__(self, page_title: str, parent=None):
         super().__init__(parent)
@@ -123,6 +148,12 @@ class AppHeader(QWidget):
         self.page.setStyleSheet(f"color:#9fc0ec; font-size:{_PT(11)}pt; font-weight:600; background:transparent;"
                                 "border:none; margin-top:1px;")
         prow.addWidget(self.page, 0, Qt.AlignVCenter)
+        # the target being worked on, on every page (filled in by the page: see watch_target)
+        self.target = QLabel("")
+        self.target.setStyleSheet(f"color:#ffe7a8; background:#3a3020; border:1px solid #6b5a30; border-radius:7px;"
+                                  f"padding:0px 7px; font-size:{_PT(9)}pt; font-weight:700; margin-top:1px;")
+        self.target.setVisible(False)
+        prow.addWidget(self.target, 0, Qt.AlignVCenter)
         prow.addStretch(1)
         v.addLayout(prow)
         self._set_num(page_title)
@@ -139,6 +170,29 @@ class AppHeader(QWidget):
         n = PAGE_NUMBERS.get(title)
         self.num.setText(f"Page {n} of {len(PAGE_NUMBERS)}" if n else "")
         self.num.setVisible(bool(n))
+
+    def set_target(self, names):
+        """Show the target(s) being worked on beside the page title (hidden when there are none)."""
+        text = targets_text(names)
+        if text != self.target.text():
+            self.target.setText(text)
+            self.target.setToolTip(", ".join(_unique(names)) if text else "")
+        self.target.setVisible(bool(text))
+
+    def watch_target(self, window, ms: int = 1500):
+        """Keep the target shown up to date from window.current_target() (names or a name), checked now and then."""
+        from PySide6.QtCore import QTimer
+
+        def tick():
+            try:
+                fn = getattr(window, "current_target", None)
+                self.set_target(fn() if fn else [])
+            except Exception:  # noqa: BLE001 - a label must never break a page
+                pass
+        self._target_timer = QTimer(self)
+        self._target_timer.timeout.connect(tick)
+        self._target_timer.start(ms)
+        tick()
 
     def set_page(self, title: str):
         self.page.setText(title)
@@ -444,6 +498,7 @@ def install_header(window, page_title: str, with_menu: bool = False) -> AppHeade
     window.menuBar = lambda: mb          # menus are added under the banner
     window.app_header = header
     header.btn_back = None
+    header.watch_target(window)
     from PySide6.QtWidgets import QPushButton
     zb = QPushButton("🗜  Zip My Logs")
     zb.setStyleSheet(BACK_STYLE)

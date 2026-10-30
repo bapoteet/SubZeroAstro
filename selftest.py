@@ -2210,6 +2210,13 @@ def run(app, out_dir: Path) -> int:
         check(all(fb.APP_VERSION in x.app_header.by.text() for x in (fw, pw, state["pw"].parent(), w)),
               f"every page shows the version in small print ({w.app_header.by.text()})")
         sw_ = state["pw"].parent()
+        for _x in (w, sw_, pw, fw):
+            _x.app_header._target_timer.timeout.emit()
+        _tg = [x.app_header.target.text() for x in (sw_, pw, fw)]
+        check(all(t_.startswith("Target") for t_ in _tg) and fw.state.target in _tg[2],
+              f"every page shows the target being worked on at the top ({_tg})")
+        check(_uh.targets_text(["M27", "M27", "M28"]) == "Targets: M27, M28" and _uh.targets_text([]) == ""
+              and _uh.targets_text(list("ABCDE")) == "Targets: A, B + 3 more", "the target line names one, a few or many")
         _nums = [x.app_header.num.text() for x in (w, sw_, pw, fw)]
         check(_nums == ["Page 1 of 4", "Page 2 of 4", "Page 3 of 4", "Page 4 of 4"],
               f"every page shows its page number ({_nums})")

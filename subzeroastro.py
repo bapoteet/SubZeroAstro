@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.185 beta"
+APP_VERSION = "0.9.186 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -953,6 +953,27 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(4000, self.update_banner.start_check)  # a newer version on GitHub? (background)
         self.view.on_detail = self.request_detail
         self.update_status()
+
+    def current_target(self):
+        """For the banner: the target(s) of the frames open on this page."""
+        frames = getattr(self, "frames", None) or {}
+        key = (id(frames), len(frames), getattr(self, "generation", 0), getattr(self, "loaded_count", 0))
+        if getattr(self, "_target_key", None) != key or not getattr(self, "_target_names", None):
+            import stacking as _st
+            names, seen_dirs = [], {}
+            for f in list(frames.values()):
+                if f.rejected:
+                    continue
+                n = str((f.info or {}).get("object") or "").strip()
+                if not n or _st._GENERIC_TARGET.match(n):
+                    d = f.folder
+                    if d not in seen_dirs:
+                        seen_dirs[d] = _st.target_from_name(f.path)
+                    n = seen_dirs[d] or ""
+                if n and n not in names:
+                    names.append(n)
+            self._target_key, self._target_names = key, names
+        return self._target_names
 
     def open_tools(self):
         import tool_check
