@@ -25,6 +25,8 @@ import ui_header
 FRAME_SIDE = 1100            # the film's frames are kept at most this big (memory: ~2-3 MB each)
 FADE_MS = 900                # cross-fade between two frames
 SHOW_MS = 1700               # how long each frame stays when the film is played again
+FLY_MS = 18000               # Fly Into It: the slow flight in (and the same back out)
+FLY_SIDE = 2600              # the finished picture is kept this big for the flight, so the close-up stays sharp
 
 FAST_STYLE = ("QPushButton { background:#b8860b; color:white; font-weight:700; font-size:10.5pt; "
               "padding:7px 14px; border-radius:6px; border:1px solid #e0b040; }"
@@ -45,15 +47,15 @@ def fast_button(text="⚡  Fast Track"):
 # small helpers
 # --------------------------------------------------------------------------
 
-def rgb8_to_qimage(a: np.ndarray) -> QImage:
-    """(h, w, 3) or (h, w) uint8 -> QImage, reduced to at most FRAME_SIDE (box average, no jaggies)."""
+def rgb8_to_qimage(a: np.ndarray, side: int = FRAME_SIDE) -> QImage:
+    """(h, w, 3) or (h, w) uint8 -> QImage, reduced to at most `side` (box average, no jaggies)."""
     a = np.asarray(a)
     if a.ndim == 2:
         a = np.repeat(a[..., None], 3, axis=2)
     if a.ndim == 3 and a.shape[2] == 1:
         a = np.repeat(a, 3, axis=2)
     h, w = a.shape[:2]
-    f = max(1, int(np.ceil(max(h, w) / FRAME_SIDE)))
+    f = max(1, int(np.ceil(max(h, w) / side)))
     if f > 1:
         hh, ww = h // f * f, w // f * f
         a = a[:hh, :ww].reshape(hh // f, f, ww // f, f, 3).mean(axis=(1, 3)).astype(np.uint8)
@@ -152,6 +154,64 @@ class CineView(QWidget):
         self.drift.setEndValue(1.0)
         self.drift.setEasingCurve(QEasingCurve.OutCubic)
         self.drift.valueChanged.connect(self._set_drift)
+        self.flight = None               # Fly Into It: a looping animation over the finished picture
+        self._fly_pm: QPixmap | None = None
+        self._fly_t = 0.0
+        self._focus = (0.5, 0.5)
+
+    # ------------------------------------------------------------ Fly Into It
+    def start_flight(self, img: QImage, focus, caption: str):
+        """A slow flight into the picture: zoom towards the target while turning gently, then back out, again
+        and again - like gliding in on a slow plane."""
+        self.stop_flight()
+        self._fly_pm = QPixmap.fromImage(img)
+        self._focus = (min(max(float(focus[0]), 0.2), 0.8), min(max(float(focus[1]), 0.2), 0.8))
+        self.caption, self.sub, self.badge = caption, "", ""
+        a = QVariantAnimation(self)
+        a.setDuration(2 * FLY_MS)
+        a.setStartValue(0.0)
+        a.setEndValue(2.0)
+        a.setLoopCount(-1)
+        a.valueChanged.connect(self._set_fly)
+        self.flight = a
+        self._fly_t = 0.0
+        a.start()
+        self.update()
+
+    def stop_flight(self):
+        if self.flight is not None:
+            self.flight.stop()
+            self.flight = None
+        self._fly_pm = None
+        self.update()
+
+    def flying(self) -> bool:
+        return self.flight is not None
+
+    def _set_fly(self, v):
+        self._fly_t = float(v)
+        self.update()
+
+    def _paint_flight(self, p):
+        import math
+        pm = self._fly_pm
+        W, H = self.width(), self.height()
+        v = self._fly_t
+        ph = v if v <= 1.0 else 2.0 - v                      # in, then back out
+        e = 0.5 - 0.5 * math.cos(math.pi * ph)                # smooth start and stop
+        fit = min(W / pm.width(), H / pm.height())
+        zoom = fit * (1.04 + 1.7 * e)
+        fx, fy = self._focus
+        cx = pm.width() * (0.5 + (fx - 0.5) * e)
+        cy = pm.height() * (0.5 + (fy - 0.5) * e)
+        ang = 14.0 * e + 2.0 * math.sin(2 * math.pi * v)      # a slow turn, with a little sway
+        p.save()
+        p.translate(W / 2, H / 2)
+        p.rotate(ang)
+        p.scale(zoom, zoom)
+        p.translate(-cx, -cy)
+        p.drawPixmap(0, 0, pm)
+        p.restore()
 
     def _set_fade(self, v):
         self._fade = float(v)
@@ -162,6 +222,9 @@ class CineView(QWidget):
         self.update()
 
     def show_frame(self, img: QImage, caption: str, sub: str = "", badge: str = "", animate=True):
+        if self.flight is not None:
+            self.stop_flight()
+            animate = False
         pm = QPixmap.fromImage(img)
         self._old = self._new if animate else None
         self._new = pm
@@ -198,11 +261,14 @@ class CineView(QWidget):
             p.drawText(self.rect(), Qt.AlignCenter, "The picture appears here as SubZeroAstro works")
             return
         zoom = 1.0 + 0.035 * self._drift            # a slow drift in, so a still frame feels alive
-        if self._old is not None and self._fade < 1.0:
+        if self._fly_pm is not None:
+            self._paint_flight(p)
+        elif self._old is not None and self._fade < 1.0:
             p.setOpacity(1.0)
             p.drawPixmap(self._rect(self._old, 1.035), self._old, QRectF(self._old.rect()))
             p.setOpacity(self._fade)
-        p.drawPixmap(self._rect(self._new, zoom), self._new, QRectF(self._new.rect()))
+        if self._fly_pm is None:
+            p.drawPixmap(self._rect(self._new, zoom), self._new, QRectF(self._new.rect()))
         p.setOpacity(1.0)
         # caption band at the bottom
         if self.caption:
@@ -381,6 +447,10 @@ class FastTrackWindow(QMainWindow):
         row.addWidget(self.status, 1)
         self.btn_play = QPushButton("▶  Play the Film Again")
         self.btn_play.clicked.connect(self.replay)
+        self.btn_fly = QPushButton("✈  Fly Into It")
+        self.btn_fly.setToolTip("A slow flight into your finished picture: zooming towards the target and turning "
+                                "gently, then back out - again and again until you stop it")
+        self.btn_fly.clicked.connect(self.toggle_flight)
         self.btn_save = QPushButton("💾  Save the Picture…")
         self.btn_save.clicked.connect(lambda: self.fw.export_dialog() if self.fw else None)
         self.btn_proj = QPushButton("📁  Save Project…")
@@ -397,9 +467,9 @@ class FastTrackWindow(QMainWindow):
         self.btn_cancel.clicked.connect(self.cancel)
         self.btn_close = QPushButton("Close")
         self.btn_close.clicked.connect(self.close)
-        for b in (self.btn_play, self.btn_save, self.btn_proj, self.btn_tune, self.btn_redo):
+        for b in (self.btn_play, self.btn_fly, self.btn_save, self.btn_proj, self.btn_tune, self.btn_redo):
             b.setVisible(False)
-        for b in (self.btn_play, self.btn_save, self.btn_proj, self.btn_tune, self.btn_redo, self.btn_cancel,
+        for b in (self.btn_fly, self.btn_play, self.btn_save, self.btn_proj, self.btn_tune, self.btn_redo, self.btn_cancel,
                   self.btn_close):
             b.setCursor(Qt.PointingHandCursor)
             row.addWidget(b)
@@ -456,6 +526,7 @@ class FastTrackWindow(QMainWindow):
 
     def _strip_clicked(self, it):
         self.stop_replay()
+        self.btn_fly.setText("✈  Fly Into It")
         i = it.data(Qt.UserRole)
         if i is not None and 0 <= i < len(self.frames_shot):
             img, cap, sub = self.frames_shot[i]
@@ -465,6 +536,7 @@ class FastTrackWindow(QMainWindow):
         if not self.frames_shot:
             return
         self.stop_replay()
+        self.btn_fly.setText("✈  Fly Into It")
         self._replay_i = 0
         self._replay = QTimer(self)
         self._replay.timeout.connect(self._replay_next)
@@ -480,6 +552,61 @@ class FastTrackWindow(QMainWindow):
         self.cine.show_frame(img, cap, sub, badge=f"{i + 1} / {len(self.frames_shot)}")
         self.strip.setCurrentRow(i)
         self._replay_i += 1
+
+    # ------------------------------------------------------------ Fly Into It
+    def flight_frame(self):
+        """The finished picture, big, and where its target is (the brightest broad area near the middle)."""
+        import finish as F
+        img = F.state_display(self.fw.state.small(FLY_SIDE), with_stars=True)
+        L = img.astype(np.float32).mean(axis=2)
+        k = max(1, L.shape[1] // 240)
+        sm = F._blur(L[::k, ::k], 6.0)
+        h, w = sm.shape
+        y0, y1, x0, x1 = int(h * 0.2), int(h * 0.8), int(w * 0.2), int(w * 0.8)
+        part = sm[y0:y1, x0:x1]
+        # the centre of the bright mass, not its single brightest spot: a planetary's ring or a galaxy's arms
+        # pull it to the middle of the object
+        wgt = np.clip(part - np.percentile(part, 90), 0, None)
+        if float(wgt.sum()) <= 0:
+            return img, (0.5, 0.5)
+        yy, xx = np.mgrid[:part.shape[0], :part.shape[1]]
+        cy, cx = float((yy * wgt).sum() / wgt.sum()), float((xx * wgt).sum() / wgt.sum())
+        return img, ((x0 + cx + 0.5) / w, (y0 + cy + 0.5) / h)
+
+    def fly(self):
+        try:
+            if self.fw is None or not self.isVisible():
+                return
+        except RuntimeError:
+            return
+        if self.fw is None or self.fw.state is None or self.fw.state.rgb is None:
+            return
+        self.stop_replay()
+        if getattr(self, "_flight", None) is not None:
+            img, focus = self._flight
+            self.cine.start_flight(img, focus, f"{self.target} — flying in")
+            self.btn_fly.setText("■  Stop Flying")
+            return
+
+        def ok(r):
+            try:
+                img, focus = r
+                self._flight = (rgb8_to_qimage(img, FLY_SIDE), focus)
+                if self.isVisible():
+                    self.fly()
+            except RuntimeError:          # the window was closed while the picture was being made
+                pass
+        self.run_job(self.flight_frame, ok)
+
+    def toggle_flight(self):
+        if self.cine.flying():
+            self.cine.stop_flight()
+            self.btn_fly.setText("✈  Fly Into It")
+            if self.frames_shot:
+                img, cap, sub = self.frames_shot[-1]
+                self.cine.show_frame(img, cap, sub, animate=False)
+        else:
+            self.fly()
 
     def stop_replay(self):
         if self._replay is not None:
@@ -837,10 +964,12 @@ class FastTrackWindow(QMainWindow):
             self.fw.log(f"Fast Track finished {self.target} in {el // 60}:{el % 60:02d} "
                         f"({self._n_steps} step(s) on page 4)")
         self._end_buttons(True)
+        QTimer.singleShot(3000, self.fly)              # the finale: a slow flight into the finished picture
 
     def _end_buttons(self, finished):
         self.btn_cancel.setVisible(False)
         self.btn_play.setVisible(bool(self.frames_shot))
+        self.btn_fly.setVisible(finished and self.fw is not None and self.fw.state is not None)
         has_fw = self.fw is not None and self.fw.state is not None
         self.btn_save.setVisible(finished and has_fw)
         self.btn_proj.setVisible(finished and has_fw)
@@ -895,6 +1024,7 @@ class FastTrackWindow(QMainWindow):
 
     def closeEvent(self, ev):
         self.stop_replay()
+        self.cine.stop_flight()
         if not self.finished_ok and not self.cancelled and self.stage is not None:
             if getattr(self.owner, "_fast_auto", False) or QMessageBox.question(
                     self, "Fast Track", "Fast Track is still working. Stop it and close?") == QMessageBox.Yes:

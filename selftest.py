@@ -4167,6 +4167,7 @@ def run(app, out_dir: Path) -> int:
         QTimer.singleShot(300, _go)
 
     def fast_track_wait():
+        import fasttrack_window as _ftw
         ft = state["ft"]
         if ft is not None and not ft.finished_ok and not ft.cancelled and time.time() - state["ft_t"] < 600:
             QTimer.singleShot(500, fast_track_wait)
@@ -4191,6 +4192,19 @@ def run(app, out_dir: Path) -> int:
               f"after Fast Track page 4 holds every step (Go Back to Here works) and the picture can be saved or "
               f"reprocessed step by step ({len(steps)} steps)")
         if fw_ is not None and ft is not None:
+            # ✈ Fly Into It: the finished picture, big, and a slow flight towards its target
+            try:
+                _fimg, _ffocus = ft.flight_frame()
+                ft.cine.start_flight(_ftw.rgb8_to_qimage(_fimg, _ftw.FLY_SIDE), _ffocus, "test flight")
+                ft.cine.flight.setCurrentTime(_ftw.FLY_MS // 2)
+                _fgrab = ft.cine.grab()
+                _fok = ft.cine.flying() and not _fgrab.isNull() and 0.2 <= _ffocus[0] <= 0.8 and 0.2 <= _ffocus[1] <= 0.8
+                shot("19c_fast_track_flight.png", ft)
+            except Exception as _fe:  # noqa: BLE001
+                _fok, _ffocus = False, repr(_fe)
+            check(_fok and ft.btn_fly.isVisibleTo(ft), f"✈ Fly Into It flies slowly into the finished picture "
+                                                        f"(target at {_ffocus})")
+            ft.cine.stop_flight()
             ft.redo_by_hand()
             QApplication.processEvents()
             check(fw_.project is not None and len(fw_.project.steps) == 1 and fw_.state is not None
