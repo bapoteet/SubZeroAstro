@@ -421,6 +421,8 @@ class FastTrackWindow(QMainWindow):
         self.steps = QListWidget()
         self.steps.setStyleSheet("QListWidget { background:#151a23; border:1px solid #2a3140; }")
         self.steps.setMinimumWidth(320)
+        self.steps.setWordWrap(True)                      # long lines wrap instead of running off the side
+        self.steps.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         side.addWidget(self.steps, 1)
         mid.addLayout(side)
         v.addLayout(mid, 1)
@@ -805,7 +807,8 @@ class FastTrackWindow(QMainWindow):
         sw.start(auto=True)
         if sw.worker is None:
             return self.fail("Stacking could not start (no light frames to stack?)")
-        self.note_step(f"Stacking {sum(1 for g in sw.groups if g.enabled)} filter(s)…", "now")
+        self._n_filters = sum(1 for g in sw.groups if g.enabled)
+        self._stack_item = self.note_step(f"Stacking {self._n_filters} filter(s)…", "now")
         sw.worker.progress.connect(self._stack_progress)
         sw.worker.group_done.connect(self._master_done)
         sw.worker.finished.connect(lambda: QTimer.singleShot(400, self._after_stack))
@@ -838,6 +841,9 @@ class FastTrackWindow(QMainWindow):
         if self.cancelled:
             return self.stopped()
         files = self.sw.master_files()
+        it = getattr(self, "_stack_item", None)
+        if it is not None and self.steps.row(it) >= 0:
+            it.setText(f"✓  Stacked {self._n_filters} filter(s)" if files else f"⚠  Stacking {self._n_filters} filter(s)")
         if not files:
             return self.fail("Stacking made no masters - the log on page 2 says why")
         self._stage("stack", "done")
