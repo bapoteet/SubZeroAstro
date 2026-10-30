@@ -1978,7 +1978,7 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
             continue
         if any((cy - ty) ** 2 + (cx - tx) ** 2 < (3 * rc) ** 2 for ty, tx in taken):
             continue
-        Rw = int((10 if rings else 6) * rc) + 2
+        Rw = int((30 if rings else 6) * rc) + 2
         a0, a1, b0, b1 = max(0, cy - Rw), min(h, cy + Rw + 1), max(0, cx - Rw), min(w, cx + Rw + 1)
         yy, xx = np.mgrid[a0:a1, b0:b1]
         # the brightest pixel near the candidate in any colour is its centre
@@ -2013,8 +2013,11 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
         if rings:
             # a ring star removal left around a bright (often double) star - the yellow ring at the tip of IC 1396's
             # Elephant's Trunk: a bright, compact patch a few core radii wide over flat surroundings
-            inner, o1, o2 = d <= 4.5 * rc, (d > 5.5 * rc) & (d <= 8 * rc), (d > 8 * rc) & (d <= 10 * rc)
-            if inner.any() and o1.sum() > 8 and o2.sum() > 8:
+            # the ring's size is not the star's: at full size IC 1396's Trunk star is 2 px, its ring 20 px
+            for rr in (rc, 2 * rc, 3 * rc):
+                inner, o1, o2 = d <= 4.5 * rr, (d > 5.5 * rr) & (d <= 8 * rr), (d > 8 * rr) & (d <= 10 * rr)
+                if not (inner.any() and o1.sum() > 8 and o2.sum() > 8):
+                    break
                 hits = 0
                 for k in range(c):
                     P = P3[k]
@@ -2027,7 +2030,8 @@ def find_leftover_cores(starless: np.ndarray, stars: np.ndarray, skip=(), max_st
                         hits += 1                # (flat all round: not the edge of a bright rim)
                 if hits == c:                    # in every colour: a red nebula knot is bright in red only
                     taken.append((cy, cx))
-                    out.append((cx / w, cy / h, 5.5 * rc / w))
+                    out.append((cx / w, cy / h, 5.5 * rr / w))
+                    break
     return out
 
 
