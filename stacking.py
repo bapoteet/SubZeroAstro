@@ -2653,9 +2653,15 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
 
     def prepare(idx, lf, write):
         info = lf.info
+        tm = {}
+        _t = time.perf_counter()
         img = calibrated(info)
+        tm["read and calibrate"] = time.perf_counter() - _t
+        _t = time.perf_counter()
         lum, fac = lumin(img)
         pts, peaks = find_stars(lum, fac, robust=robust)
+        tm["find stars"] = time.perf_counter() - _t
+        _t = time.perf_counter()
         if info is ref_info:
             T = np.array([[1.0, 0, 0], [0, 1.0, 0]])
             k_phot = 1.0
@@ -2675,6 +2681,8 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             k_phot = float(np.median(pr[good] / pt[good])) if good.sum() >= 5 else 1.0
             k_phot = float(np.clip(k_phot, 0.01, 100.0) if rgb_in else np.clip(k_phot, 0.3, 3.0))
         Tout = final_T(T)
+        tm["match stars"] = time.perf_counter() - _t
+        _t = time.perf_counter()
         pls = planes(img)
         del img
         noises = [pixel_noise(p) for p in pls]
@@ -2693,7 +2701,12 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         for a in aligned:
             sm = a[::8, ::8]
             bgs.append(float(np.median(sm[~np.isnan(sm)])))
+        tm["line up"] = time.perf_counter() - _t
+        aligned_tm[id(aligned)] = tm
         return aligned, Tout, k_phot, bgs, noises, inl, rms, model
+
+    aligned_tm = {}                     # per frame: seconds in each part of preparing it (for the log)
+    stage_t = {}
 
     ln_block = max(64, int(max(out_h, out_w) / 16))
     ref_maps = []
@@ -2726,10 +2739,15 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             aligned, T, k_phot, bgs, noises, inl, rms, model = prepare(0, lf, True)
         except ValueError as e:
             return lf, None, str(e)
+        tm = aligned_tm.pop(id(aligned), {})
         normed, grids = None, None
         if ref_bg is not None:
+            _t = time.perf_counter()
             normed, grids = normalize(aligned, k_phot, bgs)
+            tm["even out the sky"] = time.perf_counter() - _t
             aligned = None
+        for k_, v_ in tm.items():
+            stage_t[k_] = stage_t.get(k_, 0.0) + v_
         return lf, (aligned, T, k_phot, bgs, noises, inl, rms, model, normed, grids), None
 
     def consume(lf, r, err):
@@ -2765,13 +2783,17 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         log.append(f"  {lf.info.path.name}: stars matched {inl}, rms {rms:.2f} px, scale {k_phot:.3f}, "
                    f"noise {noise:.1f}" + (f", score {lf.score:.0f}" if lf.score is not None else "")
                    + (" (mirror image — lined up anyway)" if mir else ""))
+        _t = time.perf_counter()
         if use_cache:
             p = cache_dir / f"f{len(used):05d}.npy"
             np.save(p, np.stack([np.clip(x, -65000, 65000).astype(np.float16) for x in normed]))
             cache_files.append(p)
         else:
             welford = _welford_add(welford, normed)
+        stage_t["write to the cache"] = stage_t.get("write to the cache", 0.0) + time.perf_counter() - _t
         used.append(lf)
+
+    t_frames = time.perf_counter()
 
     def step_text(idx):
         return f"{g.label()}: calibrating and aligning {idx + 1}/{n}" + (f" ({workers} at a time)" if workers > 1 else "")
@@ -2824,6 +2846,10 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
         log.append(f"Lined up with the help of their plate solutions: {len(wcs_used)} frame(s) whose star match "
                    "failed or disagreed with where the telescope was pointing")
     res.used = len(entries)
+    if entries and stage_t:
+        log.append("Time for the frames, " + (f"{workers} at a time, " if workers > 1 else "one at a time, ")
+                   + "summed over all frames: " + ", ".join(f"{k} {v:.0f} s" for k, v in stage_t.items())
+                   + f"; {time.perf_counter() - t_frames:.0f} s on the clock for {len(entries)} frames")
     try:
         res.autocrop = auto_crop_rect([e[1] for e in entries], (out_h, out_w), (out_h, out_w))
     except Exception:  # noqa: BLE001 - auto-crop is only a suggestion
