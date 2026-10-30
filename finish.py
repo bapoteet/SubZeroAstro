@@ -862,6 +862,17 @@ class Tool:
                 return _orig(self, merge_hidden_stars(s), params)
             apply.__doc__ = orig.__doc__
             cls.apply = apply
+        if "variants" in cls.__dict__ and cls.__dict__.get("key", "") not in {"stars_out", "palette", "combine", "ha_glow", "leftovers",
+                                                                     "star_stretch", "shrink", "star_color", "stars_back"}:
+            # the versions are worked out on the whole picture, with page 3's stars in (as apply() gets it, or as it
+            # will look) - else Brighten measured the starless cluster and blew its stars up, and Balance Colours
+            # took the starless glow's colour as white and turned the cluster's stars red
+            origv = cls.__dict__["variants"]
+
+            def variants(self, s, *a, _orig=origv, **k):
+                return _orig(self, merge_hidden_stars(s), *a, **k)
+            variants.__doc__ = origv.__doc__
+            cls.variants = variants
 
     def sliders(self, s: "State", params: dict) -> list:
         """Fine-tune controls, starting at the picked version's values."""
@@ -2144,8 +2155,10 @@ class Brighten(Tool):
             # small and very bright: a per-colour stretch pushes all three colours to the top together and the
             # nebula turns grey; brightening the luminance and keeping each pixel's colour mix keeps it colourful
             return "colour"
-        if s.stars_out:
+        if s.stars_out and not s.stars_hidden:
             return "ghs"                 # starless: strong, smooth stretch for faint nebulosity
+        # stars kept aside by page 3 but never taken out (a star cluster): they are put back before brightening, so
+        # the picture is brightened with its stars - colour-preserving (the starless method washed M28's stars out)
         if s.is_color:
             return "colour"              # stars keep their colour
         return "auto"

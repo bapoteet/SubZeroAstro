@@ -640,6 +640,20 @@ def run(app, out_dir: Path) -> int:
     check(abs(float(_rc6[1] / _rc6[0]) - float(_rr6[1] / _rr6[0])) < 0.08 and float(_rc6[2]) < 0.6,
           f"a bright red star stays red to its centre when brightened (centre {np.round(_rc6, 2).tolist()}, "
           f"edge {np.round(_rr6, 2).tolist()})")
+    # stars kept aside by page 3 but not taken out (a star cluster): brightened colour-preserving, with its stars
+    _hs7 = _fnc.State(rgb=np.full((3, 64, 64), 0.05, np.float32), stars=np.zeros((3, 64, 64), np.float32), kind="mono_rgb",
+                      target="M28", linear=True, stars_out=True, stars_hidden=True)
+    _hm7 = _fnc.TOOLS["stretch"].recommended_method(_hs7)
+    _hs7.stars_hidden = False
+    _hm8 = _fnc.TOOLS["stretch"].recommended_method(_hs7)
+    check(_hm7 == "colour" and _hm8 == "ghs", f"stars from page 3 still in the picture are brightened colour-preserving "
+                                              f"({_hm7}); a starless picture with the stars out gets GHS ({_hm8})")
+    _hs7.stars_hidden = True
+    _hs7.stars = np.zeros((3, 64, 64), np.float32); _hs7.stars[:, 30:33, 30:33] = 0.6; _hs7.stars_linear = True
+    _hv7 = [v.params for v in _fnc.TOOLS["stretch"].variants(_hs7)]
+    _hv8 = [v.params for v in _fnc.TOOLS["stretch"].variants(_fnc.merge_hidden_stars(_hs7))]
+    check(repr(_hv7) == repr(_hv8), "Brighten's versions are measured on the picture with page 3's stars in, "
+                                    "as it will be brightened")
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",
