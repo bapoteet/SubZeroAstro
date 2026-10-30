@@ -1195,10 +1195,20 @@ class FinishWindow(QMainWindow):
     # steps Fast Track leaves for you: they need your eye (crop, turn, spots) or your name (signature)
     AUTO_STOP = ("final_crop", "flip", "spotfix", "signature")
 
+    # optional steps Fast Track still does: a darker sky and the last NoiseXTerminator pass finish the picture
+    AUTO_EXTRA = ("sky", "denoise")
+
     def auto_next(self):
-        """The step Fast Track would do next, or None when the picture is finished."""
-        t = F.next_step(self.state) if self.state is not None else None
-        return None if t is None or t.key in self.AUTO_STOP else t
+        """The step Fast Track would do next, or None when the picture is finished: the recommended steps,
+        plus Darken the Sky Background and Final Noise Reduction even when they are only optional."""
+        if self.state is None:
+            return None
+        for t, status in F.workflow(self.state):
+            if t.key in self.AUTO_STOP:
+                continue
+            if status == "next" or (status == "optional" and t.key in self.AUTO_EXTRA):
+                return t
+        return None
 
     def auto_step(self, done):
         """Fast Track: do the recommended next step with its suggested version, save it in the project and

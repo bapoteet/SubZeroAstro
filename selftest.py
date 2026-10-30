@@ -4182,6 +4182,10 @@ def run(app, out_dir: Path) -> int:
               f"{[ft.steps.item(i).text() for i in range(ft.steps.count())][-4:] if ft else None})")
         check(ft is not None and len(ft.frames_shot) >= 5 and ft.cine._new is not None and ft.strip.count() == len(ft.frames_shot),
               f"Fast Track shows each step as a frame of its film ({len(ft.frames_shot) if ft else 0} frames)")
+        check(fw_ is not None and fw_.state is not None and "sky" in fw_.state.done
+              and ("denoise" in fw_.state.done or __import__("finish").TOOLS["denoise"].runner is None),
+              f"Fast Track also darkens the sky and runs the final NoiseXTerminator pass when it can "
+              f"({fw_.state.done if fw_ is not None and fw_.state is not None else None})")
         check(fw_ is not None and len(steps) >= 4 and fw_.state is not None and "stretch" in fw_.state.done
               and ft.btn_save.isVisibleTo(ft) and ft.btn_redo.isVisibleTo(ft),
               f"after Fast Track page 4 holds every step (Go Back to Here works) and the picture can be saved or "
