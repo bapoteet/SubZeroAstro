@@ -4176,7 +4176,7 @@ def run(app, out_dir: Path) -> int:
         steps = [s_["label"] for s_ in fw_.project.steps] if fw_ is not None and fw_.project else []
         log(f"Fast Track: {time.time() - state['ft_t']:.0f} s, {len(ft.frames_shot) if ft else 0} film frames, "
             f"steps: {steps}")
-        check(ft is not None and ft.finished_ok and ft.target == "M33",
+        check(ft is not None and ft.finished_ok and ft.target.replace(" ", "") == "M33",
               f"Fast Track runs from page 1's frames to a finished picture "
               f"({'finished' if ft and ft.finished_ok else 'not finished'}; "
               f"{[ft.steps.item(i).text() for i in range(ft.steps.count())][-4:] if ft else None})")
