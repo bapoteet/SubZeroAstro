@@ -370,9 +370,10 @@ def run(app, out_dir: Path) -> int:
         _cs4 = _fnc.State.__new__(_fnc.State)
         _cs4.kind, _cs4.target, _cs4.linear = "mono_nb", _ctg, False
         _ck.append(next(v.label for v in _fnc.TOOLS["curves"].variants(_cs4) if v.recommended))
-    check(_dk == ["Much darker", "Darker", "Darkest", "Darker"] and _ck == ["Lift faint detail", "More contrast"],
+    check(_dk == ["Much darker", "Darker", "Darkest", "Darker"] and _ck == ["Lift faint detail", "Punchy (S-curve + lift)"],
           f"Darken the Sky Background suggests 'Much darker', 'Darker' when the sky is already dark or for a planetary "
-          f"(its faint halo), 'Darkest' for a star cluster ({_dk}); Curves lifts faint detail for a planetary ({_ck})")
+          f"(its faint halo), 'Darkest' for a star cluster ({_dk}); Curves lifts faint detail for a planetary, Punchy for a "
+          f"galaxy ({_ck})")
     # Clean Bright-Star Leftovers (from the real Shark data): StarXTerminator paints a smooth, grain-free box over a big
     # star, with a bright bar along its edge and a leftover dot. The box is found by its missing grain and patched with
     # the surroundings' texture; a painted box inside bright structured nebula is left alone; a picture without
@@ -501,9 +502,9 @@ def run(app, out_dir: Path) -> int:
         _cs.kind, _cs.linear, _cs.target = _kind, False, _tgt
         _cs.rgb = np.stack([_cneb * t for t in _tint]).astype(np.float32)
         _sat.append(next(v.label for v in _fnc.TOOLS["saturation"].variants(_cs) if v.recommended))
-    check(_sat == ["Slight", "Rich", "Slight", "Slight", "Calmer"],
+    check(_sat == ["Slight", "Vivid", "Slight", "Slight", "Calmer"],
           f"Colour Intensity's suggestion follows the target and the data: narrowband, already strong colours, "
-          f"planetaries 'Slight'; a galaxy in colour 'Rich'; a star cluster 'Calmer' ({_sat})")
+          f"planetaries 'Slight'; a galaxy in colour 'Vivid'; a star cluster 'Calmer' ({_sat})")
     # Remove Green Cast on balanced colour data: nothing suggested (SCNR on noise turns a picture pink); a real
     # green cast still gets removed
     _gr3 = np.random.default_rng(8)
@@ -591,8 +592,8 @@ def run(app, out_dir: Path) -> int:
         _st1 = next(v.label for v in _fnc.TOOLS["stretch"].variants(_cls) if v.recommended)
         _cls.linear = False
         _cl.append((_st1, next(v.label for v in _fnc.TOOLS["curves"].variants(_cls) if v.recommended)))
-    check(_cl[0][1] == "Darker background" and _cl[0][0] != _cl[1][0] and _cl[1][1] == "More contrast",
-          f"a star cluster gets a gentler stretch and 'Darker background' curves, a galaxy 'Medium' and 'More contrast' ({_cl})")
+    check(_cl[0][1] == "Darker background" and _cl[0][0] == "Light" and _cl[1] == ("Gentle", "Punchy (S-curve + lift)"),
+          f"a star cluster gets a gentler stretch and 'Darker background' curves, a galaxy 'Gentle' and 'Punchy' ({_cl})")
     # a star cluster's glow is balanced to a warm white (M28's centre came out blue-violet)
     _gy4, _gx4 = np.mgrid[:400, :400].astype(np.float32)
     _gg = 0.3 * np.exp(-((_gx4 - 200) ** 2 + (_gy4 - 200) ** 2) / (2 * 40 ** 2))

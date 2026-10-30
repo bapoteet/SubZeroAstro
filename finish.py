@@ -2251,7 +2251,9 @@ class Brighten(Tool):
         out = []
         # a star cluster's centre is thousands of stars: a stronger stretch blends them into one bright glow (M28) -
         # one step gentler keeps them apart
-        pick = 1 if target_type(s) == "star cluster" else 2
+        # a galaxy's faint outer disk (M83) turns into a milky fog with a stronger stretch: 'Gentle', then a Punchy
+        # curve, keeps it as a soft glow and lets the arms stand out
+        pick = {"star cluster": 1, "galaxy": 0}.get(target_type(s), 2)
         for i, (name, t) in enumerate(self.LEVELS):
             prm = self._with_target({"method": method, "linked": linked, "stats": st_, "shifts": shifts,
                                      "nm": nm, "protect": 0.0}, t)
@@ -3504,11 +3506,13 @@ class Curves(Tool):
         # planetaries get 'Lift faint detail' (Darken the Sky then takes the sky down and keeps the halo above it)
         # a planetary's faint halo needs 'Lift faint detail'; a star cluster 'Darker background' (an S-curve brightens
         # its centre's glow until the stars in it blend - M28); everything else 'More contrast'
-        pick = {"planetary nebula": 1, "star cluster": 2}.get(target_type(s), 0)
+        pick = {"planetary nebula": 1, "star cluster": 2, "galaxy": 4}.get(target_type(s), 0)
+        why = {1: "suggested for a planetary nebula: keeps its faint outer halo",
+               2: "suggested for a star cluster: keeps the stars in its centre apart",
+               4: "suggested for a galaxy: bright arms and core, its faint outer disk a soft glow"}
         return [Variant(name, {**{"contrast": 0.0, "shadows": 0.0, "midtones": 0.0, "highlights": 0.0}, **v,
                                "points": self.points(**v)},
-                        ("suggested for a planetary nebula: keeps its faint outer halo" if pick == 1 else
-                         "suggested for a star cluster: keeps the stars in its centre apart") if (i == pick and pick) else "",
+                        why.get(pick, "") if (i == pick and pick) else "",
                         i == pick) for i, (name, v) in enumerate(self.PRESETS)]
 
     def sliders(self, s, params):
@@ -4794,7 +4798,7 @@ WHY = {
 # mapped, and planetaries and comets look neon with more; a star cluster in colour takes 'Rich' (its star colours
 # are the picture - the pink cast that once made it 'Slight' came from Remove Green Cast, now fixed)
 SAT_DEFAULT = {
-    ("galaxy", False): 2, ("galaxy", True): 1,
+    ("galaxy", False): 3, ("galaxy", True): 1,     # Vivid: M83's arms and core stayed grey with Rich
     ("nebula", False): 2, ("nebula", True): 1,
     ("planetary nebula", False): 1, ("planetary nebula", True): 0,
     ("star cluster", False): 0, ("star cluster", True): 1,   # Calmer: Rich made M28 too strong
