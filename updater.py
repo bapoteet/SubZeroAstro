@@ -409,6 +409,12 @@ class UpdateBanner(QFrame):
     def update_now(self, ask=True):
         if not self.release:
             return
+        if self.downloader is not None and self.downloader.isRunning():
+            # already downloading (Update Now pressed twice): a second download thread was still running when
+            # the first one finished and the app quit - macOS stopped it with "Fatal Python error: Aborted"
+            if getattr(self, "dlg", None) is not None:
+                self.dlg.show()
+            return
         reason = why_not()
         if reason:
             if "AppTranslocation" in str(install_target()) or "read-only copy" in reason:
@@ -430,7 +436,8 @@ class UpdateBanner(QFrame):
         self.dlg.setMinimumDuration(0)
         self.downloader = DownloadThread(self.release["url"], dest)
         self.downloader.progress.connect(self._progress)
-        self.downloader.done.connect(self._downloaded)
+        dl = self.downloader
+        self.downloader.done.connect(lambda p, e, dl=dl: self._downloaded(p, e) if dl is self.downloader else None)
         self.dlg.canceled.connect(lambda: setattr(self.downloader, "cancel", True))
         self.downloader.start()
 
@@ -460,6 +467,12 @@ class UpdateBanner(QFrame):
         for th in (self.checker, self.downloader):
             if th is not None:
                 th.wait(5000)
+        if any(th is not None and th.isRunning() for th in (self.checker, self.downloader)):
+            # never quit with a thread still running (macOS ends the app with "Aborted"); the new version is
+            # already being installed, so ask for a restart instead
+            self._info("Update SubZeroAstro", "The update is ready. Please quit SubZeroAstro (Cmd+Q / close it) "
+                                              "and start it again to finish.")
+            return
         QApplication.closeAllWindows()
         QApplication.quit()
 
