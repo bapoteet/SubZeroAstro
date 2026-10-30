@@ -3580,12 +3580,17 @@ class Saturation(Tool):
         names = ("Calmer", "Slight", "Rich", "Vivid", "Bold")
         why = (f"suggested for {targets_describe(typ)} with {'narrowband' if nb else 'colour (broadband)'} data"
                + (f"; the colours are already strong ({col:.0%})" if strong else ""))
+        levels = (("Calmer", 0.85), ("Slight", 1.15), ("Rich", 1.35), ("Vivid", 1.6), ("Bold", 1.9))
+        if typ == "galaxy" and not nb:
+            # a galaxy's colour is faint next to its brightness (the L filter carries most of it): the nebula
+            # strengths left M83 grey. Tuned on M83: 'Vivid' = blue arms, a golden core and pink HII regions with pop,
+            # not neon (4.5 was too much)
+            levels = (("Calmer", 1.0), ("Slight", 1.8), ("Rich", 2.8), ("Vivid", 3.8), ("Bold", 4.6))
         return [Variant(n, {"amount": a, "protect": 0.8, "sky": sky}, why if i == pick else "", i == pick)
-                for i, (n, a) in enumerate((("Calmer", 0.85), ("Slight", 1.15), ("Rich", 1.35), ("Vivid", 1.6),
-                                            ("Bold", 1.9)))]
+                for i, (n, a) in enumerate(levels)]
 
     def sliders(self, s, params):
-        return [Slider("amount", "Colour intensity", 0.5, 2.5, params["amount"], "Grey <-> vivid", 0.05),
+        return [Slider("amount", "Colour intensity", 0.5, 5.0, params["amount"], "Grey <-> vivid", 0.05),
                 Slider("protect", "Protect the sky", 0.0, 1.0, params["protect"],
                        "Keeps the dark background from getting colourful noise")]
 

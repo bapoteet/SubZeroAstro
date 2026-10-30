@@ -457,6 +457,10 @@ class FastTrackWindow(QMainWindow):
         self.btn_save.clicked.connect(lambda: self.fw.export_dialog() if self.fw else None)
         self.btn_proj = QPushButton("📁  Save Project…")
         self.btn_proj.clicked.connect(lambda: self.fw.save_project_dialog() if self.fw else None)
+        self.btn_astro = QPushButton("🔭  Share to AstroBin…")
+        self.btn_astro.setToolTip("Upload the finished picture to AstroBin with its acquisition details "
+                                  "(the same as Share to AstroBin on page 4)")
+        self.btn_astro.clicked.connect(lambda: self.fw.share_astrobin() if self.fw else None)
         self.btn_tune = QPushButton("🔧  Fine-Tune on Page 4")
         self.btn_tune.setToolTip("Open Finishing Touches with every Fast Track step in its list: click any step and "
                                  "use Go Back to Here to try other versions")
@@ -469,9 +473,10 @@ class FastTrackWindow(QMainWindow):
         self.btn_cancel.clicked.connect(self.cancel)
         self.btn_close = QPushButton("Close")
         self.btn_close.clicked.connect(self.close)
-        for b in (self.btn_play, self.btn_fly, self.btn_save, self.btn_proj, self.btn_tune, self.btn_redo):
+        for b in (self.btn_play, self.btn_fly, self.btn_save, self.btn_proj, self.btn_astro, self.btn_tune,
+                  self.btn_redo):
             b.setVisible(False)
-        for b in (self.btn_fly, self.btn_play, self.btn_save, self.btn_proj, self.btn_tune, self.btn_redo, self.btn_cancel,
+        for b in (self.btn_fly, self.btn_play, self.btn_save, self.btn_astro, self.btn_proj, self.btn_tune, self.btn_redo, self.btn_cancel,
                   self.btn_close):
             b.setCursor(Qt.PointingHandCursor)
             row.addWidget(b)
@@ -979,6 +984,7 @@ class FastTrackWindow(QMainWindow):
         has_fw = self.fw is not None and self.fw.state is not None
         self.btn_save.setVisible(finished and has_fw)
         self.btn_proj.setVisible(finished and has_fw)
+        self.btn_astro.setVisible(finished and has_fw)
         self.btn_tune.setVisible(has_fw)
         self.btn_redo.setVisible(has_fw)
 

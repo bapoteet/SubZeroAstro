@@ -4216,7 +4216,7 @@ def run(app, out_dir: Path) -> int:
               f"Fast Track also darkens the sky and runs the final NoiseXTerminator pass when it can "
               f"({fw_.state.done if fw_ is not None and fw_.state is not None else None})")
         check(fw_ is not None and len(steps) >= 4 and fw_.state is not None and "stretch" in fw_.state.done
-              and ft.btn_save.isVisibleTo(ft) and ft.btn_redo.isVisibleTo(ft),
+              and ft.btn_save.isVisibleTo(ft) and ft.btn_redo.isVisibleTo(ft) and ft.btn_astro.isVisibleTo(ft),
               f"after Fast Track page 4 holds every step (Go Back to Here works) and the picture can be saved or "
               f"reprocessed step by step ({len(steps)} steps)")
         if fw_ is not None and ft is not None:
