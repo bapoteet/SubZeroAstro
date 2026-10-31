@@ -195,7 +195,9 @@ def info_from_look(path, look, w, h, typ=None, master=False, planes=1, cards=Non
         filter=fi.get("filter") or "No filter", w=int(w), h=int(h),
         x0=(int(look["XORGSUBF"]) if _num(look.get("XORGSUBF")) is not None else None),
         y0=(int(look["YORGSUBF"]) if _num(look.get("YORGSUBF")) is not None else None),
-        binning=int(xb) if xb else None, bayer=fi.get("bayer"),
+        # a 3-plane image is already colour, whatever BAYERPAT still says (PixInsight keeps it after debayering:
+        # the comet's _c_d_r frames were stacked as one Bayer plane - grey)
+        binning=int(xb) if xb else None, bayer=fi.get("bayer") if int(planes or 1) == 1 else None,
         night=core.night_of(fi), date_obs=(str(fi.get("date_obs")) if fi.get("date_obs") else None),
         focal=_num(look.get("FOCALLEN")), telescope=fi.get("telescope"),
         rotator=_num(fi.get("rotator")),

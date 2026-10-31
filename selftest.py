@@ -766,6 +766,29 @@ def run(app, out_dir: Path) -> int:
     except Exception as e:  # noqa: BLE001
         check(False, f"IC 1396 fixes: {e}")
 
+    # comet frames from PixInsight (_c_d_r: debayered, BAYERPAT still in the header) are colour, a mono master
+    # named 'No filter' gets a preview, and a target picked as a comet in Fast Track is stacked as one
+    try:
+        import stacking as _cst
+        import prepare as _cpp
+        import targets as _ctg
+        _cinfo = _cst.info_from_look("x_c_d_r.fits", {"BAYERPAT": "RGGB", "IMAGETYP": "LIGHT"}, 64, 48, "light",
+                                     planes=3)
+        _cm = _cpp.Master(Path("Snap_Master.fits"), np.random.default_rng(3).random((1, 40, 50)).astype(np.float32)
+                          * 1000, [], {}, "Snapshot", "No filter", None, None)
+        _cq = _cpp.quick_look([_cm], [p_ for p_ in _cpp.palettes_for([_cm]) if "mono" in p_][0])
+        _cprev = _ctg.OVERRIDES.get(_ctg._okey("Snapshot"))
+        _cbefore = _ctg.is_comet("Snapshot")
+        _ctg.set_override("Snapshot", _ctg.COMET)
+        _cafter = _ctg.is_comet("Snapshot")
+        _ctg.set_override("Snapshot", _cprev)
+        check(_cinfo.bayer is None and _cq.shape == (40, 50, 3) and not _cbefore and _cafter,
+              f"comet frames: a 3-plane image is colour even with BAYERPAT in the header (bayer {_cinfo.bayer}); a "
+              f"'No filter' mono master gets a preview ({_cq.shape}); 'Snapshot' picked as a comet in Fast Track is "
+              f"stacked as one ({_cbefore} -> {_cafter})")
+    except Exception as e:  # noqa: BLE001
+        check(False, f"comet frames: {e}")
+
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

@@ -800,8 +800,8 @@ def quick_look(masters: list, palette: str) -> np.ndarray:
         o = ch("OIII")
         rgb = np.stack([ch("Ha"), o, o], -1)
     else:
-        f = palette.split(" ")[0]
-        g = ch(f)
+        f = palette[:-len(" (mono)")] if palette.endswith(" (mono)") else palette.split(" ")[0]
+        g = ch(f) if f in by else stretch(next(iter(by.values())).data[0])   # 'No filter (mono)' crashed on 'No'
         rgb = np.stack([g, g, g], -1)
     return np.clip(rgb, 0, 1)
 

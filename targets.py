@@ -81,6 +81,8 @@ def _cat(name: str):
 
 def is_comet(name: str) -> bool:
     n = (name or "").strip()
+    if OVERRIDES.get(_okey(n)) is not None:              # picked in Fast Track ("What is it?"), e.g. 'Snapshot'
+        return OVERRIDES[_okey(n)] == COMET
     return bool(_COMET_RE.match(n)) or "comet" in n.lower()
 
 
