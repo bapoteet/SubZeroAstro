@@ -641,7 +641,7 @@ def load_state(paths) -> State:
                        + ", ".join(f"{k} = {v}" for k, v in ren.items())
                        + ". To fix, set the filter names on the first page (Frame > Set Filter Name).")
         f = set(s.channels)
-    elif unknown:
+    elif unknown and len(f) >= 2:
         # the others are known and make a picture on their own: an unknown one would just be left out, silently -
         # NGC 281's SII came in as 'S11' and the Pacman was made in HOO. Say so.
         s.load_note = "; ".join(x for x in (getattr(s, "load_note", ""), (
@@ -3052,10 +3052,13 @@ class DarkenSky(Tool):
         s = s.copy()
         a = float(params["amount"])
         out = np.empty_like(s.rgb)
+        comet = target_type(s) == "comet"
         for c in range(s.rgb.shape[0]):
             x = s.rgb[c]
-            glow = sky_glow_map(x)
             _sky, noise, _d, _b = sky_level(x[::2, ::2])          # per-pixel noise (not averaged)
+            # a comet's faint tail crosses the whole picture: the sky glow map took it for glow and darkened it
+            # away. The gradient is already gone (page 3), so a comet's sky is one level
+            glow = np.float32(_sky) if comet else sky_glow_map(x)
             v = x - a * glow
             out[c] = _toe(v, 2.5 * noise) if a > 0 else v
         calm = float(params.get("calm", 0.0))
@@ -3757,8 +3760,9 @@ class Curves(Tool):
         # planetaries get 'Lift faint detail' (Darken the Sky then takes the sky down and keeps the halo above it)
         # a planetary's faint halo needs 'Lift faint detail'; a star cluster 'Darker background' (an S-curve brightens
         # its centre's glow until the stars in it blend - M28); everything else 'More contrast'
-        pick = {"planetary nebula": 1, "star cluster": 2, "galaxy": 4}.get(target_type(s), 0)
-        why = {1: "suggested for a planetary nebula: keeps its faint outer halo",
+        pick = {"planetary nebula": 1, "star cluster": 2, "galaxy": 4, "comet": 1}.get(target_type(s), 0)
+        why = {1: ("suggested for a comet: keeps its faint tail" if target_type(s) == "comet" else
+                   "suggested for a planetary nebula: keeps its faint outer halo"),
                2: "suggested for a star cluster: keeps the stars in its centre apart",
                4: "suggested for a galaxy: bright arms and core, its faint outer disk a soft glow"}
         return [Variant(name, {**{"contrast": 0.0, "shadows": 0.0, "midtones": 0.0, "highlights": 0.0}, **v,

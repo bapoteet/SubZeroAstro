@@ -796,6 +796,28 @@ def run(app, out_dir: Path) -> int:
     check(_gw1 is not None and _gw1[0] > 1.0 > _gw1[2] and _gw2 is None,
           f"galaxy: a blue centre after 'Stars white' is made a warm white ({_gw1}); a warm one is left alone ({_gw2})")
 
+    # a comet's faint tail crosses the whole picture: Darken the Sky must keep it (it was darkened away as sky glow)
+    try:
+        import targets as _ktg
+        _kprev = _ktg.OVERRIDES.get(_ktg._okey("TailTest"))
+        _ktg.set_override("TailTest", _ktg.COMET)
+        _kyy, _kxx = np.mgrid[:600, :900]
+        _kimg = (0.2 + 0.06 * np.exp(-((_kyy - 0.4 * _kxx - 100) ** 2) / (2 * 60.0 ** 2))
+                 + np.random.default_rng(5).normal(0, 0.004, (600, 900))).astype(np.float32)[None]
+        _ks = _fnc.State(rgb=_kimg, target="TailTest", kind="mono", linear=False)
+        _kv = next(v for v in _fnc.TOOLS["sky"].variants(_ks) if v.label == "Darker")
+        _ko = _fnc.TOOLS["sky"].apply(_ks, dict(_kv.params)).rgb[0]
+        _kin, _kout = (_kyy - 0.4 * _kxx - 100) ** 2 < 30 ** 2, (_kyy - 0.4 * _kxx - 100) ** 2 > 250 ** 2
+        _kc0 = float(_kimg[0][_kin].mean() - _kimg[0][_kout].mean())
+        _kc1 = float(_ko[_kin].mean() - _ko[_kout].mean())
+        _kcv = next(v.label for v in _fnc.TOOLS["curves"].variants(_ks) if v.recommended)
+        _ktg.set_override("TailTest", _kprev)
+        check(_kc1 > 0.9 * _kc0 and float(_ko[_kout].mean()) < 0.15 and _kcv == "Lift faint detail",
+              f"comet: Darken the Sky keeps the faint tail ({_kc0:.3f} -> {_kc1:.3f} above the sky, sky "
+              f"{float(_kimg[0][_kout].mean()):.2f} -> {float(_ko[_kout].mean()):.2f}); Curves suggests {_kcv}")
+    except Exception as e:  # noqa: BLE001
+        check(False, f"comet tail: {e}")
+
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

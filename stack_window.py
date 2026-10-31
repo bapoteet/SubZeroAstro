@@ -42,7 +42,11 @@ def lights_from_session(frames) -> tuple[list, list]:
             skipped.append(f.name)
             continue
         w, h = int(look.get("NAXIS1", 0) or 0), int(look.get("NAXIS2", 0) or 0)
-        info = st.info_from_look(f.path, look, w, h, "light", cards=f.cards)
+        try:                                   # a 3-plane image (debayered colour) is colour whatever BAYERPAT says
+            planes = int(look.get("NAXIS3") or 1) if int(look.get("NAXIS") or 2) == 3 else 1
+        except (TypeError, ValueError):
+            planes = 1
+        info = st.info_from_look(f.path, look, w, h, "light", planes=planes, cards=f.cards)
         if getattr(f, "filter_override", None):
             info.filter = f.filter_override          # the user said which filter was really used
         lights.append(st.LightFrame(info, f.score, (f.metrics or {}).get("fwhm")))
