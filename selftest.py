@@ -832,10 +832,13 @@ def run(app, out_dir: Path) -> int:
         _kc0 = float(_kimg[0][_kin].mean() - _kimg[0][_kout].mean())
         _kc1 = float(_ko[_kin].mean() - _ko[_kout].mean())
         _kcv = next(v.label for v in _fnc.TOOLS["curves"].variants(_ks) if v.recommended)
+        _kmeth = _fnc.TOOLS["stretch"].recommended_method(_fnc.State(rgb=np.zeros((3, 8, 8), np.float32),
+                                                                   target="TailTest", kind="osc"))
         _ktg.set_override("TailTest", _kprev)
-        check(_kc1 > 0.9 * _kc0 and float(_ko[_kout].mean()) < 0.15 and _kcv == "Lift faint detail",
+        check(_kc1 > 0.9 * _kc0 and float(_ko[_kout].mean()) < 0.15 and _kcv == "Lift faint detail" and _kmeth == "ghs",
               f"comet: Darken the Sky keeps the faint tail ({_kc0:.3f} -> {_kc1:.3f} above the sky, sky "
-              f"{float(_kimg[0][_kout].mean()):.2f} -> {float(_ko[_kout].mean()):.2f}); Curves suggests {_kcv}")
+              f"{float(_kimg[0][_kout].mean()):.2f} -> {float(_ko[_kout].mean()):.2f}); Curves suggests {_kcv}; brightened "
+              f"with {_kmeth} (a natural head, not a flat disc)")
     except Exception as e:  # noqa: BLE001
         check(False, f"comet tail: {e}")
 

@@ -2527,6 +2527,11 @@ class Brighten(Tool):
             # small and very bright: a per-colour stretch pushes all three colours to the top together and the
             # nebula turns grey; brightening the luminance and keeping each pixel's colour mix keeps it colourful
             return "colour"
+        if target_type(s) == "comet":
+            # a comet's head is a thousand times brighter than its tail: the colour-preserving stretch pushed the
+            # whole inner coma to the top - a flat, too-perfect cyan disc. GHS keeps a bright nucleus fading into the
+            # coma (and the tail as faint as before)
+            return "ghs"
         if s.stars_out and not s.stars_hidden:
             return "ghs"                 # starless: strong, smooth stretch for faint nebulosity
         # stars kept aside by page 3 but never taken out (a star cluster): they are put back before brightening, so
@@ -2543,10 +2548,16 @@ class Brighten(Tool):
         img = s.rgb
         planes = [_lum(img)] if linked else list(img)
         st_ = []
+        comet = target_type(s) == "comet"
         for p in planes:
             med, mad = _stats(p)
             lo = max(0.0, med - 2.8 * mad)
             hi = max(float(np.percentile(p[::3, ::3], 99.995)), lo + 1e-5)
+            if comet:
+                # the white point at the comet's head, not at a percentile: the head is a few hundred pixels, so
+                # 99.995 % fell inside its coma and everything brighter became one flat, too-perfect disc
+                sm_, _f = _small_plane(p.astype(np.float32), 600)
+                hi = max(hi, float(np.max(_blur(sm_, 1.0))))
             st_.append((lo, hi, med))
         lo, hi, med = st_[0]
         nm = min(max((med - lo) / (hi - lo), 1e-6), 0.5)
@@ -5124,7 +5135,7 @@ SAT_DEFAULT = {
     ("nebula", False): 2, ("nebula", True): 1,
     ("planetary nebula", False): 1, ("planetary nebula", True): 0,
     ("star cluster", False): 0, ("star cluster", True): 1,   # Calmer: Rich made M28 too strong
-    ("comet", False): 1, ("comet", True): 1,
+    ("comet", False): 2, ("comet", True): 1,     # Rich: the GHS stretch leaves a comet's tail grey-blue
     ("unknown", False): 2, ("unknown", True): 1,
 }
 
