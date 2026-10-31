@@ -502,7 +502,7 @@ def run(app, out_dir: Path) -> int:
         _cs.kind, _cs.linear, _cs.target = _kind, False, _tgt
         _cs.rgb = np.stack([_cneb * t for t in _tint]).astype(np.float32)
         _sat.append(next(v.label for v in _fnc.TOOLS["saturation"].variants(_cs) if v.recommended))
-    check(_sat == ["Slight", "Vivid", "Slight", "Slight", "Calmer"],
+    check(_sat == ["Slight", "Vivid", "Calmer", "Slight", "Calmer"],      # M42 in colour, already red: Calmer (IC 1396)
           f"Colour Intensity's suggestion follows the target and the data: narrowband, already strong colours, "
           f"planetaries 'Slight'; a galaxy in colour 'Vivid'; a star cluster 'Calmer' ({_sat})")
     # Remove Green Cast on balanced colour data: nothing suggested (SCNR on noise turns a picture pink); a real
@@ -739,7 +739,10 @@ def run(app, out_dir: Path) -> int:
         _ic_st = np.zeros((3, _ic_H, _ic_H), np.float32)
         for (_ic_cy, _ic_cx), _ic_amp in (((200, 760), 0.12), ((500, 500), 0.12), ((820, 180), 0.0)):
             _ic_d2 = (_ic_yy - _ic_cy) ** 2 + (_ic_xx - _ic_cx) ** 2
-            _ic_sl += (_ic_amp * np.exp(-_ic_d2 / (2 * 16.0 ** 2)) * np.array([0.6, 1.0, 1.1])[:, None, None]).astype(np.float32)
+            _ic_g = np.exp(-_ic_d2 / (2 * 16.0 ** 2))
+            if _ic_cy == 500:                      # the target's own star in the middle: a structured reflection nebula
+                _ic_g = _ic_g * np.where(_ic_xx > _ic_cx, 1.6, 0.3) * (1 + 0.5 * np.sin(_ic_yy / 3.0))
+            _ic_sl += (_ic_amp * _ic_g * np.array([0.6, 1.0, 1.1])[:, None, None]).astype(np.float32)
             _ic_st += (50.0 * np.exp(-_ic_d2 / (2 * 1.5 ** 2))).astype(np.float32)
         _ic_gl = _fnc.find_star_glows(_ic_sl, _ic_st)
         _ic_gc = [((a + c) / 2 * _ic_H, (b + d) / 2 * _ic_H) for a, b, c, d in _ic_gl]
