@@ -842,6 +842,21 @@ def run(app, out_dir: Path) -> int:
     except Exception as e:  # noqa: BLE001
         check(False, f"comet tail: {e}")
 
+    # thousands of frames (a Seestar night): combining keeps every cached frame open - the open-file limit is raised
+    try:
+        import stacking as _ost
+        try:
+            import resource as _ores
+            _osoft, _ohard = _ores.getrlimit(_ores.RLIMIT_NOFILE)
+            _ores.setrlimit(_ores.RLIMIT_NOFILE, (min(256, _osoft), _ohard))
+        except ImportError:
+            _ores = None
+        _ook = _ost.open_files_for(3046)
+        _onow = _ores.getrlimit(_ores.RLIMIT_NOFILE)[0] if _ores else "n/a (Windows)"
+        check(_ook, f"3046 frames can be combined: the open-file limit is raised (now {_onow})")
+    except Exception as e:  # noqa: BLE001
+        check(False, f"open-file limit: {e}")
+
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 import re
 import shutil
 import tempfile
@@ -42,6 +43,36 @@ IMAGE_EXTS = core.FITS_EXTS | {".xisf"}
 
 class Cancelled(Exception):
     pass
+
+
+def open_files_for(n: int) -> bool:
+    """Make room for n more open files. Combining keeps every cached frame open (memory-mapped); macOS and Linux
+    allow only 256 or 1024 open files by default, so 3046 Seestar frames failed with 'Too many open files'.
+    Raises this process's soft limit (up to the system's hard limit). True if there is room now."""
+    try:
+        import resource
+    except ImportError:                                  # Windows: memory-mapped files don't use up this limit
+        return True
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = n + 256
+        if soft != resource.RLIM_INFINITY and soft < want:
+            cap = hard if hard != resource.RLIM_INFINITY else want
+            if sys.platform == "darwin":
+                cap = min(cap, 1_000_000)
+                try:
+                    import subprocess
+                    mx = int(subprocess.run(["sysctl", "-n", "kern.maxfilesperproc"], capture_output=True,
+                                            text=True, timeout=5).stdout.strip() or 0)
+                    if mx > 0:
+                        cap = min(cap, mx)
+                except Exception:  # noqa: BLE001
+                    pass
+            resource.setrlimit(resource.RLIMIT_NOFILE, (min(want, cap), hard))
+            soft = min(want, cap)
+        return soft == resource.RLIM_INFINITY or soft >= want
+    except Exception:  # noqa: BLE001
+        return False
 
 
 # ==========================================================================
@@ -2954,6 +2985,7 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     def combine_cache(label="combining", f0=0.65, span=0.3):
         nonlocal rejected
         rejected = 0
+        open_files_for(len(cache_files))
         mm = [np.load(p, mmap_mode="r") for p in cache_files]
         rows = int(max(8, min(out_h, 3e8 / max(len(mm) * out_w * 4 * 4, 1))))
         for c in range(nc):
@@ -3202,6 +3234,7 @@ def comet_stack(res, stars_out, entries, cache_files, weights, frame_noise, opts
         np.save(p, np.stack([np.clip(x, -65000, 65000).astype(np.float16) for x in pl]))
         shifted.append(p)
         del fr, pl
+    open_files_for(len(shifted))
     mm = [np.load(p, mmap_mode="r") for p in shifted]
     comet = np.empty((nc, out_h, out_w), np.float32)
     rows = int(max(8, min(out_h, 3e8 / max(len(mm) * out_w * 4 * 4, 1))))
