@@ -1,0 +1,406 @@
+Created 16 synthetic frames in 1.2s at C:\Users\RUNNER~1\AppData\Local\Temp\sza_selftest_7ac3spmt\M33
+PASS  no flats for a filter: page 2 plans a sky flat from the light frames
+PASS  hot pixels are not taken for stars (1479 removed, 84% of the star list real): frames with many hot pixels line up on the sky (44 stars, 0.09 px)
+PASS  plate solutions guide the star match (50 stars confirm it even from 11 px out), and a zero-shift match 90 px away from the plate solutions would be caught
+PASS  hot pixels are removed from each frame before stacking (cosmetic correction); stars are untouched
+PASS  a filter tacked onto the target name (Telescope Live: M78_B, M78_G …) is dropped, so the colours are combined as one target (['M78', 'M78', 'M78', 'NGC7000', 'Sh2-155', 'IC1396', 'M78_B'])
+PASS  the RC-Astro / GraXpert hand-off works on any brightness scale: normal, 0..1 and past 65535 masters all reach the tool as a normal picture and come back unchanged ([True, True, True])
+PASS  gradient removal 'Automatic': Subtraction for Telescope Live / flat-calibrated / unknown masters, Division only for a master stacked without flats (['Subtraction', 'Subtraction', 'Subtraction', 'Subtraction', 'Division'])
+PASS  Tame Bright Core suggests 'Strong' for a big burnt core, 'Medium' for a small nucleus (['Medium', 'Strong'])
+PASS  ready-made data: BlurXTerminator Sharpen Stars 0.55 / Star Halos 0.50; backyard data and your own values unchanged; drizzle is only suggested for stars under 2.2 px ([{'ss': 0.55, 'ash': 0.5, 'sn': 0.03}, {'ss': 0.4, 'ash': 0.4, 'sn': 0.03}, {'ss': 0.3, 'ash': 0.4, 'sn': 0.03}])
+PASS  the memory note has the app's own use and what is free ({'total': 15.994869232177734, 'free': 12.635200500488281, 'app': 0.15625381469726562})
+PASS  every session writes a log on disk (page lines, memory); a session that ended badly is flagged for Zip My Logs (app uses 0.2 GB, 12.6 GB free, of 16 GB)
+PASS  Star Colours: a big overexposed star's core stays white (no guessed blue disc), small stars keep their colour (core [1.0, 0.9700000286102295, 0.9100000262260437], blue star [0.6600000262260437, 0.7799999713897705, 1.0])
+PASS  a meridian flip is not taken for alt-az field rotation (0.30° vs 12.0°)
+PASS  big stars (FWHM 5.8 px): StarXTerminator on a half-size copy leaves no squares or stars behind (51 of 29796), keeps the fine detail, and starless + stars = the original
+PASS  StarXTerminator goes half size for big (drizzled) pictures, not for a normal one (True, False)
+PASS  Darken the Sky Background suggests 'Much darker', 'Darker' when the sky is already dark or for a planetary (its faint halo), 'Darkest' for a star cluster (['Much darker', 'Darker', 'Darkest', 'Darker']); Curves lifts faint detail for a planetary, Punchy for a galaxy (['Lift faint detail', 'Punchy (S-curve + lift)'])
+PASS  Clean Bright-Star Leftovers: a painted grain-free box (with its bar and dot) is found and patched (level off by -0.0017, grain 1.02x the sky's); a box inside bright nebula is left alone (1); a picture without painted boxes is left alone (0)
+PASS  Clean Bright-Star Leftovers: the square glow around a painted box is taken away (corners vs sides 0.0063 -> 0.0008)
+PASS  Clean Bright-Star Leftovers: a big blue leftover core in a box is removed, not spread into a blue disc (left 0.0008, was 0.08)
+PASS  Clean Bright-Star Leftovers: the nebula's own detail around the box is kept (match 0.85), the glow is taken away (left 0.0002 of 0.01), 'faint glow' keeps a little (0.0014)
+PASS  Clean Bright-Star Leftovers: a small leftover star core in one colour inside nebula (the red dot on M27) is found and removed (left 0.0023 of 0.04); nebula without a dot is left alone
+PASS  Clean Bright-Star Leftovers keeps a whole star left in the starless picture, a small galaxy and an emission knot (0 taken)
+PASS  Colour Intensity's suggestion follows the target and the data: narrowband, already strong colours, planetaries 'Slight'; a galaxy in colour 'Vivid'; a star cluster 'Calmer' (['Slight', 'Vivid', 'Calmer', 'Slight', 'Calmer'])
+PASS  Remove Green Cast suggests nothing on balanced colour data (no pink cast) and removes a real green cast ([('None needed', True), ('75%', False)])
+PASS  Tame Bright Core is only offered for a star cluster (dark holes between the core's stars), recommended for a galaxy ({'M28': 'optional', 'M51': 'next'})
+PASS  narrowband: a planetary nebula gets 'HOO + SII', other targets the Hubble palette (['HOO + SII', 'Hubble (SHO)']); Remove Green Cast leaves HSO's SII and HOO's teal alone, plain SCNR for SHO (['None needed', '25%', 'Remove only'])
+PASS  page 4's alignment check reads star centres: matching faint stars are found to match (0.01 px), a real 1.5 px shift shows (1.45 px)
+PASS  HOO + SII: an Ha-rich area is pink, not flat red (R 0.62 G 0.66 B 0.58); a narrowband planetary gets 'Calmer' colour
+PASS  Tame Bright Core for a planetary only when its ring burns out (dim interior: optional, white ring: next)
+PASS  a star cluster gets a gentler stretch and 'Darker background' curves, a galaxy 'Gentle' and 'Punchy' ([('Light', 'Darker background'), ('Gentle', 'Punchy (S-curve + lift)')])
+PASS  a star cluster's glow is balanced to a warm white (was R 0.78 G 0.69 B 1.00, now R 1.00 G 1.00 B 0.85)
+PASS  Resolve the Cluster Core lowers a globular's blended glow (core 0.62 -> 0.42) and keeps its stars (0.24 above the glow); recommended for a star cluster
+PASS  a bright red star stays red to its centre when brightened (centre [1.0, 0.5400000214576721, 0.33000001311302185], edge [1.0, 0.5299999713897705, 0.33000001311302185])
+PASS  stars from page 3 still in the picture are brightened colour-preserving (colour); a starless picture with the stars out gets GHS (ghs)
+PASS  Brighten's versions are measured on the picture with page 3's stars in, as it will be brightened
+PASS  a small galaxy beside a planetary is moved to the stars image (1); the nebula and a faint knot stay
+PASS  Balance Colours measures the stars on linear data whose stars run far above 1 ((1.3000178560816915, 0.7999943177207602, 52))
+PASS  filter names typed with ones are recognised (['SII', 'SII', 'OIII', 'OIII', 'SII']); the palette suggestion is the popular one for the target (NGC 281 Hubble (SHO), NGC 6888 HOO) and a palette picked in Fast Track wins (HSO)
+PASS  Edit FITS Headers writes keywords into the files (image data untouched, also when the header grows), Undo puts the old values back, and the data-describing keywords are protected ({'FILTER': 'SII', 'FOCALLEN': 530, 'TK059': 'xxxxxxxxxxxxxxxxxxxx'}, undo {'FILTER': 'S11', 'FOCALLEN': None})
+PASS  IC 1396 fixes: stars labelled the fast way give the same areas (True); a round glow left by star removal is found away from the middle and the target's own star is kept (1 found at [(760, 200)]), and cleaned (glow 0.106 -> 0.007); a nebula filling the frame gets its sky level from the darkest part (R 0.100, G 0.100); stars 1.4 px wide are shrunk gently (Moderate 0.09 instead of 0.60)
+PASS  comet frames: a 3-plane image is colour even with BAYERPAT in the header (bayer None); a 'No filter' mono master gets a preview ((40, 50, 3)); 'Snapshot' picked as a comet in Fast Track is stacked as one (False -> True); 0..1 float lights are read in camera units (1319) - the comet master was 65535x too dark
+PASS  galaxy: a blue centre after 'Stars white' is made a warm white ([1.15, 1.0, 0.7818181818181817]); a warm one is left alone (None)
+PASS  a clipped comet nucleus gets its coma's colour, no purple dot (centre [0.2199999988079071, 1.0, 0.4000000059604645], coma [0.2199999988079071, 1.0, 0.4000000059604645])
+PASS  comet: Darken the Sky keeps the faint tail (0.058 -> 0.058 above the sky, sky 0.20 -> 0.10); Curves suggests Lift faint detail; brightened with ghs (a natural head, not a flat disc)
+PASS  3046 frames can be combined: the open-file limit is raised (now n/a (Windows))
+PASS  DWARF calibration frames are recognised (bias / flat from the folder or the header, the master dark's settings from its name): [('bias', False, 0.0001, 2.0, None), ('bias', False, 0.0001, 2.0, None), ('dark', True, 15.0, 60.0, 37.0), ('flat', False, 0.5, 2.0, None)]
+PASS  no target in the header: it is read from the file name (ASIAIR, Seestar, N.I.N.A.) or the ASIAIR folder (['M51', 'NGC 7000', 'IC1396', 'M51', None, None])
+PASS  a placeholder OBJECT ('Snapshot') gives way to the folder's target name (C_2025_R2_SWAN, a comet)
+PASS  a FITS file damaged by a text-mode download is reported as damaged (intact files read normally)
+PASS  ready-made data is recognised as already calibrated (Telescope Live: PROC = True): no calibration, no SkyFlat, no missing-calibration warnings - and it is never used to make a SkyFlat
+PASS  sky flat captures the vignetting (corner 0.750 -> 0.758) and the dust donut (0.055 -> 0.041) with the stars and light-pollution tilt taken out
+PASS  a dark as bright as the sky stops the sky flat with a clear message
+PASS  a poor SkyFlat is caught (2 reasons) and the user chooses: without flats or use anyway
+PASS  too few light frames: no sky flat, the usual 'no flats' warning
+PASS  macOS '._' copies and .DS_Store on a NAS / external drive are ignored, not shown as unreadable
+PASS  page 1 loads XISF light frames (16-bit and 0..1 float) and measures them exactly like FITS {'a.fits': (3.926, 56, 800), 'b.xisf': (3.926, 56, 800), 'c.xisf': (3.926, 56, 800)}
+PASS  XISF with zlib, LZ4, LZ4-HC and Zstandard compression opens ({'zlib': True, 'lz4': True, 'lz4hc+sh': True, 'zstd+sh': True}; built-in LZ4 decoder agrees: True)
+PASS  flats taken every session: each night's lights use that night's flat (nights ['2026-10-17', '2026-10-18']), so dust that moved between nights leaves no shadow (dust spots at [1.0, 1.001] of the background)
+PASS  Even out the sky between frames: frames whose gradients change through the night are matched to the reference frame everywhere (background mismatch 60.3 -> 13.4 ADU)
+PASS  stacking several frames at once gives exactly the same master (12 and 12 frames; 2 at a time for a 61-megapixel frame here)
+PASS  Even out the sky: a bright target is left out of the sky estimate (sky under it 788 -> 500, true 500; 14% of the picture left out)
+PASS  Even out the sky in a dense star field: the target is left out, the stars are not (7% left out; sky under the target 510, true 500)
+PASS  2x drizzle: dithered, undersampled frames give a double-size master with finer stars (star size 1.86 -> 1.58 px of the original pixels)
+PASS  dithered frames with small stars get the tip to try drizzle (and its longer stacking); a slow drift is not taken for dithering ({'dithered': True, 'spread': 5.386755966964053, 'phases': 0.625, 'fwhm': None, 'small_stars': True, 'frames': 16})
+PASS  alt-az frames without darks: the camera's fixed pattern is measured and taken out, so it does not stack into swirls (fine-scale background 8.2 -> 4.5 ADU)
+PASS  a PixInsight project opens: stored images decoded, moved files found, masks left out (1 picture, notes: ['MasterLight_crop_mask: a mask / helper image - left out'])
+PASS  after a meridian flip the stack corrects the field distortion: edge stars as sharp as the centre (0.067 vs 0.067; without it 0.063)
+PASS  no focal length / pixel size in the header: typical field sizes are tried (Plate solved on retry 2: the header has no pixel scale; a field 0.35° tall fits) and the one that worked is used first for the other masters
+PASS  plate solving retries other field sizes when the header's is wrong (Plate solved on retry 1: the field is 0.5x what the header says (binning?)); a final failure says what was tried
+PASS  Build Calibration Masters sorts one mixed folder into ['bias0', 'dark180', 'dark2', 'dark300', 'flatHa', 'flatOIII'] for rig 'ScopeX', saves them to the library and flags the leaky dark
+PASS  a dark that light leaked into (brighter than the lights, uneven like a picture) is reported plainly
+PASS  page 2 checks the dark subtraction and warns when a master is on the wrong scale (WARNING: the dark master is practically zero (0.008) while t…)
+PASS  a 0..1 floating-point master with any (or no) stated range is read in camera units
+PASS  RGB+Ha galaxy: the HII regions are added on their own (knots 0.0058, smooth disk 0.00013)
+PASS  DWARF mini subs recognised (light, DWARF mini, 14.0 C)
+PASS  Vespera Pro subs recognised (light, Vespera Pro, 10.0 s)
+PASS  Seestar stack recognised as stacked colour (3 planes, 1240 s)
+PASS  a Seestar stack can go straight into Prepare
+PASS  dual-band filters recognised (L-Ultimate: Ha+OIII, L-Synergy: SII+OIII)
+PASS  filter found in file names ('…SQA55Lult_0107.fit' -> L-Ultimate)
+PASS  Seestar LP stack gets dual-band quick-look palettes (['HOO (dual-band)', 'Gold & blue (dual-band)', 'RGB (colour camera)'])
+PASS  alt-az field rotation through 60 degrees stacks and auto-crops (6/6 frames, auto-crop (64, 64, 340, 340))
+PASS  robust star finder aligns faint subs with hot pixels (101 stars, shift (-13.36, 7.31))
+PASS  banner 'SubZeroAstro / Astro Image Quality and Cull' above working menus
+PASS  Help > User Manual (PDF) is there and the manual ships with the app (D:\a\SubZeroAstro\SubZeroAstro\docs\SubZeroAstro_User_Manual.pdf)
+PASS  the SubZeroAstro icon ships with the app and is set on the windows (D:\a\SubZeroAstro\SubZeroAstro\assets\icon_256.png)
+PASS  the main window knows whether it fills the screen (it opens filled next time)
+PASS  'Include subfolders' is on by default
+PASS  File › Clear Everything – Start From Scratch clears saved measurements and progress and moves old masters aside (nothing deleted)
+PASS  reset all settings to factory defaults keeps folders, tool locations, rigs and signature
+PASS  intro animation finds its radiograph picture (assets/splash_radiograph.png)
+PASS  the radiograph's edges and its black film fade away softly (no hard rectangle); the X-ray shows
+PASS  intro animation plays and closes by itself (~5.7 s)
+Measured 16 frames in 8.7s
+PASS  16 frames listed
+PASS  no unreadable frames
+PASS  trailed frame Light_Ha_005.fits has a red badge (got red: Elongated / trailed stars (e = 0.85))
+PASS  cloud frame Light_OIII_008.fits has a red badge (got red: Low SNR (20% of median) - clouds, haze or dew?)
+PASS  focus frame Light_OIII_012.fits has a red badge (got red: Soft focus / poor seeing (FWHM 60% above median))
+PASS  good frames green (13/13)
+PASS  chart has 16 points
+PASS  sidebar lists 16 frames
+screenshot 1_main_window_fwhm.png: saved (1600x950)
+PASS  missing helper programs are each reported with what happens without them
+PASS  page 1 shows an amber banner when helper programs are missing
+screenshot 1a_tools_banner.png: saved (1600x950)
+PASS  'Don't Remind Me' hides the banner while nothing changes
+PASS  an installed but unlicensed RC-Astro tool is flagged on page 1
+PASS  a new problem brings the banner back after 'Don't Remind Me'
+PASS  all helper programs found and ready
+PASS  ASTAP without a star database is flagged (plate solving needs one); with one it says which (ready - fake_astap.py (star database: D50))
+PASS  no banner when every helper program is ready
+PASS  Your Tools window lists each helper with its status, Browse… and Download Page
+screenshot 1b_your_tools.png: saved (940x240)
+PASS  page 1 (Quality and Cull) fits a small laptop screen (needs at least 725x448, limit 1280x680)
+PASS  a page never hangs off the screen (window (0, 31, 1024, 689), screen (0, 0, 1024, 720))
+PASS  page 1 status line (frame counts) is on screen
+PASS  good / marginal / poor counts shown in the Kept frames box
+PASS  Settings menu has 'Your Tools…'
+PASS  worst-first sort puts the 3 bad frames on top (['Light_Ha_005.fits', 'Light_OIII_012.fits', 'Light_OIII_008.fits'])
+screenshot 2_sorted_worst_first_score_chart.png: saved (1028x749)
+PASS  Auto-Flag defaults catch all bad frames (['Light_Ha_005.fits', 'Light_OIII_008.fits', 'Light_OIII_012.fits'])
+screenshot 3_autoflag_dialog.png: saved (292x336)
+PASS  Flagged view lists the flagged frames
+PASS  flagged frames moved to REJECTED (3)
+screenshot 4_after_reject_eccentricity_chart.png: saved (1028x749)
+PASS  undo restored all files and removed REJECTED
+PASS  results cache written
+screenshot 5_zoom_100.png: saved (1028x749)
+PASS  kept-frames summary shows live averages (<b>13</b> of 16 frames · <b>1.1 h</b><br>FWHM <b>3.00</b> px…)
+PASS  FITS header window lists the header (17 cards)
+PASS  header window search finds a keyword
+PASS  Set Filter Name relabels the frames
+PASS  filter name can be set back to the recorded one
+screenshot 6b_file_viewer.png: saved (1028x749)
+PASS  FITS / XISF Viewer (File and View menus) shows a file's picture and header, steps to the next file in the folder, searches the header and reads pixel values ((True, True, True, True), True, True, True)
+PASS  the image can be hidden
+PASS  less preset flags all bad frames (3 flagged)
+PASS  less preset flags no good frames ([])
+PASS  semi preset flags all bad frames (3 flagged)
+PASS  semi preset flags no good frames ([])
+PASS  aggressive preset flags all bad frames (3 flagged)
+PASS  aggressive preset flags no good frames ([])
+PASS  one Ctrl+Z undoes a whole Auto-cull preset
+PASS  Saved Progress dialog shows the space used
+screenshot 6_semi_aggressive_flagged.png: saved (1028x749)
+PASS  Load Data lists 2 folders (duplicate ignored)
+PASS  Add Folders… lets you pick several folders at once (Shift/Ctrl-click) (2 of 5 views)
+screenshot 7b_folder_picker.png: saved (860x540)
+PASS  several picked folders come back together (['M33', 'M33_night2'])
+PASS  picking two folders adds both, with their subfolders
+PASS  Load Data: filter name typed as 'LUlt' becomes L-Ultimate
+PASS  Load Data: '(as recorded)' leaves the files' filter
+screenshot 7_load_data_window.png: saved (760x440)
+PASS  Start Over clears the session
+PASS  Reopen Last Session restores folders and flags (3 flagged)
+PASS  duplicate frames skipped with a notice (16 duplicate frames were skipped - the same file a)
+PASS  two folders loaded together (32 frames)
+PASS  frames keep their folder names (['M33', 'M33_night2'])
+screenshot 8_two_folders.png: saved (1028x749)
+PASS  stacking window groups lights by filter (['M33 · Ha · TestCamera · 1140mm scope', 'M33 · OIII · TestCamera · 1140mm scope'])
+PASS  each group has its 16 kept frames
+PASS  stacking rows: broadband first (L R G B), then narrowband; one tick box per kind (['L', 'R', 'G', 'B', 'Ha', 'OIII', 'SII', 'L-Ultimate'])
+PASS  missing darks are reported before calibration is added
+PASS  a row the user unticked stays unticked after calibration frames are added
+PASS  calibration sets recognised (['bias', 'dark', 'flat', 'flat'])
+PASS  bias, darks and flats matched ([('Ha', True, 'exact', True), ('OIII', True, 'exact', True)])
+screenshot 9_stacking_window.png: saved (1051x749)
+Stacked 2 groups in 7.0s
+PASS  both groups stacked ([None, None])
+master lights: M33_Ha_Master_2026-10-10.fits, M33_Ha_Master_2026-10-10.xisf, M33_Ha_Master_2026-10-10_stacklog.txt, M33_OIII_Master_2026-10-10.fits, M33_OIII_Master_2026-10-10.xisf, M33_OIII_Master_2026-10-10_stacklog.txt
+PASS  Ha master saved as FITS
+PASS  OIII master saved as XISF
+PASS  stack log saved next to the master
+calibration library: 1140mm scope\Masters\Test Camera\Bias\MasterBias_TestCamera.fits; 1140mm scope\Masters\Test Camera\Darks\MasterDark_TestCamera_300s.fits; 1140mm scope\Masters\Test Camera\Flats\Ha\MasterFlat_Ha_TestCamera_2026-10-10.fits; 1140mm scope\Masters\Test Camera\Flats\OIII\MasterFlat_OIII_TestCamera_2026-10-10.fits
+PASS  calibration masters saved into the library
+PASS  master header records 16 frames (16, Master Light)
+PASS  master saved in PixInsight's 0-1 range (max 0.216)
+PASS  master records its common reference and plate-solve hints (Light_Ha_011.fits)
+PASS  master records each night's acquisition for AstroBin ([('2026-10-10', 16, 300.0, 2.04)], {'darks': 7, 'flats': 3, 'flatDarks': 0, 'bias': 7})
+PASS  well-matched calibration frames give no calibration warnings ([])
+PASS  after stacking, the saved library masters are used next time ({('Ha', 'bias'): 'library', ('Ha', 'dark'): 'library', ('Ha', 'flat'): 'library', ('OIII', 'bias'): 'library', ('OIII', 'dark'): 'library', ('OIII', 'flat'): 'library'})
+screenshot 10_stacking_done.png: saved (1051x749)
+PASS  Continue to Image Processing button enabled after stacking
+PASS  a finished stacking run leaves no resume notes ([])
+PASS  page 2 has Build Calibration Masters; its window found 6 masters to build in a folder
+PASS  page 1 Stack menu opens Build Calibration Masters without lights (6 masters found)
+PASS  prepare window loads the 2 masters as one target ([['Ha', 'OIII']])
+PASS  RC-Astro CLI detected with version and licenses
+PASS  dedicated NVIDIA GPU chosen by default (gpu1)
+PASS  NoiseXTerminator controls generated from the CLI description
+PASS  Intensity/Color Separation switches the NoiseXTerminator sliders
+PASS  BlurXTerminator PSF Diameter greyed out while Automatic PSF is on
+PASS  BlurXTerminator starts at Sharpen Stars 0.50 and Adjust Star Halos 0.40 for a new user
+PASS  'RC-Astro Licences…' button on the RC-Astro CLI row
+PASS  rc-astro console messages shown without colour codes or progress redraws
+PASS  an unlicensed StarXTerminator is greyed out on the page
+PASS  licence window lists each RC-Astro tool and its licence
+screenshot 11a_rc_licences.png: saved (682x512)
+PASS  a refused activation code is reported and nothing changes
+PASS  activation code pasted into 'rc-astro license' activates every tool
+PASS  Check for Updates shows what rc-astro update says
+PASS  after activating, the page re-reads the licences and StarXTerminator is available
+screenshot 11_prepare_window.png: saved (1028x749)
+PASS  prepare produced results (1)
+PASS  after a run the page's run button turns amber ('Run Again?') on both pages
+PASS  page 3 completion message says the page is complete and what comes next
+PASS  page 3 shows the folder the images were saved in (Saved in: <b>C:\Users\RUNNER~1\AppData\Local\Temp\sza_selftest_7ac3spmt\Final Images\M33</)
+PASS  custom output folder gets a per-target subfolder
+PASS  Ha + SII/OIII stacked in separate runs become one set and are lined up ((0, 7, 390, 300))
+PASS  Askar D1 (Ha+OIII) and D2 (SII+OIII) are known dual-band filters
+PASS  filter-wheel names like 'Ha 7nm', 'O', 'S', 'Antlia Ha 3nm Pro' are recognised ({})
+PASS  a frame saved as a mirror image (other capture setting / row order) is still lined up
+PASS  a tool's JSON answer is found even with notices around it; no answer is handled, not a crash
+PASS  NoiseXTerminator never starts at 0 (typical 0.6), a chosen value is kept
+prepared: M33_HOO_quicklook.jpg, M33_HOO_quicklook.tif, M33_Ha_Master_2026-10-10_prepared.fits, M33_Ha_Master_2026-10-10_prepared.xisf, M33_Ha_Master_2026-10-10_prepared_stars.fits, M33_Ha_Master_2026-10-10_prepared_stars.xisf, M33_OIII_Master_2026-10-10_prepared.fits, M33_OIII_Master_2026-10-10_prepared.xisf, M33_OIII_Master_2026-10-10_prepared_stars.fits, M33_OIII_Master_2026-10-10_prepared_stars.xisf, M33_PixInsight_next_steps.html
+PASS  two prepared XISF masters
+PASS  quick-look JPG and 16-bit TIFF saved
+PASS  PixInsight plan saved
+PASS  unticked PNG format not saved
+PASS  final images saved to the chosen folder, in a per-target subfolder (Final Images\M33)
+PASS  prepared master is plate solved (ASTAP)
+PASS  StarXTerminator stars image saved
+PASS  a tool that hands the picture back upside down is turned back; unannounced stars image picked up
+PASS  prepared master faces the same way as the stacked master (crop at 8,8)
+PASS  plan ticks the steps done here (['Crop the stacking edges', 'Plate solve', 'Remove gradients', 'Sharpen with BlurXTerminator', 'Separate the stars'])
+screenshot 12_prepare_done.png: saved (1028x749)
+screenshot 13_ready_for_pixinsight.png: saved (820x700)
+PASS  step history lists each finished step (5, expected 5)
+PASS  after Prepare the view shows the result of the last step
+PASS  Before and Go Back buttons available
+screenshot 14_step_history.png: saved (1028x749)
+PASS  Go Back & Redo keeps only the earlier steps (1)
+PASS  re-run resumed from saved progress (1 step kept)
+PASS  history complete again after the redo
+PASS  page 3 shows the picture after each step while the run goes on (['Plate solve', 'Gradient removal', 'BlurXTerminator', 'StarXTerminator'])
+PASS  prepared masters found for Finish (['M33_Ha_Master_2026-10-10_prepared.xisf', 'M33_OIII_Master_2026-10-10_prepared.xisf'])
+PASS  Finish loads the Ha/OIII masters as narrowband (mono_nb)
+PASS  stars separated by Prepare are picked up (per filter)
+PASS  first recommendation is to combine the filters (combine)
+PASS  page 2 (Calibrate and Stack) fits a small laptop screen (needs at least 1051x672, limit 1280x680)
+PASS  page 3 (Astro Image Processing) fits a small laptop screen (needs at least 833x536, limit 1280x680)
+PASS  page 4 (Finishing Touches) fits a small laptop screen (needs at least 1086x358, limit 1280x680)
+PASS  every window shows the banner with its page title
+PASS  every page shows the version in small print (by Brian A. Poteet, DVM  ·  v0.9.217 beta)
+PASS  every page shows the target being worked on at the top (['Target: M33', 'Target: M33', 'Target: M33'])
+PASS  the target line names one, a few or many
+PASS  every page shows its page number (['Page 1 of 4', 'Page 2 of 4', 'Page 3 of 4', 'Page 4 of 4'])
+PASS  next-step buttons sit at the top right
+PASS  Next brings the same page back as it was (input unchanged)
+screenshot 15_finish_start.png: saved (1101x749)
+PASS  palette choices shown as pictures (['HOO', 'HOO (vivid)', 'Gold & blue', 'Foraxx (dynamic)', 'HOO + faint OIII'])
+screenshot 16_finish_palette_choices.png: saved (1101x749)
+PASS  Mote Buster opens with clickable circles (Found 12 donut(s) - circled in yellow. Click a blemish to circle it, t)
+PASS  the dust donut tool is called Mote Buster
+PASS  a circle can be added for a donut SubZeroAstro did not find
+live preview stretch: slider brightness -> 54, before (1342, 892), after (1342, 892), hint: Preview of “Gentle” (fine-tuned) — not applied yet. Apply to keep it, Cancel to 
+PASS  Brighten the Image (Stretch): moving a fine-tune slider changes the big picture (live, as in the app)
+screenshot 17_finish_brighten_choices.png: saved (1398x749)
+PASS  Brighten offers 5 strengths to pick from
+PASS  clicking a version previews it big without applying it
+PASS  moving a fine-tune slider updates the preview
+screenshot 19_finish_fine_tune.png: saved (1398x749)
+PASS  Cancel leaves the picture exactly as it was
+live preview scnr: slider amount -> 100, before (1342, 892), after (1342, 892), hint: Preview of “25%” (fine-tuned) — not applied yet. Apply to keep it, Cancel to go 
+PASS  Remove Green Cast: moving a fine-tune slider changes the big picture (live, as in the app)
+live preview core: slider amount -> 0, before (1342, 892), after (1342, 892), hint: Preview of “Medium” (fine-tuned) — not applied yet. Apply to keep it, Cancel to 
+PASS  Tame Bright Core: moving a fine-tune slider changes the big picture (live, as in the app)
+PASS  Curves shows a curve you can drag
+PASS  after a step the whole picture is shown again (not the close-up preview)
+PASS  after Apply the version the user picked stays marked, not the suggested one (picked Brighter highlights)
+PASS  the star steps show the stars on their own, with a tick box for the nebula behind them
+PASS  recommended workflow runs to a finished picture (['combine', 'stars_out', 'stretch', 'scnr', 'core', 'curves', 'saturation', 'local', 'star_stretch', 'leftovers', 'shrink', 'star_color', 'stars_back'])
+PASS  stars from Prepare: 'Take Stars Out' is offered as a real step, not pre-ticked (['combine', 'stars_out', 'stretch', 'scnr', 'core', 'curves', 'saturation', 'local', 'star_stretch', 'leftovers', 'shrink', 'star_color', 'stars_back'])
+PASS  narrowband: Star Colours is recommended before the stars go back
+PASS  fine-tuned values are applied
+PASS  Tame Bright Core previews with 'Show what will change'
+screenshot 20_finish_tame_core_mask.png: saved (1250x750)
+PASS  Spot Fix circles are easy to see (start 10 screen px, 2-px line) and grow as big as Mote Buster's (700 px)
+PASS  a circle can also be removed with Delete (the picked one) or Control-click on a Mac
+PASS  Spot Fix: click places a circle, the wheel resizes it at once (10 -> 14 px), a circle can be picked and dragged, a dashed ring shows the size, right-click removes
+PASS  optional tools (Tame Bright Core, local contrast, Spot Fix) work
+PASS  Undo removes the last step
+PASS  finished sky is neutral and sensibly bright ([0.062, 0.058, 0.062])
+PASS  every step saved in the project (18)
+PASS  Final Crop shows a draggable box on the picture
+screenshot 22_finish_final_crop.png: saved (1250x750)
+PASS  Final Crop trims the picture to the box ((866, 1292) from (892, 1342))
+PASS  Flip the Picture: Flip Horizontally / Flip Vertically toggle (pressing again flips back) - {'h': False, 'v': True, 'rot': 0}
+PASS  Rotate 90° Clockwise / Counter-clockwise turn the picture a quarter turn per press - {'h': False, 'v': False, 'rot': 3}
+PASS  undo un-flips the picture
+PASS  Spot Fix heals a big (160 px) circle smoothly (off by 0.0001, grain 0.0080 vs sky 0.0100)
+PASS  Spot Fix keeps the stars inside a big circle at their true brightness (0.47/0.50, 0.60/0.60) and still removes what is clicked in a small one
+PASS  colour masters: all of a filter are combined around the deepest (noise 43 vs deep 40, short 400) and unfiltered ones are left out of dual-band pictures
+PASS  Tame Bright Core (Medium) clears a burnt-out core (77% -> 0% white) and brings its structure back (detail 0.019, real 0.027) without touching the rest
+PASS  SkyFlat across a meridian flip: the two sides are found (30 + 10 frames) and the nebula stays out of the flat (leak 0.001); frames all one way up are left as they are
+PASS  Tame Bright Core leaves no hard white dot at a burnt-out nucleus (centre 0.85 vs 0.57 around, edge 0.052/px)
+PASS  dual-band colour masters from different runs are combined in every colour (['L-eNhance'])
+PASS  planetary nebula (Medium): a white ring and interior come back below white - ring 1.00 -> 0.73, inside 1.00 -> 0.67, halo unchanged; the area shows as a light green wash with a yellow edge
+PASS  planetary nebula: the part of it star removal took for a star goes back to the nebula (stars image 0.049 -> 0.000), bright stars stay; the ring is tamed after Curves
+PASS  planetary core moved back from the stars image evenly in every direction - no square (moved 69%, largest unevenness around a circle 0.0001); its faint wings go too, so no dark rim (0.0010 left), no ring of outer glow left (0.00001) and no disc below the sky (-0.00002)
+PASS  spikes around a planetary core go back to the nebula (0% left in the stars image), a star beside it stays whole (100%, no ring of it in the nebula image: 0.0000)
+PASS  a star on a planetary nebula's body stays a star (99% kept in the stars image), the body still goes back to the nebula (74% moved)
+PASS  a bright, wide star on a planetary nebula's body leaves no dot in the nebula image (before the fix: 0.036) (0.0033; the star's peak is 0.98)
+PASS  bright stars with spikes are not taken for a planetary nebula (moved 0.000; the Helix's stars turned into blobs)
+PASS  LRGB suggested with a good L, RGB when the L is much noisier than the colour filters ({0.004: ['LRGB'], 0.03: ['RGB']})
+PASS  HOO + faint OIII lifts a faint OIII-only glow like the Squid (stands out 1.3 -> 3.2 times the sky's ripple; sky noise 1.02x)
+PASS  a planetary nebula is brightened colour-preserving and keeps its colours (inside R 0.63 G 0.89 B 1.00)
+PASS  Adjust Colours can smooth abrupt colour changes (1.24 -> 0.19 per pixel) keeping the brightness
+PASS  OIII that follows the Ha is kept, only the leak (8%, at most 10%) taken out (OIII from both filters: line leakage taken out (10% of the Ha, 10% of the SII), combined noise-weighted (80% / 20%); error -0.0033)
+PASS  the leak is measured away from poorly covered edges (clean: age taken out (10% of the Ha, 6% of the SI; with a bad edge: age taken out (10% of the Ha, 6% of the SI)
+PASS  OIII weighted by each filter's exposure, never more than 80/20 (OIII from both filters: line leakage taken out (10% of the Ha, 6% of the SII), combined by exposure (80% / 20%))
+PASS  a hand crop past the well-covered area is flagged (Note: 49% of this crop (top edge) is outside the area 90% of...); an OIII fallback says why (OIII from both filters: averaged (too little picture to meas...)
+PASS  SHO: plain SCNR suggested (Remove only); Gold turns the green (Ha) gold, not deleted ([0.6200000047683716, 0.47999998927116394, 0.10000000149011612]); HOO keeps plain removal
+PASS  two dual-band filters: the Ha/SII leakage is taken out of the OIII (Ha left -0.0031; OIII from both filters: line leakage taken out (10% of the Ha, 6% of the SII), combined noise-weighted (80% / 20%)); D1/D2-style names recognised
+PASS  the small 'Processed with SubZeroAstro' credit goes bottom-left (bottom-right when the signature is there) and touches nothing else
+PASS  Adjust Colours boosts one colour and leaves the rest; Full Window hides the panels and Esc brings them back; zooming in draws the picture at full resolution (1292 -> 1292 px wide)
+PASS  Sign Your Picture offers 3 fonts (['Elegant script', 'Handwritten', 'Classic'])
+screenshot 21_finish_signature.png: saved (1062x749)
+PASS  the signature carries the target name ('M33 "Triangulum Galaxy"') and can be dragged anywhere (now at (0.10000000000000002, 0.1))
+screenshot 21b_finish_signature_dragged.png: saved (1062x749)
+PASS  the signature is drawn in the bottom-right corner only (corner change 0.789, top change 0.0000; steps end ['local', 'final_crop', 'signature'])
+PASS  flipping or turning a signed picture puts the signature back on top the right way round (steps now end ['flip', 'signature'])
+PASS  Stop Here - Continue in PixInsight saves XISF + a note (['M33_continue_in_PixInsight.txt', 'M33_stretched.xisf'])
+PASS  Share to AstroBin saves the picture + an acquisition CSV (['M33_AstroBin.jpg', 'M33_astrobin_acquisition.csv'], [['date', 'filter', 'number', 'duration', 'iso', 'binning', 'gain', 'sensorCooling', 'fNumber', 'darks', 'flats', 'flatDarks', 'bias', 'bortle', 'meanSqm', 'meanFwhm', 'temperature'], ['2026-10-10', '', '16', '300', '', '1', '', '', '', '7', '3', '', '7', '', '', '2.04', ''], ['2026-10-10', '', '16', '300', '', '1', '', '', '', '7', '4', '', '7', '', '', '2.19', '']])
+PASS  Go Back to Here undoes the later steps
+screenshot 18_finish_done.png: saved (1589x749)
+PASS  reopening the same masters resumes the project (3 steps)
+PASS  Back to Start returns to the original masters
+PASS  masters from other setups are all used and lined up with their field distortion (corner stars 0.03 px apart; cropped to the area all masters cover (540 x 540 px); 2 OIII masters combined; alignment check: 3 master(s) match the reference to within 0.0 px in every corner; 2 master(s) corrected for a different field distortion (edges were off by up to 9.8 px); o3_other_field: its stars could not be matched to the others (too few stars in common (22 of 291)) - left out so it can't cause double stars)
+PASS  page 4 checks every master's corner stars after lining up and leaves out one still off (cropped to the area all masters cover (540 x 540 px); alignment check: 2 master(s) match the reference to within 0.0 px in every corner; 2 master(s) corrected for a different field distortion (edges were off by up to 9.8 px); o3b: after lining up, its stars are still 3.0 px off in a corner - left out so it can't cause double stars)
+PASS  starless masters are lined up by their stars-only images (corner stars 0.04 px apart); masters page 3 already lined up are used as they are
+PASS  masters page 3 already lined up stay where page 3 put them when a new fit would move them further off - no shift (0.01 px), no narrower crop
+PASS  page 4 lines the masters up to the deepest master (lined up to o3_deep (the deepest master); cropped to the area all masters cover (584 x 584 px); alignment check: 1 master(s) match the reference to within 0.0 px in every corner; 1 master(s) corrected for a different field distortion (edges were off by up to 0.6 px))
+PASS  palettes for Ha+OIII+SII include HOO (['Hubble (SHO)', 'Foraxx (dynamic)', 'HSO', 'HOO + SII', 'HOO', 'HOO + faint OIII']); Flip or Rotate flips horizontally and / or vertically and turns 90° either way, before the signature
+PASS  the target name sits above the signature (block (26, 147) vs (13, 73)) and a dragged position is kept (90, 30)
+PASS  SIMBAD facts: type, position and brightness, credited (and nothing when SIMBAD doesn't know it)
+PASS  secure connections work in this build (434 certificates; live lookup: Orion Nebula)
+SESAME RAW: (fetch failed: <urlopen error timed out>)
+PASS  live Wikipedia + SIMBAD lookup of NGC 281: NGC 281 / None / ['SIMBAD: the server did not answer in time']
+PASS  the target description takes the first two paragraphs from Wikipedia, with the source credited
+PASS  Darken the Sky: sky 0.206 -> 0.111, faint nebula above the sky 0.047 -> 0.045; offered before Final Crop
+PASS  Darken the Sky calms colour blotches in the dark sky (0.0017 -> 0.0004) and keeps the nebula's colour (0.375 -> 0.375)
+PASS  Calm sky colours clears red blotches across the whole sky of a galaxy picture (0.0115 -> 0.0044) and keeps the galaxy's colour (0.163 -> 0.163)
+PASS  Adjust Colours › Calm blues and purples calms a purple sky (0.080 -> 0.038) and keeps the gold (0.352 -> 0.352)
+PASS  Mote Buster finds the donut ([[703, 346, 62]]) and divides it out (shadow -0.059 -> +0.002); offered while the picture is unstretched
+PASS  a galaxy with LRGB + Ha + OIII + SII gets the LRGB workflow with Add Hydrogen Glow first (mono_lrgb; ['ha_glow', 'combine']; suggested ['LRGB'])
+PASS  Add Hydrogen Glow stays visible (skipped) after combining, and says how to go back (The colour channels are already combined - the hydrogen glow...)
+PASS  Bring Out Hidden Structure protects the sky (blotches 0.0032: unprotected 0.0060, protected 0.0036)
+PASS  a bright star's glow fades smoothly and round - no dark square or ring (largest rise 0.0002, unevenness around a circle 0.005)
+PASS  a calibration folder entry the drive can't read (Errno 22) is skipped, not an error
+PASS  Mote Buster: a bright over-corrected ring is found and flattened in its own colour (+0.040 -> -0.002), the others untouched
+PASS  Brighten Stars keeps a bright star small (9 -> 5 px) and a faint star as bright (0.88 -> 0.88)
+PASS  Final Noise Reduction runs NoiseXTerminator and keeps the picture the right way up (largest change 0.0004); offered after Darken the Sky ()
+PASS  Save the Picture: a new target starts in the folder used last time (My Final Pictures)
+PASS  Save the Picture puts every file of the picture in one folder named target_scope (M33_1140mm_scope)
+PASS  saving a project again to the same folder keeps it (1 steps in M33.szproj)
+PASS  saving a project to a new folder copies it completely
+PASS  page 1 opens a saved project straight onto Finishing Touches (1 steps from M33.szproj)
+PASS  page 1 can go straight to existing master lights; a folder gives the newest restack only (['T_Ha_Master_2026-06-29_to_2026-07-03_8.fits', 'T_OIII_Master.fits'])
+PASS  File › Open a Saved Project from the menu opens the folder picker (True)
+PASS  updates: the newest published release for this computer is found (v9.0.130-beta); drafts, older versions and other platforms are ignored
+PASS  updates: a newer version shows the blue banner with 'Download…'; Skip This Version hides it; Help › Check for Updates says when you're up to date (['You have the newest version of SubZeroAstro (0.9.217 beta).'])
+PASS  updates: a renamed copy (e.g. 'SubZeroAstro 9120.app') is updated in place from the zip's SubZeroAstro.app
+PASS  updates: on the Mac the new version is copied inside SubZeroAstro.app and swapped in only when complete; the logs say whether Update Now can install here (running from Python, not the packaged app)
+PASS  updates: Update Now downloads and unpacks the new version and writes the helper that swaps it in after SubZeroAstro closes, then restarts it (Windows and Mac)
+PASS  updates: Update Now waits for the download to end before closing SubZeroAstro (no 'quit unexpectedly' on the Mac) ({'finished': True})
+PASS  Zip My Logs packs every page's log, the stack logs and a system note (7 files)
+PASS  target types recognised (all right); a star cluster keeps every step (plus Resolve the Cluster Core), with star removal made optional
+PASS  Tame Bright Core is the next step for a galaxy (next) and optional for a nebula (optional)
+PASS  comet stack follows the comet (moved 51.9 px, truly 51.4) and saves ['C2026X1_L_Master_2026-10-15.fits', 'C2026X1_L_Master_2026-10-15_Comet.fits', 'C2026X1_L_Master_2026-10-15_Stars.fits', 'C2026X1_L_Master_2026-10-15_stacklog.txt']
+PASS  the comet stack has no star trails (218 trail pixels; about 400 before the stars were masked out of each frame)
+PASS  comets on page 4: the head is found (469.0, 249.5 - truly 470, 250); Reveal Comet Jets brings out a jet (0.034 -> 0.060) and Bring Out the Tail lifts the tail over the round coma (1.72 -> 2.13); offered only for comets
+PASS  comet imaged filter by filter (NINA Orbitals: R, G, B, L): the comet is lined up across the filters (heads now within 0.43 px) while the stars stay put (['comet lined up across the filters on L (it had moved: R 6.4 px, G 3.3 px, B 4.6 px) - the stars stay where they are'])
+PASS  Save Project As keeps the masters with the project (4 files: masters, star images, stack log - not other targets'), the originals stay, and the moved project still finds them
+PASS  keeping the masters also keeps the stacked master behind a page-3 one (['M51_L_Master.fits', 'M51_L_Master_prepared.xisf', 'M51_L_Master_stacklog.txt']), and a project saved on a PC finds its masters on a Mac (and the other way round)
+PASS  Organize My Astro Files sorts by header - lights and that night's flats under the target (2026-10-01_SQA60), darks, bias and calibration masters by rig and camera settings, the rig added when a target was shot with two - and spots the duplicate (['L1 (2).fits', 'L2 copy.fits'])
+PASS  Organize a calibration-only folder (by scope, some files without IMAGETYP): flats join the target shot that night with that scope, the rest are kept by scope and night (Flats/RASA8/2026-10-05/L/f3.fits); darks and bias go to each rig's own library - three ASI2600MMs on three rigs, shot at the same second, stay three cameras
+PASS  Organize, by rig (the default): Light Frames/rig/target/night/filter and Calibration Frames/rig/Flats, Darks, Bias, Masters (Light Frames/SQA60/M31/2026-10-01/Ha/L1.fits; Calibration Frames/SQA60/Darks/ASI2600MM_G100_O50_-10C/180s/D1.fits)
+PASS  Organize: with no telescope in the headers, the rig is named from your folders (Light Frames/SQA60Pro/VeilNebula/2026-09-01/No filter/Light_001.fits), not the focal length
+PASS  File › Organize My Astro Files… is in the File menu
+PASS  Your Rigs: 352 and 371 mm are the SQA60 (360 ±5 %), 290 mm its reducer, the camera splits two rigs of about the same focal length, 530 mm matches none, and a folder you assigned settles a tie (['SQA60', 'SQA60', 'SQA60', 'RASA8', 'Redcat', 'nomatch', 'nofocal'])
+PASS  Your Rigs, two scopes close in focal length (506 and 530 mm, ±3 %): the clearly nearer one wins, a reading right between them is asked about (['SQA105', 'SQA105', None, 'Pleiades111', 'Pleiades111'])
+PASS  Organize: a drive entry that answers 'Invalid argument' (Errno 22) is skipped, the look-through carries on (True)
+PASS  Organize: masters without gain or temperature in the header get a folder Windows accepts (no '?'), exposure read from the name (Calibration Frames/SQA106/Masters/ASI6200MC/Dark_EXPOSURE-300.00s.fits)
+PASS  Organize › Duplicates… lists 2 duplicates and deletes only the exact copy - the same capture with different bytes is kept for you to check (1 duplicate(s) deleted. 1 kept: L1 (2).fits - not byte for byte the same as the kept copy )
+PASS  Safe to Delete?: after a Move, the one astro file that exists only in the old folder is flagged (don't delete), the notes file is listed for you to check, and the verdict says 'Not yet' ((['L1 (2).fits'], ['notes.txt'], True))
+PASS  (steps ticked off: (True, True); left behind and why: (1, True)) File › Organize My Astro Files… moves 8 files into place (the duplicate stays put) and Undo Last Run puts every one back (['B1.fits', 'D1.fits', 'F1.fits', 'L1.fits', 'L2.fits', 'L3.fits', 'M31_final.fits', 'MasterDark_180s.fits'])
+PASS  Organize: a rig not in Your Rigs is held back (['no rig in Your Rigs matches 250 mm']); after Add New Rig the plan updates at once, without reading the files again (Light Frames/RedCat/M31/2026-09-03/No filter/Light_001.fits)
+PASS  Tonight's Target Picker: 4248 objects (the built-in copy of N.I.N.A.'s database (4248 objects worth imaging)); from Dallas on 15 Oct 2026 M 31 is up 9.4 h of the 9.9 dark hours, peaking at 82°; 'open sky from NNW to SSW' opens the west and blocks the east
+PASS  File › Tonight's Target Picker… lists 738 targets for a western view, groups them by type (6 groups) and saves a target list N.I.N.A. imports (['M 31 Andromeda Galaxy,M 31,00 42 44.3,+41 16 07.5,0'])
+PASS  Send to N.I.N.A. writes targets into N.I.N.A.'s target list (Andromeda Galaxy Oct 15.json), and with one of your own as the template keeps its steps and moves every coordinate to the new target (Andromeda Galaxy Oct 15 (2).json)
+PASS  a calibration subframe deleted after it was added is left out and the master still builds (5 of 6); a mount driver in TELESCOP gives '400mm scope', not the mount's name
+PASS  Finishing Touches has 'End this Project and Start New Project' at the top
+PASS  Start New Project closes every page (4 open, still showing: []) and empties page 1
+screenshot 19a_new_project.png: saved (1028x749)
+screenshot 19b_fast_track.png: saved (1502x689)
+Fast Track: 37 s, 25 film frames, steps: ['Masters loaded', 'Combine Colour Channels — HOO', 'Take Stars Out — Take the stars out', 'Clean Bright-Star Leftovers — Remove the dots (3)', 'Brighten the Image (Stretch) — Gentle', 'Remove Green Cast — 25%', 'Tame Bright Core — Medium', 'Adjust Brightness & Contrast (Curves) — Punchy (S-curve + lift)', 'Colour Intensity (Saturation) — Slight', 'Bring Out Hidden Structure — Moderate', 'Brighten Stars Separately — Medium', 'Shrink Stars — Moderate', 'Star Colours — Natural', 'Put Stars Back — Stars 100%', 'Darken the Sky Background — Darker', 'Final Noise Reduction (NoiseXTerminator) — Medium']
+PASS  Fast Track shows each step as a frame of its film (25 frames)
+PASS  Fast Track also darkens the sky and runs the final NoiseXTerminator pass when it can (['combine', 'stars_out', 'leftovers', 'stretch', 'scnr', 'core', 'curves', 'saturation', 'local', 'star_stretch', 'shrink', 'star_color', 'stars_back', 'sky', 'denoise'])
+PASS  after Fast Track page 4 holds every step (Go Back to Here works) and the picture can be saved or reprocessed step by step (16 steps)
+screenshot 19c_fast_track_flight.png: saved (1502x689)
+PASS  Reprocess Step by Step opens page 4 back at the masters as loaded
+
+RESULT: ALL CHECKS PASSED
