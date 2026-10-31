@@ -38,6 +38,8 @@ def lights_from_session(frames) -> tuple[list, list]:
             continue
         look = core.cards_to_dict(f.cards)
         typ, master = st.frame_type(look, f.name)
+        if typ in (None, "light"):
+            typ = st.smart_cal_kind(look, f.path) or typ        # a DWARF's bias / flat (tele_0001.fits)
         if typ not in (None, "light") or master:
             skipped.append(f.name)
             continue

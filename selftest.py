@@ -857,6 +857,33 @@ def run(app, out_dir: Path) -> int:
     except Exception as e:  # noqa: BLE001
         check(False, f"open-file limit: {e}")
 
+    # DWARF calibration: bias and flats are tele_0001.fits with no IMAGETYP (CALI_FRAME/bias|flat/cam_0), the dark
+    # master's settings are only in its name
+    try:
+        import stacking as _dst, tempfile as _dtf
+        _dd = Path(_dtf.mkdtemp())
+        _dh = {"TELESCOP": "DWARF mini", "INSTRUME": "DWARF mini", "BAYERPAT": "RGGB", "GAIN": 2, "RA": 0.0,
+               "DEC": 0.0, "OBJECT": ""}
+        _dimg = np.full((20, 30), 300, np.uint16)
+        for _sub, _ex in (("bias", 0.0001), ("flat", 0.5)):
+            (_dd / "CALI_FRAME" / _sub / "cam_0").mkdir(parents=True)
+            core.write_fits(_dd / "CALI_FRAME" / _sub / "cam_0" / "tele_0001.fits", _dimg, {**_dh, "EXPTIME": _ex},
+                            bitpix=16)
+        (_dd / "loose").mkdir()
+        core.write_fits(_dd / "loose" / "tele_0002.fits", _dimg, {**_dh, "EXPTIME": 0.0001}, bitpix=16)
+        core.write_fits(_dd / "loose" / "dark_exp_15.000000_gain_60_bin_1_37C_stack_20.fits", _dimg,
+                        {"BAYERPAT": "RGGB"}, bitpix=16)
+        _dk = {p_.name + "@" + p_.parent.parent.name: (lambda i: (i.type, i.master, i.exptime, i.gain, i.temp))(
+            _dst.read_info(p_)) for p_ in _dd.rglob("*.fits")}
+        _dok = (_dk["tele_0001.fits@bias"][0] == "bias" and _dk["tele_0001.fits@flat"][0] == "flat"
+                and _dk["tele_0002.fits@" + _dd.name][0] == "bias"
+                and _dk["dark_exp_15.000000_gain_60_bin_1_37C_stack_20.fits@" + _dd.name] == ("dark", True, 15.0, 60.0,
+                                                                                            37.0))
+        check(_dok, f"DWARF calibration frames are recognised (bias / flat from the folder or the header, the "
+                    f"master dark's settings from its name): {sorted(_dk.values(), key=str)}")
+    except Exception as e:  # noqa: BLE001
+        check(False, f"DWARF calibration: {e}")
+
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

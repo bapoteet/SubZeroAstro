@@ -286,12 +286,51 @@ def target_from_name(path) -> str | None:
     return None
 
 
+def smart_cal_kind(look: dict, path) -> str | None:
+    """A smart telescope's calibration frame that its header calls nothing (no IMAGETYP - the DWARF writes its
+    bias and flats as tele_0001.fits into CALI_FRAME/bias/… and CALI_FRAME/flat/…): from the folders a few levels
+    up, or - copied out of them - from the header itself: not pointed at the sky (no OBJECT, RA = Dec = 0), a
+    near-zero exposure is a bias, a longer one a flat. None for anything else."""
+    if str(look.get("IMAGETYP") or look.get("FRAME") or look.get("FRAMETYP") or "").strip():
+        return None
+    for anc in list(Path(path).parents)[:3]:
+        k = folder_kind(anc.name)
+        if k:
+            return k
+    if not core.smart_scope(look) or str(look.get("OBJECT") or "").strip():
+        return None
+    try:
+        ra, dec = float(look.get("RA") or 0), float(look.get("DEC") or 0)
+        exp = float(look.get("EXPTIME") or look.get("EXPOSURE") or 0)
+    except (TypeError, ValueError):
+        return None
+    if ra == 0 and dec == 0:
+        return "bias" if exp <= 0.001 else "flat"
+    return None
+
+
+_DWARF_DARK = re.compile(r"dark_exp_([\d.]+)_gain_(\d+)_bin_(\d+)_(-?\d+)C(?:_stack_(\d+))?", re.I)
+
+
 def read_info(path) -> ImgInfo:
     src = ImageSource(path)
     typ, master = frame_type(src.look, src.path.name)
+    if typ in (None, "light"):
+        typ = smart_cal_kind(src.look, src.path) or typ
     if typ is None:                      # no IMAGETYP and nothing in the file name: the folder may say
         typ = folder_kind(src.path.parent.name)
     info = info_from_look(path, src.look, src.w, src.h, typ, master, planes=src.channels, cards=src.cards)
+    m = _DWARF_DARK.search(src.path.name)
+    if m and typ == "dark":
+        # the DWARF's own master dark (dark_exp_15.000000_gain_60_bin_1_37C_stack_20.fits): its header has nothing
+        # but the size - exposure, gain, binning, temperature and frame count are in the name
+        info.exptime = info.exptime or float(m.group(1))
+        info.gain = info.gain if info.gain is not None else float(m.group(2))
+        info.binning = info.binning or int(m.group(3))
+        info.temp = info.temp if info.temp is not None else float(m.group(4))
+        if m.group(5):
+            info.master = True
+            info.ncombine = int(m.group(5))
     if typ in (None, "light") and (not info.target or _GENERIC_TARGET.match(str(info.target).strip())):
         # no OBJECT in the header (some ASIAIR files), or a placeholder like 'Snapshot' (Telescope Live comet
         # frames): the file name or the folder says
@@ -760,6 +799,12 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
     # flats
     flats = [c for c in cam_items if c.kind == "flat" and c.filter == L.filter and _rig_ok(c, g.rig)
              and (not L.bayer or not c.bayer or c.bayer == L.bayer)]
+    if not flats and L.smart:
+        # a smart telescope's own flats record no filter (the DWARF's CALI_FRAME/flat): they are its only flats
+        flats = [c for c in cam_items if c.kind == "flat" and c.filter in ("No filter", "", None)
+                 and (not L.bayer or not c.bayer or c.bayer == L.bayer)]
+        if flats:
+            p.notes.append(f"{L.smart}: its own flats record no filter - used for the {L.filter} lights")
     if flats:
         nights = g.nights
 
@@ -771,7 +816,9 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
             return min(abs((d - date.fromisoformat(n)).days) for n in nights)
         p.flat = pick(flats, lambda c: (dist(c), 0 if c.origin == "added" else 1, -c.count))
         dd = dist(p.flat)
-        if 9999 > dd > 30:
+        from datetime import date as _date
+        future = bool(p.flat.night) and p.flat.night > _date.today().isoformat()     # a smart scope's unset clock
+        if 9999 > dd > 30 and not future:
             p.notes.append(f"Heads-up only — this flat WILL be used. It is from {p.flat.night}, {dd} days from "
                            "the lights, so dust may have moved; if dust spots look wrong, take new flats.")
         if p.flat.rotator is not None and L.rotator is not None and abs(p.flat.rotator - L.rotator) > 2:
