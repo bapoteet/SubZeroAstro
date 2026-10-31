@@ -1747,8 +1747,10 @@ def find_star_glows(starless: np.ndarray, stars: np.ndarray, skip=(), max_stars:
     out = []
     for i in order:
         cy, cx = int(ys[i] * f + f // 2), int(xs[i] * f + f // 2)
-        if abs(cy - h / 2) < 0.125 * h and abs(cx - w / 2) < 0.125 * w:
-            continue                                     # the target's own star
+        # a star in the middle of the picture may be the target's own (a reflection nebula hugging it): its glow
+        # is only taken when it is clearly round and smooth (IC 1396's HD 206267 and its neighbour left soft white
+        # and teal smudges in the middle of the nebula)
+        central = abs(cy - h / 2) < 0.125 * h and abs(cx - w / 2) < 0.125 * w
         if any(a0 <= cx < a1 and b0 <= cy < b1 for a0, b0, a1, b1 in taken):
             continue
         y0, y1, x0, x1 = max(0, cy - R), min(h, cy + R), max(0, cx - R), min(w, cx + R)
@@ -1769,7 +1771,7 @@ def find_star_glows(starless: np.ndarray, stars: np.ndarray, skip=(), max_stars:
         gk = k0 + (int(below[0]) if below.size else nb - k0)
         kh = int(np.clip((k0 + gk) // 2, 1, nb - 1))
         ring = float(np.std(C[ri == kh])) / ex
-        if mono < 0.8 or ring > 0.4:
+        if mono < 0.8 or ring > (0.32 if central else 0.4):
             continue
         gr = gk * R / nb
         half = int(np.clip(gr / 4.5, 8, R / 4))
@@ -3832,6 +3834,9 @@ class Saturation(Tool):
         strong = col >= 0.45
         if strong:
             pick = min(pick, 1)
+            if typ == "nebula" and not nb:
+                pick = 0           # a red emission nebula in true colour (+ Ha) is already intense: IC 1396 was too red
+
         names = ("Calmer", "Slight", "Rich", "Vivid", "Bold")
         why = (f"suggested for {targets_describe(typ)} with {'narrowband' if nb else 'colour (broadband)'} data"
                + (f"; the colours are already strong ({col:.0%})" if strong else ""))
@@ -4130,7 +4135,9 @@ class HaGlow(Tool):
                             "show-piece: every knot vivid", False),
                     Variant("All hydrogen glow", {**base, "k": 1.0, "mode": "all"},
                             "also any smooth Ha glow (for galaxies inside nebulosity)", False)]
-        return [Variant(n, {**base, "k": k}, note, i == 1) for i, (n, k) in
+        # 'Subtle': the full Ha (Natural) on top of red balanced on the stars made IC 1396 an over-red, punchy
+        # picture; half of it keeps the nebula's structure from the Ha with a natural pink-red
+        return [Variant(n, {**base, "k": k}, note, i == 0) for i, (n, k) in
                 enumerate((("Subtle", 0.5), ("Natural", 1.0), ("Strong", 1.6), ("Very strong", 2.5)))]
 
     def sliders(self, s, params):
