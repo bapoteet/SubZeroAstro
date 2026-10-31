@@ -784,6 +784,7 @@ def run(app, out_dir: Path) -> int:
         _cbefore = _ctg.is_comet("Snapshot")
         _ctg.set_override("Snapshot", _ctg.COMET)
         _cafter = _ctg.is_comet("Snapshot")
+        _ccs = _cpp.is_comet_set([_cm])                    # page 3: no star sharpening / star removal on a comet
         _ctg.set_override("Snapshot", _cprev)
         import tempfile as _ctf
         _cdir = Path(_ctf.mkdtemp())
@@ -791,7 +792,7 @@ def run(app, out_dir: Path) -> int:
                         .astype(np.float32), [("IMAGETYP", "LIGHT", "")])
         _cimg = _cst.ImageSource(_cdir / "l_c_d_r.fits").read()
         _cadu = 300 < float(np.median(_cimg)) < 1700         # 0..1 floats (PixInsight) read in camera units
-        check(_cinfo.bayer is None and _cq.shape == (40, 50, 3) and not _cbefore and _cafter and _cadu,
+        check(_cinfo.bayer is None and _cq.shape == (40, 50, 3) and not _cbefore and _cafter and _cadu and _ccs,
               f"comet frames: a 3-plane image is colour even with BAYERPAT in the header (bayer {_cinfo.bayer}); a "
               f"'No filter' mono master gets a preview ({_cq.shape}); 'Snapshot' picked as a comet in Fast Track is "
               f"stacked as one ({_cbefore} -> {_cafter}); 0..1 float lights are read in camera units "

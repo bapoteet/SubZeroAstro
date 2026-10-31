@@ -370,6 +370,19 @@ def ready_made(m) -> str | None:
 PRO_BXT = {"ss": 0.55, "ash": 0.50}
 
 
+def is_comet_set(masters) -> bool:
+    """A comet (by name, or picked as one in Fast Track). Its nucleus looks like a star to the XTerminators:
+    BlurXTerminator's star sharpening turned the head into a hard, too-perfect disc with a ring and a dot, and
+    StarXTerminator took the inner coma into the stars image. So for a comet: no star sharpening (the coma and
+    tail are still sharpened) and no star removal - the comet steps on page 4 work on the whole picture."""
+    try:
+        import targets
+        return bool(masters) and all(targets.is_comet(m.target) or targets.classify(m.target) == targets.COMET
+                                     for m in masters)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def bxt_values_for(masters, values: dict) -> tuple:
     """(values to use, note or ''): the usual backyard settings become PRO_BXT for ready-made data.
     Values the user changed are kept as they are."""
@@ -1069,15 +1082,20 @@ def plan_steps(masters: list, opts) -> list:
         sig = [tool] + ([round(float(opts.gx_smoothing), 4), opts.gx_correction] if tool == "graxpert" else [])
         out.append(("gradient", json.dumps(sig), tool))
     rc = None
+    comet = is_comet_set(masters)
     for key in ("bxt", "nxt", "sxt"):
         cfg = opts.xt.get(key) or {}
         if not cfg.get("enabled") or not opts.rcastro:
             continue
+        if key == "sxt" and comet:
+            continue                      # see is_comet_set
         rc = rc or tools.RCAstro(opts.rcastro)
         spec = cfg.get("spec") or rc.spec(key)
         vals = cfg.get("values", {})
         if key == "bxt":
             vals, _note = bxt_values_for(masters, vals)
+            if comet:
+                vals = dict(vals, ss=0.0, ash=0.0)
         args = spec.args(vals, cfg.get("mode"))
         sig = [list(args), cfg.get("mode")] + (["big-stars-half-v2"] if key == "sxt" else [])
         out.append((key, json.dumps(sig, default=str), (spec, args)))
@@ -1185,8 +1203,11 @@ def run_prepare(masters: list, opts: PrepareOptions, progress=None, log=None, ca
     plan = plan_steps(masters, opts)
     if any(step == "bxt" for step, _s, _x in plan):
         _v, _note = bxt_values_for(masters, (opts.xt.get("bxt") or {}).get("values", {}))
-        if _note:
+        if _note and not is_comet_set(masters):
             lg(_note)
+    if is_comet_set(masters):
+        lg("Comet: BlurXTerminator sharpens the coma and tail but not the stars (its nucleus would be sharpened "
+           "into a hard disc with a ring), and StarXTerminator is left out (it takes the inner coma for a star)")
     cps = PrepareCheckpoints([m.path for m in masters], target) if opts.checkpoints else None
     stars_images = {}                      # master index -> stars-only image (StarXTerminator)
     start = 0

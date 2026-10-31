@@ -3226,6 +3226,18 @@ def comet_stack(res, stars_out, entries, cache_files, weights, frame_noise, opts
     m = np.clip((op - bg - 2.0 * noise * 0.3) / (4.0 * noise * 0.3), 0, 1)
     m = _smooth(-_minf(-m, 2), 3.0)
     M = _upsample(np.clip(m, 0, 1), out_h, out_w)[None]
+    # near the edges the comet stack is made of fewer frames (each was shifted by up to half the comet's motion):
+    # there the star stack is used, and the suggested crop leaves that strip out (it made blue bands and blobs)
+    edge = int(np.ceil(0.5 * moved)) + 4
+    M[..., :edge, :] = 0
+    M[..., -edge:, :] = 0
+    M[..., :, :edge] = 0
+    M[..., :, -edge:] = 0
+    if getattr(res, "autocrop", None):
+        x0, y0, x1, y1 = res.autocrop
+        res.autocrop = (max(x0, edge), max(y0, edge), min(x1, out_w - edge), min(y1, out_h - edge))
+    else:
+        res.autocrop = (edge, edge, out_w - edge, out_h - edge)
     stars3 = stars_out if stars_out.ndim == 3 else stars_out[None]
     # the comet stack has no stars now: inside the comet's area they come from the star stack, on top of it
     comet_st = comet + star_part if star_part is not None else comet
