@@ -913,6 +913,8 @@ class StackWindow(QMainWindow):
                 return
         ui.mark_ready(self.btn_start, "▶  Check && Stack")
         opts = self.options()
+        if auto:
+            opts.drizzle_if_dithered = True
         if not opts.masters_root:
             QMessageBox.information(self, "Stacking", "Choose where master lights should be saved "
                                     "(Master lights folder at the top).")

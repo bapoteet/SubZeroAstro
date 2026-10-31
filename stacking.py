@@ -2142,6 +2142,8 @@ class StackOptions:
     local_norm: bool = True                 # local normalization: every frame's background matched to the reference
     drizzle: bool = False                   # 2x drizzle: finer detail from dithered frames (master at double size)
     pixfrac: float = 0.8                    # drizzle drop size (share of an input pixel)
+    drizzle_if_dithered: bool = False       # Fast Track: drizzle only frames that were dithered (else it adds
+                                            # nothing but a 4x larger master and slower steps - the comet)
 
 
 @dataclass
@@ -3030,7 +3032,13 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
             rejected += int(valid.sum() - keep.sum())
         out[:] = np.where(sw > 0, swx / np.maximum(sw, 1e-12), np.nan_to_num(mean))
     out = np.nan_to_num(out)
-    if getattr(opts, "drizzle", False) and use_cache and not half:
+    want_dz = getattr(opts, "drizzle", False)
+    if want_dz and getattr(opts, "drizzle_if_dithered", False) and res.dither is not None \
+            and not res.dither.get("dithered", True):
+        want_dz = False
+        log.append("Drizzle left out: these frames were hardly dithered, so it would add nothing but a 4x larger "
+                   "master (Fast Track)")
+    if want_dz and use_cache and not half:
         try:
             out = drizzle_stack(out)
         except Cancelled:
