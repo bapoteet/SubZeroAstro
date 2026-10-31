@@ -3899,6 +3899,14 @@ def run(app, out_dir: Path) -> int:
               and all(Path(f).parent.parent == Path(_co.masters_root) for f in _cfiles),
               f"comet stack follows the comet (moved {_mv:.1f} px, truly 51.4) and saves "
               f"{[Path(f).name for f in _cfiles]}")
+        # ... with the stars masked out of every frame first: no dotted star trails across the tail
+        if _cm is not None:
+            _chp = _cm - st._smooth(np.asarray(_cm, np.float32), 3.0)
+            _cnz = float(np.median(np.abs(_chp))) * 1.4826
+            _cyy2, _cxx2 = np.mgrid[:_cm.shape[0], :_cm.shape[1]]
+            _ctr = int(((_chp > 6 * _cnz) & (np.hypot(_cxx2 - 255, _cyy2 - 206) > 45)).sum())
+            check(_ctr < 300, f"the comet stack has no star trails ({_ctr} trail pixels; about 400 before the "
+                              f"stars were masked out of each frame)")
         # comet processing on page 4: nucleus, Reveal Comet Jets, Bring Out the Tail, filters lined up on the comet
         import finish as _cf
         _ch, _cw = 600, 800

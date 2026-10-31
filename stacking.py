@@ -3186,10 +3186,15 @@ def comet_stack(res, stars_out, entries, cache_files, weights, frame_noise, opts
     t_mid = float(np.median(t))
     nc = stars_out.shape[0] if stars_out.ndim == 3 else 1
     out_h, out_w = stars_out.shape[-2:]
+    # the stars, masked out of each frame before it is lined up on the comet: in 25 short frames the rejection
+    # alone left every faint star as a dotted trail across the comet's tail (the comet of 16 April 2026)
+    star_m, star_part = _comet_star_mask(stars_out, cx, cy, span)
     shifted = []
     for i, cf in enumerate(cache_files):
         prog("Comet: lining the frames up on the comet", 0.96 + 0.02 * i / len(cache_files))
-        fr = np.asarray(np.load(cf, mmap_mode="r"), dtype=np.float32)
+        fr = np.array(np.load(cf, mmap_mode="r"), dtype=np.float32)
+        if star_m is not None:
+            fr[:, star_m] = np.nan
         dx, dy = vx * (t[i] - t_mid), vy * (t[i] - t_mid)
         T = np.array([[1.0, 0.0, -dx], [0.0, 1.0, -dy]])
         pl = warp_planes(list(fr), T, (out_h, out_w))
@@ -3222,13 +3227,43 @@ def comet_stack(res, stars_out, entries, cache_files, weights, frame_noise, opts
     m = _smooth(-_minf(-m, 2), 3.0)
     M = _upsample(np.clip(m, 0, 1), out_h, out_w)[None]
     stars3 = stars_out if stars_out.ndim == 3 else stars_out[None]
-    joined = stars3 * (1 - M) + comet * M
+    # the comet stack has no stars now: inside the comet's area they come from the star stack, on top of it
+    comet_st = comet + star_part if star_part is not None else comet
+    joined = stars3 * (1 - M) + comet_st * M
     res.extra = {"Comet": comet[0] if nc == 1 else comet, "Stars": stars3[0] if nc == 1 else stars3.copy()}
     res.data = joined[0] if nc == 1 else joined
     res.comet = {"vx": vx, "vy": vy, "moved": moved, "rate": rate}
     log.append(f"Comet: a second stack follows the comet ({kappa:g}-sigma rejection removes the trailing stars); "
                "the main master joins the sharp stars and the sharp comet. The comet-only and stars-only masters "
                "are saved next to it (_Comet, _Stars).")
+
+
+def _comet_star_mask(stars_out, cx, cy, span):
+    """(mask, stars) in the star-aligned frame: where the stars are (small, bright, round things above the local
+    sky, grown by a few pixels), and the stars themselves above that sky (to put them back on the comet stack).
+    Nothing near the comet head's track is masked (its nucleus is compact too). (None, None) if it can't tell."""
+    try:
+        st3 = stars_out if stars_out.ndim == 3 else stars_out[None]
+        L = st3.mean(axis=0).astype(np.float32)
+        h, w = L.shape
+        loc = _smooth(L, 5.0)
+        hp = L - loc
+        noise = float(np.median(np.abs(hp[::4, ::4] - np.median(hp[::4, ::4])))) * 1.4826 + 1e-9
+        core_ = _box((hp > 4.0 * noise).astype(np.float32), 1) > 0.5      # 3x3 majority: a star, not a noise pixel
+        m = _box(core_.astype(np.float32), 4) > 0.02                    # grown by about 4 px
+        # keep the comet head's path free
+        yy, xx = np.mgrid[0:h:4, 0:w:4]
+        ts = np.linspace(0.0, max(span, 1.0), 12)
+        hx, hy = cx[0] + cx[1] * ts, cy[0] + cy[1] * ts
+        d = np.min(np.hypot(xx[None] - hx[:, None, None], yy[None] - hy[:, None, None]), axis=0)
+        free = np.repeat(np.repeat(d < max(40.0, 0.015 * max(h, w)), 4, axis=0), 4, axis=1)[:h, :w]
+        m &= ~free
+        if m.mean() > 0.25:                                             # not stars: something else is going on
+            return None, None
+        part = np.stack([(c - _smooth(c.astype(np.float32), 5.0)) for c in st3]) * m[None]
+        return m, np.clip(part, 0, None).astype(np.float32)
+    except Exception:  # noqa: BLE001 - without the mask the comet stack is made as before
+        return None, None
 
 
 def _compose(A, B):
