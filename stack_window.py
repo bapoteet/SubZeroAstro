@@ -631,7 +631,18 @@ class StackWindow(QMainWindow):
                         lf.info._rig = g.rig
                         pool.append(lf.info)
             for g in self.groups:
-                g.plan = st.plan_group(g, self.items, sky_pool=pool)
+                try:
+                    g.plan = st.plan_group(g, self.items, sky_pool=pool)
+                except Exception as e:  # noqa: BLE001 - one odd group must not leave the others without a plan
+                    import traceback
+                    self.log(f"{g.label()}: calibration could not be matched ({e}) - stacked without calibration")
+                    try:
+                        import session_log
+                        session_log.write("error", traceback.format_exc())
+                    except Exception:  # noqa: BLE001
+                        pass
+                    g.plan = st.CalPlan()
+                    g.plan.warnings.append(("other", f"calibration could not be matched: {e}"))
         finally:
             QApplication.restoreOverrideCursor()
         self.fill_table()
@@ -902,6 +913,13 @@ class StackWindow(QMainWindow):
         if auto and not self.masters_root.text().strip() and self.lights:
             self.masters_root.setText(str(Path(self.lights[0].info.path).parent / "Master Lights"))
         groups = [g for g in self.groups if g.enabled]
+        for g in self.groups:
+            if g.plan is None:                    # never planned (the list was rebuilt part way): plan it now
+                try:
+                    g.plan = st.plan_group(g, self.items)
+                except Exception as e:  # noqa: BLE001
+                    g.plan = st.CalPlan()
+                    g.plan.warnings.append(("other", f"calibration could not be matched: {e}"))
         if not groups:
             QMessageBox.information(self, "Stacking", "Tick at least one group to stack.")
             return
