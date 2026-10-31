@@ -41,6 +41,12 @@ def lights_from_session(frames) -> tuple[list, list]:
         if typ not in (None, "light") or master:
             skipped.append(f.name)
             continue
+        low = f.name.lower()
+        if low.startswith(("failed", "stacked", "stack_")) or "_thn" in low:
+            # smart telescopes (DWARF) keep their rejected frames ('failed_…') and their own stacks next to the
+            # subs: a stack counts its whole integration (926 DWARF subs showed 1721 h) and a failed frame is junk
+            skipped.append(f.name)
+            continue
         w, h = int(look.get("NAXIS1", 0) or 0), int(look.get("NAXIS2", 0) or 0)
         try:                                   # a 3-plane image (debayered colour) is colour whatever BAYERPAT says
             planes = int(look.get("NAXIS3") or 1) if int(look.get("NAXIS") or 2) == 3 else 1
@@ -293,7 +299,7 @@ class StackWindow(QMainWindow):
         self.resize(1300, 860)
         self.refresh_all()
         if skipped:
-            self.log(f"Not stacked (not light frames): {', '.join(skipped[:10])}"
+            self.log(f"Not stacked (not light frames, or a smart telescope's failed frames and own stacks): {', '.join(skipped[:10])}"
                      + (" …" if len(skipped) > 10 else ""))
 
     # ------------------------------------------------------------ settings
