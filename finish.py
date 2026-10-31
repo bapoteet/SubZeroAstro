@@ -1373,7 +1373,7 @@ def cluster_glow_colour(rgb: np.ndarray, bgs) -> "tuple | None":
     return tuple(ex)
 
 
-GALAXY_WARM = (1.12, 1.0, 0.90)            # R : G : B of a galaxy's bright centre (its old stars): a warm white
+GALAXY_WARM = (1.15, 1.0, 0.86)            # R : G : B of a galaxy's bright centre: a warm white (B/R 0.75, as M83 and NGC 1097 by hand)
 
 
 def galaxy_core_white(glow, white):
