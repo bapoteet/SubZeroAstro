@@ -807,6 +807,16 @@ def run(app, out_dir: Path) -> int:
     check(_gw1 is not None and _gw1[0] > 1.0 > _gw1[2] and _gw2 is None,
           f"galaxy: a blue centre after 'Stars white' is made a warm white ({_gw1}); a warm one is left alone ({_gw2})")
 
+    # a comet's nucleus clipped in green (the others still rising) showed as a purple dot in its cyan coma
+    _ry, _rx = np.mgrid[:400, :400]
+    _rb = np.exp(-((_ry - 60) ** 2 + (_rx - 60) ** 2) / (2 * 12.0 ** 2))
+    _rimg = np.stack([0.3 * _rb, np.minimum(1.6 * _rb, 0.8), 0.6 * _rb]).astype(np.float32) + 0.01
+    _rout, _rn = _fnc.repair_clipped_cores(_rimg)
+    _rc = _rout[:, 60, 60] / _rout[:, 60, 60].max()
+    _rr = _rout[:, 60, 75] / _rout[:, 60, 75].max()
+    check(_rn == 1 and float(np.abs(_rc - _rr).max()) < 0.12,
+          f"a clipped comet nucleus gets its coma's colour, no purple dot (centre {np.round(_rc, 2).tolist()}, "
+          f"coma {np.round(_rr, 2).tolist()})")
     # a comet's faint tail crosses the whole picture: Darken the Sky must keep it (it was darkened away as sky glow)
     try:
         import targets as _ktg

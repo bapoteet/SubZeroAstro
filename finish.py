@@ -532,6 +532,61 @@ def assemble_colour(masters, stars_of=lambda m: None, log=None):
 
 def load_state(paths) -> State:
     """Build the starting state from one target's masters (prepared or not)."""
+    s = _load_state(paths)
+    if target_type(s) == "comet" and s.rgb is not None and s.rgb.ndim == 3 and s.rgb.shape[0] == 3:
+        try:
+            s.rgb, n = repair_clipped_cores(s.rgb)
+            if n:
+                s.load_note = "; ".join(x for x in (s.load_note, f"the comet's overexposed centre given the coma's "
+                                                    f"colour ({n} clipped spot(s))") if x)
+        except Exception:  # noqa: BLE001 - never stop loading over this
+            pass
+    return s
+
+
+def repair_clipped_cores(rgb: np.ndarray, max_area: int = 20000):
+    """Where one colour is clipped (it reached the camera's top level) the others still rise, so the centre
+    turns another colour: the comet's green-clipped nucleus became a purple dot inside its cyan coma. Each
+    clipped spot gets the colour of the ring just outside it, at the brightness of its brightest colour.
+    Returns (rgb, spots repaired)."""
+    c, h, w = rgb.shape
+    top = [float(np.max(rgb[k])) for k in range(c)]
+    clip = np.zeros((h, w), bool)
+    for k in range(c):
+        if top[k] > 0:
+            clip |= rgb[k] >= 0.95 * top[k]
+    if not clip.any() or clip.mean() > 0.01:
+        return rgb, 0
+    lab = _components(clip)
+    ids, cnt = np.unique(lab[lab > 0], return_counts=True)
+    out = rgb.copy()
+    n = 0
+    for i, a in zip(ids, cnt):
+        if a < 4 or a > max_area:
+            continue
+        ys, xs = np.nonzero(lab == i)
+        r = int(np.sqrt(a / np.pi)) + 4
+        y0, y1 = max(0, ys.min() - 2 * r), min(h, ys.max() + 2 * r + 1)
+        x0, x1 = max(0, xs.min() - 2 * r), min(w, xs.max() + 2 * r + 1)
+        m = (lab[y0:y1, x0:x1] == i).astype(np.float32)
+        grow = _blur(m, max(1.5, r / 3))
+        ring = (grow > 0.02) & (grow < 0.25) & (m == 0)
+        if ring.sum() < 8:
+            continue
+        sub = out[:, y0:y1, x0:x1]
+        col = np.array([float(np.median(sub[k][ring])) for k in range(c)])
+        if col.max() <= 0:
+            continue
+        q = col / col.max()
+        peak = sub.max(axis=0)
+        want = peak[None] * q[:, None, None]
+        wgt = np.clip(grow / 0.25, 0, 1)[None]
+        out[:, y0:y1, x0:x1] = sub * (1 - wgt) + want * wgt
+        n += 1
+    return out.astype(np.float32), n
+
+
+def _load_state(paths) -> State:
     import prepare as P
     masters = [P.load_master(p) for p in paths]
     s = State(target=masters[0].target, sources=[str(m.path) for m in masters])
