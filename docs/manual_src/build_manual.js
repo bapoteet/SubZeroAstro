@@ -601,7 +601,7 @@ p("The classic galaxy set: broadband colour with the red hydrogen (HII) knots al
 steps([
   "**Add Hydrogen Glow › HII regions - natural** - the starlight is taken out of the Ha first, so only the compact pink knots are added to red, not a pink wash over the disc. *Strong* if the knots are the show-piece; tick *Show the hydrogen regions* to see what is added.",
   "**Combine Colour Channels › LRGB**.",
-  "**Balance Colours › Stars white** (not warmer - neutral keeps the blue arms), **Remove Green Cast › 25-50 %**.",
+  "**Balance Colours › Stars white** (not warmer - neutral keeps the blue arms), **Remove Green Cast › 25-50 %**. When the field's stars would leave the galaxy's centre blue (few, faint stars - a field far from the Milky Way), **Galaxy centre warm white** is suggested instead: the centre's old stars are a warm white and the arms stay blue.",
   "**Take Stars Out**, **Brighten the Image (Stretch) › Medium** or *Gentle*, method *Colour-preserving*.",
   "**Tame Bright Core › Medium**.",
   "**Curves › Brighter highlights** (avoid *Darker background* - it brings out faint background blotches).",

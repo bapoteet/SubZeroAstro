@@ -789,6 +789,13 @@ def run(app, out_dir: Path) -> int:
     except Exception as e:  # noqa: BLE001
         check(False, f"comet frames: {e}")
 
+    # galaxies: balanced on the stars, a field of few faint stars left NGC 1097 all blue - its centre is made a warm
+    # white then; M83's centre was already warm (B/R 0.75) and keeps the stars' balance
+    _gw1 = _fnc.galaxy_core_white((1.0, 1.0, 1.1), [1.0, 1.0, 1.0])
+    _gw2 = _fnc.galaxy_core_white((1.0, 0.81, 0.75), None)
+    check(_gw1 is not None and _gw1[0] > 1.0 > _gw1[2] and _gw2 is None,
+          f"galaxy: a blue centre after 'Stars white' is made a warm white ({_gw1}); a warm one is left alone ({_gw2})")
+
     # no OBJECT in the header (some ASIAIR files): the target comes from the file name or the ASIAIR folder
     _tfn = [_stk.target_from_name(n) for n in (
         "/x/Light_M51_180.0s_Bin1_6200MC_gain0_20240525-212957_-6.6C_C11_0001.fit",

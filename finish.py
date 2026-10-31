@@ -1373,6 +1373,23 @@ def cluster_glow_colour(rgb: np.ndarray, bgs) -> "tuple | None":
     return tuple(ex)
 
 
+GALAXY_WARM = (1.12, 1.0, 0.90)            # R : G : B of a galaxy's bright centre (its old stars): a warm white
+
+
+def galaxy_core_white(glow, white):
+    """When balancing on the stars leaves a galaxy's bright centre cool (bluer than red - NGC 1097 came out all
+    cyan-blue from a field of few, faint stars), the white factors that make the centre a warm white instead;
+    None when the stars' balance already keeps it warm (M83: centre B/R 0.75)."""
+    if glow is None:
+        return None
+    r, g, b = (float(x) for x in glow)
+    w = list(white) if white else [1.0, 1.0, 1.0]
+    cr, cg, cb = r * w[0], g * w[1], b * w[2]
+    if cr <= 0 or (cb / cr <= 0.88 and cg / cr <= 0.98):
+        return None
+    return [GALAXY_WARM[0] * g / r, 1.0, GALAXY_WARM[2] * g / b]
+
+
 class BalanceColours(Tool):
     key = "balance"
 
@@ -1417,6 +1434,14 @@ class BalanceColours(Tool):
             # red) went all red and its teal centre grey-blue. The sky alone keeps the look tuned on M27 and the Helix
             for v in out:
                 v.recommended = v.label == "Neutral sky only"
+        if target_type(s) == "galaxy" and fac:
+            wh = galaxy_core_white(cluster_glow_colour(s.rgb, bgs), out[0].params.get("white"))
+            if wh is not None:
+                for v in out:
+                    v.recommended = False
+                out.insert(0, Variant("Galaxy centre warm white", {**base, "white": wh},
+                                      "the stars here would leave the galaxy's centre blue; its old stars made a warm "
+                                      "white instead", True))
         if target_type(s) == "star cluster":
             glow = cluster_glow_colour(s.rgb, bgs)
             if glow is not None:

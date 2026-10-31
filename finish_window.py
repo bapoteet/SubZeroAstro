@@ -2106,7 +2106,11 @@ class FinishWindow(QMainWindow):
             if n_:
                 self.log(f"   {n_}")
                 st_.step_note = ""
-        self.run_job(work, lambda r: (self.log(f"{t.title}: {label}  ({r[1]:.1f} s)"), _note(r[0]),
+        # the slider values, so a fine-tuned step can be read back from the logs (tuning the defaults)
+        fv = ({k: v_ for k, v_ in self.fine_values.items() if isinstance(v_, (int, float))}
+              if tuned and not spots_tool else {})
+        lab_log = label + (" [" + ", ".join(f"{k} {v_:.3g}" for k, v_ in fv.items()) + "]" if fv else "")
+        self.run_job(work, lambda r: (self.log(f"{t.title}: {lab_log}  ({r[1]:.1f} s)"), _note(r[0]),
                                       self.commit(r[0], t.key, f"{t.title} — {label}", params, then=again)),
                      f"{t.title}…")
 
