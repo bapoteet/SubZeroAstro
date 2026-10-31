@@ -785,10 +785,17 @@ def run(app, out_dir: Path) -> int:
         _ctg.set_override("Snapshot", _ctg.COMET)
         _cafter = _ctg.is_comet("Snapshot")
         _ctg.set_override("Snapshot", _cprev)
-        check(_cinfo.bayer is None and _cq.shape == (40, 50, 3) and not _cbefore and _cafter,
+        import tempfile as _ctf
+        _cdir = Path(_ctf.mkdtemp())
+        core.write_fits(_cdir / "l_c_d_r.fits", (np.random.default_rng(4).random((3, 30, 40)) * 0.02 + 0.01)
+                        .astype(np.float32), [("IMAGETYP", "LIGHT", "")])
+        _cimg = _cst.ImageSource(_cdir / "l_c_d_r.fits").read()
+        _cadu = 300 < float(np.median(_cimg)) < 1700         # 0..1 floats (PixInsight) read in camera units
+        check(_cinfo.bayer is None and _cq.shape == (40, 50, 3) and not _cbefore and _cafter and _cadu,
               f"comet frames: a 3-plane image is colour even with BAYERPAT in the header (bayer {_cinfo.bayer}); a "
               f"'No filter' mono master gets a preview ({_cq.shape}); 'Snapshot' picked as a comet in Fast Track is "
-              f"stacked as one ({_cbefore} -> {_cafter})")
+              f"stacked as one ({_cbefore} -> {_cafter}); 0..1 float lights are read in camera units "
+              f"({float(np.median(_cimg)):.0f}) - the comet master was 65535x too dark")
     except Exception as e:  # noqa: BLE001
         check(False, f"comet frames: {e}")
 
@@ -1807,6 +1814,31 @@ def run(app, out_dir: Path) -> int:
               "Set Filter Name relabels the frames")
         w.set_filter(all_uids, None)
         check(not any(f.filter_override for f in w.frames.values()), "filter name can be set back to the recorded one")
+        # FITS / XISF viewer: any file's picture and header, stepping through its folder
+        try:
+            _vf = sorted(Path(f.path) for f in w.frames.values())
+            _vw = w.open_file_viewer(_vf[0])
+            QApplication.processEvents()
+            _v1 = (_vw.path == _vf[0], _vw.table.rowCount() > 5, not _vw.view.item.pixmap().isNull(),
+                   "×" in _vw.info.text())
+            _vw.step(1)
+            QApplication.processEvents()
+            _v2 = _vw.path == _vf[1]
+            _vw.search.setText("EXPTIME")
+            _v3 = _vw.table.rowCount() == 1
+            _vw.cb_stretch.setChecked(False)
+            _vw.show_pixel(5, 5)
+            _v4 = "x 5" in _vw.pixel.text()
+            import file_viewer as _fvw            # a double-clicked file (command line) opens in the viewer
+            _v4 = _v4 and _fvw.viewer_files([str(_vf[0]), str(_vf[0].parent), "nope.txt"]) == [_vf[0]]
+            shot("6b_file_viewer.png", _vw)
+            _vw.close()
+            check(all(_v1) and _v2 and _v3 and _v4 and any(a is w.act_viewer for mm in w.menuBar().actions()
+                                                            if mm.menu() for a in mm.menu().actions()),
+                  f"FITS / XISF Viewer (File and View menus) shows a file's picture and header, steps to the next "
+                  f"file in the folder, searches the header and reads pixel values ({_v1}, {_v2}, {_v3}, {_v4})")
+        except Exception as e:  # noqa: BLE001
+            check(False, f"FITS / XISF Viewer: {e}")
         w.act_show_image.setChecked(False)
         check(not w.view.isVisible(), "the image can be hidden")
         w.act_show_image.setChecked(True)

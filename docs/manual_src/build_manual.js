@@ -321,11 +321,13 @@ steps([
 ]);
 img("6_semi_aggressive_flagged.png", "After Semi-aggressive: suspect frames are flagged for review (example data)");
 p("**Auto-Flag** (Ctrl+F) lets you set your own limits. **X** rejects or restores the selected frame(s), **F** flags them, **D** clears all flags.");
-sec("6.4", "Filters and the FITS header", ["Set Filter Name", "FITS header", "Edit FITS Headers", "Undo Last Header Change", "Hide image"]);
+sec("6.4", "Filters, FITS headers and the viewer", ["Set Filter Name", "FITS header", "Edit FITS Headers", "Undo Last Header Change", "FITS viewer", "XISF viewer", "Default viewer", "Hide image"]);
 bullets([
   "**Frame › Set Filter Name…** changes the filter for the selected frames (your files are not changed). Use it when the filter is missing or wrong - flats are matched by filter.",
   "**Frame › Edit FITS Headers…** (Ctrl+Shift+H) changes keywords **in the files themselves**, for the selected frames or all of them: OBJECT, FILTER (a filter typed *S11* instead of *SII*), IMAGETYP, EXPTIME, telescope, camera, focal length, pixel size, gain, offset, temperature, or any other keyword. The image data is not touched. The old values are kept in a small undo file in each folder: **Frame › Undo Last Header Change** puts them back. Only FITS files are edited; XISF files are left as they are.",
   "**Ctrl+H** opens the full **FITS header** of the selected file, with search and Copy All.",
+  "**File › Open FITS / XISF Viewer…** (Ctrl+Shift+V, also in the View menu) looks at **any** FITS or XISF file without loading it into a session: the picture (auto-stretched, in colour for colour data - raw colour-camera frames too), zoom with the wheel, the pixel values under the mouse, size and levels, the main capture facts and the whole header with search. *Previous / Next* (Page Up / Page Down) step through the other files in the folder; you can also drop a file on the window.",
+  "**Make it your FITS / XISF viewer:** **Settings › Open FITS / XISF Files With SubZeroAstro…**. On Windows this adds SubZeroAstro to *Open with*; then right-click a .fits file › Open with › Choose another app › SubZeroAstro, tick *Always*. On a Mac: select a .fits file in Finder, ⌘I, *Open with* › SubZeroAstro › *Change All*. Do the same once for .xisf. A double-click then opens just the viewer - quickly, without the intro.",
   "**Ctrl+I** hides or shows the image - useful on a slow network drive.",
 ]);
 sec("6.5", "Tonight's Target Picker", ["Tonight's Target Picker", "Target picker", "What to image tonight", "Horizon", "N.I.N.A. horizon file", "Import Targets", "Telescopius"]);

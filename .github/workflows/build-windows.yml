@@ -193,6 +193,34 @@ jobs:
             --add-data "docs/SubZeroAstro_User_Manual.pdf:docs" --add-data "assets/icon_256.png:assets" --add-data "assets/splash_radiograph.png:assets" subzeroastro.py
           VER=$(python -c "import re;print(re.search(r'^APP_VERSION = \"([^\"]+)\"', open('subzeroastro.py').read(), re.M).group(1))")
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VER%% *}" dist/SubZeroAstro.app/Contents/Info.plist || true
+          # FITS / XISF files: SubZeroAstro can be chosen to open them (Get Info > Open with > Change All)
+          PL=dist/SubZeroAstro.app/Contents/Info.plist
+          PB=/usr/libexec/PlistBuddy
+          $PB -c "Add :UTImportedTypeDeclarations array" $PL || true
+          i=0
+          for t in "fits:io.github.bapoteet.fits-image:FITS astronomy image:fits fit fts" "xisf:io.github.bapoteet.xisf-image:XISF astronomy image (PixInsight):xisf"; do
+            IFS=: read -r key uti desc exts <<< "$t"
+            $PB -c "Add :UTImportedTypeDeclarations:$i dict" $PL
+            $PB -c "Add :UTImportedTypeDeclarations:$i:UTTypeIdentifier string $uti" $PL
+            $PB -c "Add :UTImportedTypeDeclarations:$i:UTTypeDescription string $desc" $PL
+            $PB -c "Add :UTImportedTypeDeclarations:$i:UTTypeConformsTo array" $PL
+            $PB -c "Add :UTImportedTypeDeclarations:$i:UTTypeConformsTo:0 string public.data" $PL
+            $PB -c "Add :UTImportedTypeDeclarations:$i:UTTypeTagSpecification dict" $PL
+            $PB -c "Add :UTImportedTypeDeclarations:$i:UTTypeTagSpecification:public.filename-extension array" $PL
+            j=0; for e in $exts; do $PB -c "Add :UTImportedTypeDeclarations:$i:UTTypeTagSpecification:public.filename-extension:$j string $e" $PL; j=$((j+1)); done
+            i=$((i+1))
+          done
+          $PB -c "Add :CFBundleDocumentTypes array" $PL || true
+          $PB -c "Add :CFBundleDocumentTypes:0 dict" $PL
+          $PB -c "Add :CFBundleDocumentTypes:0:CFBundleTypeName string Astronomy image (FITS / XISF)" $PL
+          $PB -c "Add :CFBundleDocumentTypes:0:CFBundleTypeRole string Viewer" $PL
+          $PB -c "Add :CFBundleDocumentTypes:0:LSHandlerRank string Alternate" $PL
+          $PB -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes array" $PL
+          $PB -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:0 string io.github.bapoteet.fits-image" $PL
+          $PB -c "Add :CFBundleDocumentTypes:0:LSItemContentTypes:1 string io.github.bapoteet.xisf-image" $PL
+          $PB -c "Add :CFBundleDocumentTypes:0:CFBundleTypeExtensions array" $PL
+          k=0; for e in fits fit fts xisf; do $PB -c "Add :CFBundleDocumentTypes:0:CFBundleTypeExtensions:$k string $e" $PL; k=$((k+1)); done
+          plutil -lint $PL
           codesign --force --deep --sign - dist/SubZeroAstro.app   # ad-hoc signature (needed on Apple silicon)
 
       - name: Self-test (the built app)

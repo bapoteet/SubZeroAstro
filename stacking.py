@@ -73,8 +73,11 @@ class ImageSource:
             pr = self.look.get("PIXRANGE")
             if isinstance(pr, (int, float)) and pr > 0:
                 self.scale = float(pr)
-            elif self.lay.bitpix < 0 and "master" in str(self.look.get("IMAGETYP", "")).lower():
-                self.scale = None            # decide from the data (0..1 or ADU)
+            elif self.lay.bitpix < 0:
+                # floating point - masters, and lights calibrated in PixInsight (the comet's _c_d_r frames) - may be
+                # on the 0..1 scale: decide from the data (0..1 or ADU). Left at 0..1 the comet master was 65535x
+                # too dark and every level after it (sky noise floors, the stretch's white point) went wrong
+                self.scale = None
 
     def _scaled(self, d):
         if self.scale is None:

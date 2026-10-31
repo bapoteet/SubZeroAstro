@@ -20,7 +20,7 @@ import traceback
 from collections import OrderedDict
 from pathlib import Path
 
-from PySide6.QtCore import (QItemSelectionModel, QObject, QPointF, QRectF, QRunnable,
+from PySide6.QtCore import (QEvent, QItemSelectionModel, QObject, QPointF, QRectF, QRunnable,
                             QSettings, QSize, Qt, QThreadPool, QTimer, Signal)
 from PySide6.QtGui import (QAction, QActionGroup, QBrush, QColor, QFont,
                            QIcon, QImage, QKeySequence, QPainter, QPalette,
@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.208 beta"
+APP_VERSION = "0.9.209 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -1250,6 +1250,9 @@ class MainWindow(QMainWindow):
                               "Show every header card of the current frame in its own window (Ctrl+H)")
         self.act_header_file = act("Inspect a File's FITS Header…", self.inspect_file_header, None, None,
                                    "Show the header of any FITS or XISF file")
+        self.act_viewer = act("Open FITS / XISF Viewer…", self.open_file_viewer, "Ctrl+Shift+V", None,
+                              "Look at any FITS or XISF file - the picture (zoom, colour, pixel values) and its "
+                              "header - without loading it into a session")
         self.act_set_filter = act("Set Filter Name…", self.set_filter_dialog, None, None,
                                   "Tell SubZeroAstro which filter was used, for the selected frames or all frames "
                                   "(when the camera didn't record it). Your files are not changed.")
@@ -1372,6 +1375,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.act_picker)
         m.addSeparator()
         m.addAction(self.act_export)
+        m.addAction(self.act_viewer)
         m.addAction(self.act_header_file)
         m.addSeparator()
         m.addAction(self.act_quit)
@@ -1409,6 +1413,8 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self.open_finish)
         m.addAction(a)
         m = mb.addMenu("&View")
+        m.addAction(self.act_viewer)
+        m.addSeparator()
         m.addAction(self.act_show_image)
         m.addAction(self.act_fit)
         m.addAction(self.act_100)
@@ -1420,6 +1426,11 @@ class MainWindow(QMainWindow):
         a.setToolTip("See which helper programs are installed, locate them, and activate RC-Astro licences")
         a.triggered.connect(self.open_tools)
         m.addAction(a)
+        a = QAction("Open FITS / XISF Files With SubZeroAstro…", self)
+        a.setToolTip("Make a double-click on a .fits or .xisf file open it in SubZeroAstro's viewer")
+        a.triggered.connect(self.set_file_association)
+        m.addAction(a)
+        self.act_file_assoc = a
         a = QAction("Saved Progress (crash recovery)…", self)
         a.triggered.connect(lambda: CheckpointDialog(self, self.settings).exec())
         m.addAction(a)
@@ -2782,6 +2793,28 @@ class MainWindow(QMainWindow):
         dlg.show()
         self.header_dialog = dlg
 
+    def set_file_association(self):
+        import file_viewer
+        if sys.platform.startswith("win"):
+            if not getattr(sys, "frozen", False):
+                QMessageBox.information(self, APP_NAME, "This works in the installed app (SubZeroAstro.exe).")
+                return
+            try:
+                msg = file_viewer.register_windows()
+            except Exception as e:  # noqa: BLE001
+                QMessageBox.warning(self, APP_NAME, f"Windows did not accept the change: {e}")
+                return
+            QMessageBox.information(self, APP_NAME, msg)
+        else:
+            QMessageBox.information(self, APP_NAME, file_viewer.MAC_HOWTO)
+
+    def open_file_viewer(self, path=None):
+        import file_viewer
+        dlg = file_viewer.open_viewer(self, path if isinstance(path, (str, Path)) else None)
+        if dlg is not None:
+            self.file_viewer = dlg
+        return dlg
+
     def inspect_file_header(self):
         start = str(self.root) if self.root else self.settings.value("last_folder", str(Path.home()))
         p, _ = QFileDialog.getOpenFileName(self, "Show the header of…", start,
@@ -3352,6 +3385,40 @@ def main():
         i = sys.argv.index("--selftest")
         out = Path(sys.argv[i + 1]) if len(sys.argv) > i + 1 else Path("selftest_output")
         sys.exit(selftest.run(app, out))
+
+    import file_viewer
+    viewers = []
+
+    class _FileOpen(QObject):
+        """macOS: Finder sends double-clicked files as an event, not on the command line."""
+        def __init__(self):
+            super().__init__()
+            self.got = []
+
+        def eventFilter(self, obj, ev):
+            if ev.type() == QEvent.FileOpen:
+                p = ev.file()
+                if p:
+                    self.got.append(p)
+                    if viewers:                       # the app is already running: one more viewer window
+                        viewers.append(file_viewer.open_viewer(None, p, ask=False))
+                return True
+            return False
+    fo = _FileOpen()
+    app.installEventFilter(fo)
+    files = file_viewer.viewer_files(sys.argv[1:])
+    if not files and sys.platform == "darwin" and len(sys.argv) <= 1:
+        t_end = time.time() + 0.6                     # a double-click in Finder: its file arrives right away
+        while time.time() < t_end and not fo.got:
+            app.processEvents()
+            time.sleep(0.02)
+        files = file_viewer.viewer_files(fo.got)
+    if files:
+        # a FITS / XISF file was double-clicked: just the viewer (quick, no intro), one window per file
+        app.setQuitOnLastWindowClosed(True)
+        for f in files:
+            viewers.append(file_viewer.open_viewer(None, f, ask=False))
+        sys.exit(app.exec())
 
     import session_log
     session_log.start(APP_VERSION)

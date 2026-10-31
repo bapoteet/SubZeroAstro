@@ -155,6 +155,10 @@ def load_master(path) -> Master:
     d = src.read().astype(np.float32)
     if d.ndim == 2:
         d = d[None]
+    if d.size and float(np.nanmax(d[:, ::7, ::7])) <= 1.5:
+        # still on the 0..1 scale after reading (a master stacked from lights that were 0..1 floats - the comet
+        # from PixInsight): to ADU like every other master, else sky levels and noise floors are 65535x off
+        d = d * np.float32(65535.0)
     cards = [(k, v, c) for k, v, c in src.cards if k not in STRUCTURAL and not k.startswith("_") and v is not None]
     hist = [(k, v, c) for k, v, c in src.cards if k in ("HISTORY", "COMMENT")]
     look = src.look
