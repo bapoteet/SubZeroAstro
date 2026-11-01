@@ -243,6 +243,8 @@ class OrganizeDialog(QDialog):
             dlg.setFileMode(QFileDialog.Directory)
             dlg.setOption(QFileDialog.DontUseNativeDialog, True)
             dlg.setOption(QFileDialog.ShowDirsOnly, True)
+            import folder_dialogs
+            folder_dialogs.add_network(dlg)        # a NAS share: Qt's window can't browse the network itself
             for v in dlg.findChildren(QListView) + dlg.findChildren(QTreeView):
                 v.setSelectionMode(_AIV.ExtendedSelection)
             if not dlg.exec():
@@ -250,6 +252,7 @@ class OrganizeDialog(QDialog):
             picks = [p for p in dlg.selectedFiles() if p]
             if not picks:
                 return
+            folder_dialogs.remember(picks)
             self.set_sources(picks)
             return
         d = QFileDialog.getExistingDirectory(self, "Choose a folder", str(start))

@@ -1938,6 +1938,12 @@ def run(app, out_dir: Path) -> int:
         _multi = [v for v in _views if v.selectionMode() == _QAIV.ExtendedSelection]
         check(len(_multi) >= 2, f"Add Folders… lets you pick several folders at once (Shift/Ctrl-click) "
                                 f"({len(_multi)} of {len(_views)} views)")
+        from PySide6.QtWidgets import QPushButton as _QPB
+        import folder_dialogs as _fdl
+        _netb = [b_ for b_ in _pk.findChildren(_QPB) if "Network" in b_.text()]
+        check(bool(_netb) and _fdl.share_root(r"\\DS1522\Astro\Targets") == r"\\DS1522\Astro",
+              f"the folder window has a 'Network / NAS Folder…' button (Qt's own window can't browse the network) "
+              f"and remembers the share ({_fdl.share_root(r'\\DS1522\Astro\Targets')})")
         _pk.selectFile(f'"{session.name}" "{second.name}"')
         _pk.show()
         shot("7b_folder_picker.png", _pk)

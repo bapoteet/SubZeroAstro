@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.217 beta"
+APP_VERSION = "0.9.218 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -671,6 +671,8 @@ def folder_picker(parent, title, start):
         import string
         places += [Path(f"{d}:/") for d in string.ascii_uppercase if Path(f"{d}:/").exists()]
     dlg.setSidebarUrls([QUrl.fromLocalFile(str(p)) for p in places if p.exists()])
+    import folder_dialogs
+    folder_dialogs.add_network(dlg)                 # Qt's window can't browse the network on its own (a NAS)
     for v in dlg.findChildren(QListView) + dlg.findChildren(QTreeView):
         if isinstance(v.model(), (QFileSystemModel,)) or v.objectName() in ("listView", "treeView"):
             v.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -687,6 +689,8 @@ def picked_folders(dlg):
         p = Path(f)
         if p.is_dir() and p not in out:
             out.append(p)
+    import folder_dialogs
+    folder_dialogs.remember(out)
     return out
 
 
