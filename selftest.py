@@ -4225,6 +4225,14 @@ def run(app, out_dir: Path) -> int:
         check(_cpm == ["SQA105", "SQA105", None, "Pleiades111", "Pleiades111"],
               f"Your Rigs, two scopes close in focal length (506 and 530 mm, ±3 %): the clearly nearer one wins, "
               f"a reading right between them is asked about ({_cpm})")
+        # the camera typed in Your Rigs matches however it is written ('2600MMPro' = 'ZWO ASI2600MM Pro'); a rig
+        # with the right focal length but another camera says so instead of 'no rig matches'
+        _ccl = [{"name": "RASA11", "focals": [620], "camera": "2600MMPro"}]
+        _ccm = [_og.match_rig(_Fi(621, c), "/x", _ccl, 0.03) for c in
+                ("ZWO ASI2600MM Pro", "ASI2600MM", "zwo asi2600mm pro", "ZWO ASI2600MC Pro")]
+        check([m[0] for m in _ccm[:3]] == ["RASA11"] * 3 and _ccm[3] == (None, "camera: RASA11 (2600MMPro)"),
+              f"Your Rigs: a camera typed as '2600MMPro' matches 'ZWO ASI2600MM Pro' in the header; an MC camera "
+              f"at the same focal length is reported as a camera mismatch ({_ccm})")
         _keep_rl = (w.settings.value("organize/riglist", "[]"), w.settings.value("organize/rig_tol", 5),
                     w.settings.value("stack/rigs", "[]"))
         # a drive that answers "Invalid argument" (Errno 22) when asked about an entry (seen on a Mac with an

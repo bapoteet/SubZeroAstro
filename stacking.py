@@ -382,9 +382,17 @@ class Rigs:
     def __init__(self, entries=None):
         self.entries = list(entries or [])     # [{"camera":..., "focal":..., "name":...}]
 
+    @staticmethod
+    def cam_model(c):
+        """'ZWO ASI2600MM Pro', 'ASI2600MM' and '2600MMPro' are the same camera ('2600mm'); MM and MC differ."""
+        s = re.sub(r"[\W_]", "", str(c or "")).lower()
+        s = re.sub(r"^(zwo|qhy|playerone|touptek|atik|sbig|fli|moravian|altair|svbony)", "", s)
+        s = re.sub(r"^(asi|qhy)", "", s)
+        return re.sub(r"(pro|mini|cooled|cool)$", "", s)
+
     def lookup(self, camera, focal):
         for e in self.entries:
-            if (e.get("camera") or "").lower() != (camera or "").lower():
+            if self.cam_model(e.get("camera")) != self.cam_model(camera):
                 continue
             ef, f = e.get("focal"), focal
             if ef is None or f is None:
@@ -397,7 +405,7 @@ class Rigs:
 
     def set(self, camera, focal, name):
         self.entries = [e for e in self.entries
-                        if not ((e.get("camera") or "").lower() == (camera or "").lower()
+                        if not (self.cam_model(e.get("camera")) == self.cam_model(camera)
                                 and self._same(e.get("focal"), focal))]
         self.entries.append({"camera": camera, "focal": focal, "name": name})
 

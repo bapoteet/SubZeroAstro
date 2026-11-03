@@ -120,8 +120,15 @@ _TOL = 0.03           # a rig's focal length in the headers drifts a few % night
 
 
 def _cam_norm(c):
-    import stacking as st
-    return re.sub(r"[\W_]", "", st.short_camera(c or "")).lower() if c else ""
+    """A camera name reduced to its model: 'ZWO ASI2600MM Pro', 'ASI2600MM', '2600MMPro' and '2600 mm pro' are all
+    '2600mm' - so the camera typed in Your Rigs matches the header however it is written (MM and MC still differ)."""
+    if not c:
+        return ""
+    s = re.sub(r"[\W_]", "", str(c)).lower()
+    s = re.sub(r"^(zwo|qhy|playerone|touptek|atik|sbig|fli|moravian|altair|svbony)", "", s)
+    s = re.sub(r"^(asi|qhy)", "", s)
+    s = re.sub(r"(pro|mini|cooled|cool)$", "", s)
+    return s
 
 
 def match_rig(info, path, riglist, tol=0.03):
@@ -141,14 +148,16 @@ def match_rig(info, path, riglist, tol=0.03):
     if not fl:
         return None, "nofocal"
     cam = _cam_norm(getattr(info, "camera", None))
-    hits = {}
+    hits, cam_off = {}, []
     for r in riglist or []:
-        if r.get("camera") and cam and _cam_norm(r["camera"]) != cam:
-            continue
         ds = [abs(float(fl) - float(f)) / float(f) for f in r.get("focals") or [] if f]
         ds = [d for d in ds if d <= tol]
-        if ds:
-            hits[r["name"]] = min(hits.get(r["name"], 9), min(ds))
+        if not ds:
+            continue
+        if r.get("camera") and cam and _cam_norm(r["camera"]) != cam:
+            cam_off.append(f"{r['name']} ({r['camera']})")      # right focal length, another camera
+            continue
+        hits[r["name"]] = min(hits.get(r["name"], 9), min(ds))
     if len(hits) == 1:
         return next(iter(hits)), "focal"
     if len(hits) > 1:
@@ -158,6 +167,8 @@ def match_rig(info, path, riglist, tol=0.03):
         if near[0][1] <= 0.5 * near[1][1]:
             return near[0][0], "focal"
     hits = list(hits)
+    if not hits and cam_off:
+        return None, "camera: " + ", ".join(cam_off)
     if not hits:
         return None, "nomatch"
     return None, "ambiguous: " + ", ".join(hits)
@@ -381,6 +392,11 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             if not rname:                        # not filed under a guess: it waits until you say which rig
                 fl = f"{info.focal:.0f} mm" if info.focal else "no focal length"
                 it.status, it.dst, it.rig_issue = "norig", None, why
+                if why.startswith("camera: "):
+                    it.why = (f"{fl} is {why[8:]} in Your Rigs, but this file's camera is "
+                              f"{getattr(info, 'camera', None) or 'not in the header'} - fix or clear that rig's "
+                              f"camera (Your Rigs…)")
+                    continue
                 it.why = {"nofocal": "no focal length in the header - which rig? (Which Rig…)",
                           "nomatch": f"no rig in Your Rigs matches {fl} - add it (Your Rigs…)"}.get(
                     why, f"{fl} fits more than one rig ({why.split(': ', 1)[-1]}) - which one? (Which Rig…)")

@@ -436,8 +436,15 @@ class OrganizeDialog(QDialog):
         self.b_which.setEnabled(bool([g for g in issues if g["reason"] != "nomatch"]))
         if issues:
             nm = [g for g in issues if g["reason"] == "nomatch"]
-            other = [g for g in issues if g["reason"] != "nomatch"]
+            cam = [g for g in issues if g["reason"] == "camera"]
+            other = [g for g in issues if g["reason"] not in ("nomatch", "camera")]
             msg = []
+            for g in cam:
+                its = g["items"][0].rig_issue.split(": ", 1)[-1]
+                msg.append(f"<b>{g['files']} file(s) at {g['focal']:.0f} mm</b> fit {its} by focal length, but were "
+                           f"taken with <b>{g['camera'] or 'an unknown camera'}</b> - press <b>Your Rigs…</b> and "
+                           "fix that rig's camera, or clear it (the camera is only needed when two rigs share a "
+                           "focal length)")
             if nm:
                 fls = sorted({f"{g['focal']:.0f} mm" for g in nm if g["focal"]})
                 msg.append(f"<b>{sum(g['files'] for g in nm)} file(s) match none of your rigs</b> ("
