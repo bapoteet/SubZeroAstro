@@ -314,7 +314,9 @@ def _companions(p: Path) -> list:
 
 
 LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration Frames / rig / Flats, Darks, Bias",
-           "target": "By target: Targets / target / night_rig, with darks and bias libraries"}
+           "target_rig": "By target, then rig: Light Frames / target / rig / night  and  Calibration Frames / rig / "
+                         "Flats, Darks, Bias",
+           "target": "By target (classic): Targets / target / night_rig, with darks and bias libraries"}
 
 
 def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None, layout="rig",
@@ -426,8 +428,8 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             it.key = (info.date_obs, info.exptime, flt, info.camera, it.size, typ, looks_master,
                       info.telescope, info.focal, str(it.src.parent.parent.parent.name) if not info.telescope
                       and not info.focal else "")
-        if layout == "rig":
-            _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected)
+        if layout in ("rig", "target_rig"):
+            _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected, target_first=layout == "target_rig")
             continue
         if typ in (None, "light") and looks_master and tgt:
             it.kind, it.dst = "master", Path("Targets") / tgt / "Masters" / name
@@ -490,14 +492,17 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     return items
 
 
-def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected):
+def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected, target_first=False):
     """Light Frames / <rig> / <target> / <night> / <filter>   and   Calibration Frames / <rig> / Flats | Dark flats | Darks |
-    Bias | Masters - everything a rig (one telescope with its own camera) took, in one place."""
+    Bias | Masters - everything a rig (one telescope with its own camera) took, in one place. target_first: the
+    lights go Light Frames / <target> / <rig> / <night> / <filter> instead (every rig's nights of one object
+    together); calibration frames stay by rig either way - they belong to a rig, not to a target."""
     import stacking as st
     rig = _rig(info, it.src) or "Unknown rig"
     cal = Path("Calibration Frames") / rig
+    top = (Path("Light Frames") / tgt / rig) if target_first else (Path("Light Frames") / rig / tgt)
     if typ in (None, "light") and looks_master and tgt:
-        it.kind, it.dst, it.why = "master", Path("Light Frames") / rig / tgt / "Masters" / name, "master light"
+        it.kind, it.dst, it.why = "master", top / "Masters" / name, "master light"
         it.companions = _companions(it.src)
     elif typ in ("dark", "flat", "darkflat", "bias") and looks_master:
         sub = Path(_cal_folder(info)) if typ in ("dark", "bias") else Path(f"Flats {night}") / flt
@@ -507,7 +512,7 @@ def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected):
         if not tgt:
             it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "a light without a target name"
             return
-        sub = Path("Light Frames") / rig / tgt / night / flt
+        sub = top / night / flt
         if rejected:
             sub = sub / core.REJECTED_DIR
         it.kind, it.dst = "light", sub / name

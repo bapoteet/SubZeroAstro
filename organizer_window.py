@@ -112,8 +112,11 @@ class OrganizeDialog(QDialog):
         cur = self.settings.value("organize/layout", "rig") or "rig"
         self.layout_box.setCurrentIndex(max(0, self.layout_box.findData(cur)))
         self.layout_box.setToolTip("By rig: everything one telescope (and its camera) took, together - lights by "
-                                   "target and night, its own flats, darks and bias.\nBy target: all of one "
-                                   "object's nights together, darks and bias in libraries per rig.")
+                                   "target and night, its own flats, darks and bias.\nBy target, then rig: every "
+                                   "rig's nights of one object together, then by rig; calibration frames stay by "
+                                   "rig.\nBy target (classic): all of one object's nights together, darks and bias "
+                                   "in libraries per rig.\nTo change the layout of a library already organized: "
+                                   "Change My Library's Layout….")
         h.addWidget(self.layout_box, 1)
         lay.addLayout(h)
         h = QHBoxLayout()
@@ -163,6 +166,23 @@ class OrganizeDialog(QDialog):
             h.addWidget(b)
         h.addStretch(1)
         lay.addLayout(h)
+        h = QHBoxLayout()
+        self.b_resort = QPushButton("Change My Library's Layout…")
+        self.b_resort.setToolTip("Re-sort a library you already organized into another layout (e.g. by rig → by "
+                                 "target, then rig). Files only move inside the library - quick, even on a NAS - "
+                                 "and you see the plan first; Undo Last Run puts everything back.")
+        self.b_resort.clicked.connect(lambda: self.change_layout())
+        self.b_auto = QPushButton("Organize Automatically…")
+        self.b_auto.setToolTip("Organize a folder where new frames arrive (e.g. on your NAS) into your library every "
+                               "day, twice a week or weekly - with nobody at the computer")
+        self.b_auto.clicked.connect(lambda: self.open_auto())
+        self.auto_note = QLabel("")
+        self.auto_note.setWordWrap(True)
+        h.addWidget(self.b_resort)
+        h.addWidget(self.b_auto)
+        h.addWidget(self.auto_note, 1)
+        lay.addLayout(h)
+        self._show_auto_note()
         self.status = QLabel("Start with <b>Your Rigs…</b> (once): name each telescope and the focal length it writes "
                              "in your files. Then pick a folder and Step 1 – Look Through the Files; Step 2 deals with "
                              "any duplicates; Step 3 – Organize lights up once you have seen the plan.")
@@ -309,8 +329,64 @@ class OrganizeDialog(QDialog):
     def library(self) -> Path:
         return Path(str(self._common()) if self.same.isChecked() else self.dst.text().strip())
 
+    # ---------------------------------------------------------------- re-sort / automatic
+    def change_layout(self, folder=None, layout=None, wait=False):
+        """Change My Library's Layout…: the organized library is organized again, in place, into another layout
+        (a move inside the library) - the plan is shown first, as always."""
+        from PySide6.QtWidgets import QInputDialog
+        if folder is None:
+            start = self.dst.text().strip() or self.src.text().strip() or str(Path.home())
+            folder = QFileDialog.getExistingDirectory(self, "Your organized library (the folder with "
+                                                      f"'{O.ORG_ROOT}' in it)", start)
+            if not folder:
+                return False
+        if layout is None:
+            names = list(O.LAYOUTS.values())
+            cur = self.settings.value("organize/layout", "rig") or "rig"
+            pick, ok = QInputDialog.getItem(self, "Change My Library's Layout", "Re-sort the library into:",
+                                            names, max(0, list(O.LAYOUTS).index(cur)) if cur in O.LAYOUTS else 0,
+                                            False)
+            if not ok:
+                return False
+            layout = list(O.LAYOUTS)[names.index(pick)]
+        lib = Path(folder)
+        if lib.name == O.ORG_ROOT:
+            lib = lib.parent
+        self.src.setText(str(O.org_base(lib)))
+        self.same.setChecked(False)
+        self.dst.setText(str(lib))
+        self.move.setChecked(True)
+        self.layout_box.setCurrentIndex(max(0, self.layout_box.findData(layout)))
+        self.status.setText("Re-sorting your library: Step 1 shows where every file will go - then Step 3.")
+        self.scan(wait=wait)
+        return True
+
+    def _show_auto_note(self):
+        import organizer_auto as A
+        cfg = A.load_config(self.settings)
+        last = self.settings.value("auto_org/last", "") or ""
+        if cfg["on"]:
+            t = f"<b>Automatic:</b> {A.FREQS.get(cfg['freq'], '')} at {cfg['time']}"
+        else:
+            t = "<i>Automatic organizing is off</i>"
+        if last:
+            t += f"<br><i>Last automatic run: {last}</i>"
+        self.auto_note.setText(t)
+
+    def open_auto(self, cfg=None, run_now=False):
+        d = AutoDialog(self.settings, self)
+        if cfg is not None:                          # the self-test fills it in
+            d.fill(cfg)
+            if run_now:
+                return d.run_now(wait=True)
+            return d
+        d.exec()
+        self._show_auto_note()
+        return d
+
     def _busy(self, on):
-        for w in (self.b_scan, self.b_rigs, self.b_which, self.b_go, self.b_dups, self.b_safe, self.b_undo, self.src,
+        for w in (self.b_scan, self.b_rigs, self.b_which, self.b_go, self.b_dups, self.b_safe, self.b_undo,
+                  getattr(self, "b_resort", self.b_undo), getattr(self, "b_auto", self.b_undo), self.src,
                   self.dst,
                   self.same,
                   self.copy, self.move,
@@ -1048,3 +1124,138 @@ class WhichRigDialog(QDialog):
 
     def answers(self):
         return [b.currentData() for b in self.boxes]
+
+
+class AutoDialog(QDialog):
+    """Organize Automatically…: the incoming folder, the library, the layout and how often."""
+
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        import organizer_auto as A
+        from PySide6.QtCore import QTime
+        from PySide6.QtWidgets import QFormLayout, QTimeEdit
+        self.A, self.settings = A, settings
+        self.setWindowTitle("Organize Automatically")
+        cfg = A.load_config(settings)
+        lay = QVBoxLayout(self)
+        intro = QLabel("New frames that land in your <b>incoming folder</b> (for example the NAS folder your "
+                       "rigs' copies arrive in) are organized into your <b>library</b> on a schedule - moved, so "
+                       "the incoming folder empties out. The same rules as Step 1 and Step 3: Your Rigs and the "
+                       "layout below. Files that can't be filed (no rig matches, duplicates, files still "
+                       "arriving) stay in the incoming folder and are listed in the report. Undo Last Run undoes "
+                       "an automatic run too.<br><br>The computer must be on (and you logged in, on Windows) at "
+                       "the time you choose; SubZeroAstro starts by itself, without a window, and closes again.")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
+        form = QFormLayout()
+
+        def folder(text):
+            h = QHBoxLayout()
+            ed = QLineEdit(text)
+            b = QPushButton("Browse…")
+            b.clicked.connect(lambda: self._pick(ed))
+            h.addWidget(ed, 1)
+            h.addWidget(b)
+            return ed, h
+        self.src, h1 = folder(cfg["src"])
+        self.dst, h2 = folder(cfg["dst"] or (settings.value("organize/dst", "") or ""))
+        form.addRow("Incoming folder:", h1)
+        form.addRow("Your library:", h2)
+        self.layout_box = QComboBox()
+        for k, t in O.LAYOUTS.items():
+            self.layout_box.addItem(t, k)
+        self.layout_box.setCurrentIndex(max(0, self.layout_box.findData(cfg["layout"])))
+        form.addRow("Layout:", self.layout_box)
+        self.freq = QComboBox()
+        for k, t in A.FREQS.items():
+            self.freq.addItem(t, k)
+        self.freq.setCurrentIndex(max(0, self.freq.findData(cfg["freq"])))
+        form.addRow("How often:", self.freq)
+        self.time = QTimeEdit()
+        self.time.setDisplayFormat("HH:mm")
+        h, m = A._hhmm(cfg["time"])
+        self.time.setTime(QTime(h, m))
+        self.time.setToolTip("Pick a time after your rigs' frames have reached the incoming folder - e.g. an "
+                             "hour after your morning copy to the NAS")
+        form.addRow("At:", self.time)
+        lay.addLayout(form)
+        self.note = QLabel("")
+        self.note.setWordWrap(True)
+        lay.addWidget(self.note)
+        last = settings.value("auto_org/last", "") or ""
+        self.note.setText(("<b>On.</b> " if cfg["on"] else "<b>Off.</b> ") + (f"Last run: {last}" if last else ""))
+        hb = QHBoxLayout()
+        self.b_now = QPushButton("Run Now")
+        self.b_now.setToolTip("One run right now with these settings (the schedule is not changed)")
+        self.b_now.clicked.connect(lambda: self.run_now())
+        self.b_off = QPushButton("Turn Off")
+        self.b_off.clicked.connect(self.turn_off)
+        self.b_on = QPushButton("Save && Turn On")
+        self.b_on.clicked.connect(self.turn_on)
+        b_close = QPushButton("Close")
+        b_close.clicked.connect(self.accept)
+        for b in (self.b_now, self.b_off):
+            hb.addWidget(b)
+        hb.addStretch(1)
+        hb.addWidget(self.b_on)
+        hb.addWidget(b_close)
+        lay.addLayout(hb)
+        self.resize(760, 420)
+
+    def _pick(self, ed):
+        d = QFileDialog.getExistingDirectory(self, "Choose a folder", ed.text() or str(Path.home()))
+        if d:
+            ed.setText(d)
+
+    def fill(self, cfg):
+        self.src.setText(cfg.get("src", ""))
+        self.dst.setText(cfg.get("dst", ""))
+        if cfg.get("layout"):
+            self.layout_box.setCurrentIndex(max(0, self.layout_box.findData(cfg["layout"])))
+
+    def cfg(self) -> dict:
+        return {"src": self.src.text().strip(), "dst": self.dst.text().strip(),
+                "layout": self.layout_box.currentData() or "rig", "freq": self.freq.currentData() or "daily",
+                "time": self.time.time().toString("HH:mm")}
+
+    def _check(self, cfg) -> bool:
+        bad = self.A.problems(cfg)
+        if bad:
+            QMessageBox.information(self, "Organize Automatically", "Can't go ahead: " + "; ".join(bad) + ".")
+            return False
+        return True
+
+    def turn_on(self):
+        cfg = self.cfg()
+        if not self._check(cfg):
+            return
+        ok, msg = self.A.schedule(cfg)
+        cfg["on"] = ok
+        self.A.save_config(cfg, self.settings)
+        self.note.setText(("<b>On.</b> " + msg) if ok else f"<b>Could not set it up:</b> {msg}")
+
+    def turn_off(self):
+        self.A.unschedule()
+        self.A.save_config({"on": False}, self.settings)
+        self.note.setText("<b>Off.</b> Nothing will run by itself.")
+
+    def run_now(self, wait=False):
+        cfg = self.cfg()
+        if not self._check(cfg):
+            return None
+        self.A.save_config({k: v for k, v in cfg.items() if k != "on"}, self.settings)
+        self.note.setText("Running…")
+        self.b_now.setEnabled(False)
+        job = _Job(lambda j: self.A.run(cfg, self.settings, progress=lambda t: j.note.emit(t, 0, 0)))
+        self._job = job
+        job.note.connect(lambda t, i, n: self.note.setText(t))
+        job.ok.connect(lambda rep: (self.b_now.setEnabled(True), self.note.setText(self.A.describe(rep))))
+        job.failed.connect(lambda e: (self.b_now.setEnabled(True), self.note.setText("Stopped: " + e.split("\n")[0])))
+        job.start()
+        if wait:
+            while job.isRunning():
+                QApplication.processEvents()
+                job.wait(20)
+            for _ in range(5):
+                QApplication.processEvents()
+        return job

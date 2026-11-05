@@ -4324,6 +4324,44 @@ def run(app, out_dir: Path) -> int:
               and not [i for i in _owin.items if i.status == "norig"],
               f"Organize: a rig not in Your Rigs is held back ({_y1[:1]}); after Add New Rig the plan updates at "
               f"once, without reading the files again ({_y2.get('2026-09-03')})")
+        # Organize Automatically: an incoming folder is filed into the library with nobody there (always a move);
+        # a frame no rig matches and one still arriving stay put; then Change My Library's Layout re-sorts it
+        import organizer_auto as _au
+        _au_root = session.parent / "auto_org_test"
+        _ksh.rmtree(_au_root, ignore_errors=True)
+        _au_inc, _au_lib = _au_root / "Incoming" / "SQA60Pro", _au_root / "Library"
+        _au_inc.mkdir(parents=True)
+        _au_lib.mkdir()
+        for _au_n, _au_f, _au_o in (("a.fits", 361, "M 31"), ("b.fits", 250, "M 33"), ("c.fits", 700, "M 31"),
+                                    ("new.fits", 361, "M 31")):
+            core.write_fits(_au_inc / _au_n, (_orng.random((16, 16)) * 4000).astype(np.uint16),
+                            {"IMAGETYP": "Light Frame", "EXPTIME": 180.0, "DATE-OBS": "2026-10-02T03:10:00",
+                             "INSTRUME": "ZWO ASI2600MM Pro", "FOCALLEN": _au_f, "OBJECT": _au_o, "FILTER": "Ha",
+                             "SITELONG": -95.0}, bitpix=16)
+        _au_old = time.time() - 3 * 3600
+        for _au_n in ("a.fits", "b.fits", "c.fits"):
+            os.utime(_au_inc / _au_n, (_au_old, _au_old))
+        _au_cfg = {"src": str(_au_root / "Incoming"), "dst": str(_au_lib), "layout": "rig"}
+        _au_rep = _au.run(_au_cfg, w.settings)
+        _au_got = sorted(str(p.relative_to(_og.org_base(_au_lib))).replace("\\", "/").rsplit("/", 1)[0]
+                         for p in _au_lib.rglob("*.fits"))
+        _au_left = sorted(p.name for p in (_au_root / "Incoming").rglob("*.fits"))
+        _au_bad = _au.problems({"src": str(_og.org_base(_au_lib) / "Light Frames"), "dst": str(_au_lib)})
+        _au_win = _au.windows_args({"freq": "twice", "time": "6:05"})
+        check(_au_rep["filed"] == 2 and _au_left == ["c.fits", "new.fits"]
+              and _au_got == ["Light Frames/RedCat/M33/2026-10-01/Ha", "Light Frames/SQA60Pro/M31/2026-10-01/Ha"]
+              and "outside the organized library" in " ".join(_au_bad)
+              and _au_win[-3:] == ["WEEKLY", "/D", "MON,THU"] and "06:05" in _au_win,
+              f"Organize Automatically: {_au.describe(_au_rep)}; the incoming folder may not be inside the library; "
+              f"Task Scheduler: {' '.join(_au_win[-6:])}")
+        _owin.change_layout(str(_au_lib), "target_rig", wait=True)
+        _owin.go(ask=False, wait=True)
+        _au_re = sorted(str(p.relative_to(_og.org_base(_au_lib))).replace("\\", "/").rsplit("/", 1)[0]
+                        for p in _au_lib.rglob("*.fits"))
+        check(_au_re == ["Light Frames/M31/SQA60Pro/2026-10-01/Ha", "Light Frames/M33/RedCat/2026-10-01/Ha"]
+              and not (_og.org_base(_au_lib) / "Light Frames" / "SQA60Pro").exists(),
+              f"Change My Library's Layout: the library re-sorted from by rig to by target, then rig, in place, "
+              f"old folders cleaned up ({_au_re})")
         for _k, _v in zip(("organize/riglist", "organize/rig_tol", "stack/rigs"), _keep_rl):
             w.settings.setValue(_k, _v)
         _owin.close()

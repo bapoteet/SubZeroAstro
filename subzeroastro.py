@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.219 beta"
+APP_VERSION = "0.9.220 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -3379,6 +3379,10 @@ def _install_place() -> str:
 
 
 def main():
+    if "--auto-organize" in sys.argv:
+        # started by Windows Task Scheduler / a macOS LaunchAgent: one automatic organize run, no window
+        import organizer_auto
+        sys.exit(organizer_auto.main_auto())
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     ui_header.set_app_icon(app)
