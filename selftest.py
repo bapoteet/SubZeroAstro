@@ -4372,8 +4372,19 @@ def run(app, out_dir: Path) -> int:
         _rs_f = _rs_names()
         _rs_d.sort_rows("name")
         _rs_n = _rs_names()
+        _rs_file = _au_root / "rigs.json"
+        _rs_d.export_rigs(str(_rs_file))
+        _rs_e = _ow_mod.YourRigsDialog(_owin, [{"name": "RASA11", "focals": [600]}, {"name": "Seestar", "focals": [250]}],
+                                       5, [])
+        _rs_in = _rs_e.import_rigs(str(_rs_file))
+        _rs_got = {x["name"]: x["focals"] for x in _rs_e.result_rows()}
+        _rs_e.close()
         _rs_d.close()
         w.settings.setValue("organize/rig_sort", _rs_keep)
+        check(_rs_in == 4 and _rs_got.get("RASA11") == [620.0] and _rs_got.get("Seestar") == [250.0]
+              and len(_rs_got) == 5,
+              f"Your Rigs › Export… / Import…: rigs carried to another computer - same name updated, new ones added, "
+              f"none removed ({_rs_got})")
         check(_rs_f == ["sqa55", "SQA106", "RASA11", "C14"] and _rs_n == ["C14", "RASA11", "sqa55", "SQA106"],
               f"Your Rigs: sorted by focal length {_rs_f}, or by name A-Z with numbers counted as numbers {_rs_n}")
         _owin.change_layout(str(_au_lib), "target_rig", wait=True)

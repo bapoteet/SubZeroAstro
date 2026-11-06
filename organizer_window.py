@@ -2,6 +2,7 @@
 works too), see the plan, then copy or move, with undo."""
 from __future__ import annotations
 
+import json
 import re
 import time
 import traceback
@@ -1006,6 +1007,15 @@ class YourRigsDialog(QDialog):
                      "none of your rigs matches")
         b.clicked.connect(self.find)
         h.addWidget(b)
+        b = QPushButton("Export…")
+        b.setToolTip("Save your rigs to a small file, to load them into SubZeroAstro on another computer")
+        b.clicked.connect(lambda: self.export_rigs())
+        h.addWidget(b)
+        b = QPushButton("Import…")
+        b.setToolTip("Load rigs saved with Export… on another computer - rigs with the same name are updated, "
+                     "new ones added; nothing is removed")
+        b.clicked.connect(lambda: self.import_rigs())
+        h.addWidget(b)
         h.addStretch(1)
         h.addWidget(QLabel("Sort by"))
         self.sort_box = QComboBox()
@@ -1067,6 +1077,56 @@ class YourRigsDialog(QDialog):
             self.add_row(*v)
         if remember and getattr(self.owner, "settings", None) is not None:
             self.owner.settings.setValue("organize/rig_sort", key)
+
+    def export_rigs(self, path=None):
+        """Export…: the rigs as a small JSON file (names, focal lengths, cameras and the tolerance - not the
+        folders you assigned, which only exist on this computer)."""
+        rows = self.result_rows()
+        if path is None:
+            path, _ = QFileDialog.getSaveFileName(self, "Export your rigs", str(Path.home() / "SubZeroAstro rigs.json"),
+                                                  "SubZeroAstro rigs (*.json)")
+            if not path:
+                return None
+        data = {"app": "SubZeroAstro", "kind": "rigs", "tolerance_pct": self.tol.value(),
+                "rigs": [{"name": r["name"], "focals": r["focals"], "camera": r.get("camera", "")} for r in rows]}
+        Path(path).write_text(json.dumps(data, indent=2), encoding="utf-8")
+        self.err.setText(f"Exported {len(rows)} rig(s) to {path}")
+        return path
+
+    def import_rigs(self, path=None):
+        """Import…: rigs from a file made with Export… - a rig with the same name is updated, others added."""
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(self, "Import rigs", str(Path.home()), "SubZeroAstro rigs (*.json)")
+            if not path:
+                return 0
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+            rigs = data["rigs"] if isinstance(data, dict) else data
+            rigs = [r for r in rigs if isinstance(r, dict) and r.get("name") and r.get("focals")]
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            self.err.setText(f"That file couldn't be read as SubZeroAstro rigs ({e}).")
+            return 0
+        names = {(self.table.item(r, 0).text() or "").strip().lower(): r for r in range(self.table.rowCount())}
+        n = 0
+        for g in rigs:
+            fl = ", ".join(f"{float(f):g}" for f in g["focals"])
+            key = str(g["name"]).strip().lower()
+            if key in names:
+                r = names[key]
+                self.table.item(r, 1).setText(fl)
+                self.table.item(r, 2).setText(str(g.get("camera") or ""))
+                self.table.item(r, 3).setText("updated from the imported file")
+            else:
+                self.add_row(str(g["name"]).strip(), fl, str(g.get("camera") or ""), "imported")
+            n += 1
+        if isinstance(data, dict) and data.get("tolerance_pct"):
+            try:
+                self.tol.setValue(int(data["tolerance_pct"]))
+            except (TypeError, ValueError):
+                pass
+        self.sort_rows(remember=False)
+        self.err.setText(f"Imported {n} rig(s) - press Save My Rigs to keep them.")
+        return n
 
     def add_row(self, name, focals, camera, note, new=False, edit=False):
         r = self.table.rowCount()
