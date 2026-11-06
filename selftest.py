@@ -4362,6 +4362,20 @@ def run(app, out_dir: Path) -> int:
         check(_au_l1 and not _au_l2,
               f"Organize Automatically: a run left behind by SubZeroAstro being closed (or the computer switched "
               f"off) no longer blocks the next run ({_au_l1}, {_au_l2})")
+        import organizer_window as _ow_mod
+        _rs_keep = w.settings.value("organize/rig_sort", "name")
+        _rs_d = _ow_mod.YourRigsDialog(_owin, [{"name": "SQA106", "focals": [509]}, {"name": "RASA11", "focals": [620]},
+                                               {"name": "sqa55", "focals": [264]}, {"name": "C14", "focals": [2737]}],
+                                       3, [])
+        _rs_names = lambda: [_rs_d.table.item(r, 0).text() for r in range(_rs_d.table.rowCount())]  # noqa: E731
+        _rs_d.sort_rows("focal")
+        _rs_f = _rs_names()
+        _rs_d.sort_rows("name")
+        _rs_n = _rs_names()
+        _rs_d.close()
+        w.settings.setValue("organize/rig_sort", _rs_keep)
+        check(_rs_f == ["sqa55", "SQA106", "RASA11", "C14"] and _rs_n == ["C14", "RASA11", "sqa55", "SQA106"],
+              f"Your Rigs: sorted by focal length {_rs_f}, or by name A-Z with numbers counted as numbers {_rs_n}")
         _owin.change_layout(str(_au_lib), "target_rig", wait=True)
         _owin.go(ask=False, wait=True)
         _au_re = sorted(str(p.relative_to(_og.org_base(_au_lib))).replace("\\", "/").rsplit("/", 1)[0]

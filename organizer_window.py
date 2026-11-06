@@ -1007,6 +1007,17 @@ class YourRigsDialog(QDialog):
         b.clicked.connect(self.find)
         h.addWidget(b)
         h.addStretch(1)
+        h.addWidget(QLabel("Sort by"))
+        self.sort_box = QComboBox()
+        self.sort_box.addItem("Name (A–Z)", "name")
+        self.sort_box.addItem("Focal length", "focal")
+        self.sort_box.setToolTip("The order of the rigs here and in the lists that offer your rigs - remembered")
+        cur = (getattr(owner, "settings", None).value("organize/rig_sort", "name")
+               if getattr(owner, "settings", None) is not None else "name") or "name"
+        self.sort_box.setCurrentIndex(max(0, self.sort_box.findData(cur)))
+        self.sort_box.currentIndexChanged.connect(lambda _i: self.sort_rows())
+        h.addWidget(self.sort_box)
+        h.addSpacing(16)
         h.addWidget(QLabel("Match within ±"))
         self.tol = QSpinBox()
         self.tol.setRange(1, 15)
@@ -1028,6 +1039,34 @@ class YourRigsDialog(QDialog):
         h.addWidget(cancel)
         lay.addLayout(h)
         self.resize(980, 460)
+        self.sort_rows(remember=False)
+
+    def sort_rows(self, key=None, remember=True):
+        """Order the rows by name (A–Z, numbers in names counted as numbers: SQA55 before SQA106) or by focal
+        length (the shortest first; a rig with several, by its first). Rows still being named sort last."""
+        key = key or self.sort_box.currentData() or "name"
+        if key != self.sort_box.currentData():
+            self.sort_box.blockSignals(True)
+            self.sort_box.setCurrentIndex(max(0, self.sort_box.findData(key)))
+            self.sort_box.blockSignals(False)
+        rows = [[(self.table.item(r, k).text() if self.table.item(r, k) else "") for k in range(4)]
+                for r in range(self.table.rowCount())]
+
+        def natural(t):
+            return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", t.lower())]
+
+        def first_fl(t):
+            m = re.search(r"\d+(?:\.\d+)?", t or "")
+            return float(m.group()) if m else float("inf")
+        if key == "focal":
+            rows.sort(key=lambda v: (not v[0].strip(), first_fl(v[1]), natural(v[0])))
+        else:
+            rows.sort(key=lambda v: (not v[0].strip(), natural(v[0]), first_fl(v[1])))
+        self.table.setRowCount(0)
+        for v in rows:
+            self.add_row(*v)
+        if remember and getattr(self.owner, "settings", None) is not None:
+            self.owner.settings.setValue("organize/rig_sort", key)
 
     def add_row(self, name, focals, camera, note, new=False, edit=False):
         r = self.table.rowCount()
