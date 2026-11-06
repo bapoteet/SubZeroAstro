@@ -1244,6 +1244,30 @@ class AutoDialog(QDialog):
         if not self._check(cfg):
             return None
         self.A.save_config({k: v for k, v in cfg.items() if k != "on"}, self.settings)
+        if not wait:
+            # the same as a scheduled run: its own process, so closing SubZeroAstro doesn't stop it
+            before = self.settings.value("auto_org/last", "") or ""
+            self.settings.sync()
+            ok, msg = self.A.start_background()
+            if not ok:
+                self.note.setText(f"Could not start it: {msg}")
+                return None
+            self.note.setText("<b>Running in the background.</b> It keeps going even if you close SubZeroAstro; "
+                              "the result shows here (and in the Organize window) when it's done.")
+            self.b_now.setEnabled(False)
+            from PySide6.QtCore import QTimer
+            self._poll = QTimer(self)
+
+            def poll():
+                self.settings.sync()
+                last = self.settings.value("auto_org/last", "") or ""
+                if last and last != before:
+                    self._poll.stop()
+                    self.b_now.setEnabled(True)
+                    self.note.setText("<b>Done:</b> " + last)
+            self._poll.timeout.connect(poll)
+            self._poll.start(2000)
+            return True
         self.note.setText("Running…")
         self.b_now.setEnabled(False)
         job = _Job(lambda j: self.A.run(cfg, self.settings, progress=lambda t: j.note.emit(t, 0, 0)))

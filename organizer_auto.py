@@ -95,11 +95,11 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
     lock = base / O.LOG_DIR / "auto_organize.lock"
     try:
         lock.parent.mkdir(parents=True, exist_ok=True)
-        if lock.exists() and time.time() - lock.stat().st_mtime < LOCK_STALE_H * 3600:
+        if lock.exists() and time.time() - lock.stat().st_mtime < LOCK_STALE_H * 3600 and _lock_alive(lock):
             rep["error"] = "another automatic run is still going"
             _finish(rep, s, None)
             return rep
-        lock.write_text(stamp, encoding="utf-8")
+        lock.write_text(f"{stamp}|{os.getpid()}|{_host()}", encoding="utf-8")
     except OSError as e:
         rep["error"] = f"the library {lib} can't be written ({e})"
         _finish(rep, s, None)
@@ -153,6 +153,49 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
             pass
     _finish(rep, s, base)
     return rep
+
+
+def _host() -> str:
+    import socket
+    try:
+        return socket.gethostname()
+    except OSError:
+        return ""
+
+
+def _pid_alive(pid) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(0x1000, False, pid)          # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+        k.CloseHandle(h)
+        return bool(ok) and code.value == 259        # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+
+
+def _lock_alive(lock) -> bool:
+    """A run's marker counts only while that run is really going: SubZeroAstro closed or the computer switched off
+    mid-run leaves the marker behind, and it must not block the next run. A run on another computer (the same
+    library on a NAS) can't be checked from here, so it counts until it is stale."""
+    try:
+        parts = lock.read_text(encoding="utf-8").split("|")
+        if len(parts) >= 3 and parts[2] and parts[2] != _host():
+            return True
+        return _pid_alive(int(parts[1])) if len(parts) >= 2 else False
+    except (OSError, ValueError):
+        return False
 
 
 def describe(rep) -> str:
@@ -246,6 +289,21 @@ def schedule(cfg) -> tuple:
         ok, msg = _run(["launchctl", "load", str(p)])
         return ok, (f"macOS: {FREQS.get(cfg.get('freq'), '')} at {cfg.get('time')}" if ok else msg)
     return False, "automatic runs are set up on Windows and macOS only"
+
+
+def start_background() -> tuple:
+    """Run Now: start one automatic run as its own process (no window), exactly like a scheduled run."""
+    try:
+        kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
+              "close_fds": True}
+        if sys.platform == "win32":
+            kw["creationflags"] = 0x00000008 | 0x08000000 | 0x00000200   # detached, no window, new group
+        else:
+            kw["start_new_session"] = True
+        subprocess.Popen(_command(), **kw)
+        return True, ""
+    except OSError as e:
+        return False, str(e)
 
 
 def unschedule() -> tuple:

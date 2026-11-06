@@ -4354,6 +4354,14 @@ def run(app, out_dir: Path) -> int:
               and _au_win[-3:] == ["WEEKLY", "/D", "MON,THU"] and "06:05" in _au_win,
               f"Organize Automatically: {_au.describe(_au_rep)}; the incoming folder may not be inside the library; "
               f"Task Scheduler: {' '.join(_au_win[-6:])}")
+        _au_lk = _au_root / "lock_test"
+        _au_lk.write_text(f"x|{os.getpid()}|{_au._host()}", encoding="utf-8")
+        _au_l1 = _au._lock_alive(_au_lk)
+        _au_lk.write_text(f"x|999999|{_au._host()}", encoding="utf-8")
+        _au_l2 = _au._lock_alive(_au_lk)
+        check(_au_l1 and not _au_l2,
+              f"Organize Automatically: a run left behind by SubZeroAstro being closed (or the computer switched "
+              f"off) no longer blocks the next run ({_au_l1}, {_au_l2})")
         _owin.change_layout(str(_au_lib), "target_rig", wait=True)
         _owin.go(ask=False, wait=True)
         _au_re = sorted(str(p.relative_to(_og.org_base(_au_lib))).replace("\\", "/").rsplit("/", 1)[0]
