@@ -125,7 +125,7 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
                                   riglist=riglist, tol=tol), lib)
         todo = [i for i in items if i.status == "move"]
         if todo:
-            log = O.execute(items, lib, move=True,
+            log = O.execute(items, lib, move=True, keep=[src],
                             progress=(lambda t, i, n: progress(t)) if progress else None)
             rep["log"] = str(log)
             try:

@@ -4413,7 +4413,18 @@ def run(app, out_dir: Path) -> int:
               f"Tonight's Target Picker: {len(_pcat)} objects ({_psrc}); from Dallas on 15 Oct 2026 M 31 is up "
               f"{_pp.hours if _pp else 0:.1f} h of the {_pnt.dark_hours:.1f} dark hours, peaking at "
               f"{_pp.peak_alt if _pp else 0:.0f}°; 'open sky from NNW to SSW' opens the west and blocks the east")
+        from PySide6.QtCore import QDate as _QDate0
         _pwin = w.open_target_picker()
+        _ph_ok = _pwin.use_my_location((29.7604, -95.3698, "test"))
+        _ph = (_pwin.lat.value(), _pwin.lon.value(), _pwin.date.date() == _QDate0.currentDate())
+        _ph_none = _pwin.use_my_location((None, None, "test"))
+        check(_ph_ok and _ph == (29.7604, -95.3698, True) and _ph_none is False
+              and _tp.parse_latlon("32.7767,-96.797") == (32.7767, -96.797) and _tp.parse_latlon("denied") is None
+              and _tp.parse_ip_answer({"success": True, "latitude": 29.76, "longitude": -95.37, "city": "Houston",
+                                       "region": "Texas"}) == (29.76, -95.37, "Houston, Texas")
+              and _tp.parse_ip_answer({"success": False}) is None,
+              f"Tonight's Target Picker › Use My Location: latitude and longitude filled in and tonight's date from "
+              f"the clock ({_ph}); no answer leaves them alone and says what to do")
         _pwin.lat.setValue(32.78)
         _pwin.lon.setValue(-96.8)
         from PySide6.QtCore import QDate as _QDate

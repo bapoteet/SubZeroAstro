@@ -692,7 +692,7 @@ def _same_drive(a, b) -> bool:
         return False
 
 
-def execute(items, library, move=False, progress=None, stop=None) -> Path:
+def execute(items, library, move=False, progress=None, stop=None, keep=None) -> Path:
     """Copy or move the planned files; returns the undo log. A copy is checked (size) before a move removes
     the original; a file that fails is skipped and noted, the rest carry on."""
     library = Path(library)
@@ -737,15 +737,27 @@ def execute(items, library, move=False, progress=None, stop=None) -> Path:
             write_log()
     write_log()
     if move:
-        _remove_empty_dirs({Path(d["src"]).parent for d in done}, stop_at=library)
+        _remove_empty_dirs({Path(d["src"]).parent for d in done}, stop_at=library, keep=keep)
     return log_path
 
 
-def _remove_empty_dirs(dirs, stop_at=None):
-    """After a move, folders left completely empty are removed (never one that still has anything in it)."""
+def _remove_empty_dirs(dirs, stop_at=None, keep=None):
+    """After a move, folders left completely empty are removed (never one that still has anything in it). keep:
+    the folders you chose to organize - they stay (an incoming folder stays ready for the next night's frames),
+    and nothing above them is ever touched."""
+    roots = []
+    for k in keep or []:
+        try:
+            roots.append(Path(k).resolve())
+        except OSError:
+            pass
     for d in sorted(dirs, key=lambda p: -len(p.parts)):
         p = d
         while p and _exists(p) and (stop_at is None or p.resolve() != Path(stop_at).resolve()):
+            if roots:
+                rp = p.resolve()
+                if rp in roots or not any(r in rp.parents for r in roots):
+                    break
             try:
                 if any(p.iterdir()):
                     break

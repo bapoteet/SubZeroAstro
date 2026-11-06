@@ -660,3 +660,78 @@ def save_nina_targets(targets, folder, night_label="", template: str | None = No
         p.write_text(nina_target_json(t, name, template), encoding="utf-8")
         out.append(p)
     return out
+
+
+# ------------------------------------------------------------------ where am I?
+_PS_LOCATE = ("Add-Type -AssemblyName System.Device; "
+              "$w = New-Object System.Device.Location.GeoCoordinateWatcher; $w.Start(); $t = 0; "
+              "while (($w.Status -ne 'Ready') -and ($w.Permission -ne 'Denied') -and ($t -lt 120)) "
+              "{ Start-Sleep -Milliseconds 100; $t++ }; $c = $w.Position.Location; "
+              "if ($w.Permission -eq 'Denied') { 'denied' } elseif ($c.IsUnknown) { 'unknown' } "
+              "else { '{0},{1}' -f $c.Latitude.ToString([cultureinfo]::InvariantCulture), "
+              "$c.Longitude.ToString([cultureinfo]::InvariantCulture) }")
+IP_SERVICES = ("https://ipwho.is/", "https://ipapi.co/json/")
+
+
+def parse_latlon(text):
+    """'32.78,-96.80' (the Windows location answer) -> (32.78, -96.8); None for 'denied' / 'unknown' / junk."""
+    m = re.fullmatch(r"\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*", str(text or ""))
+    if not m:
+        return None
+    lat, lon = float(m.group(1)), float(m.group(2))
+    return (lat, lon) if -90 <= lat <= 90 and -180 <= lon <= 180 and (lat, lon) != (0.0, 0.0) else None
+
+
+def parse_ip_answer(d):
+    """The answer of an IP-location service (JSON dict) -> (lat, lon, 'City, Region') or None."""
+    if not isinstance(d, dict) or d.get("success") is False or d.get("error"):
+        return None
+    try:
+        lat, lon = float(d.get("latitude")), float(d.get("longitude"))
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat, lon) == (0.0, 0.0):
+        return None
+    place = ", ".join(x for x in (d.get("city"), d.get("region")) if x)
+    return lat, lon, place
+
+
+def locate_windows(timeout=20):
+    """The computer's own location (Windows location service: Wi-Fi / GPS, accurate to a few hundred metres).
+    Returns ((lat, lon), '') or (None, why). Needs Settings > Privacy & security > Location on (and 'Let
+    desktop apps access your location')."""
+    import subprocess
+    import sys
+    if sys.platform != "win32":
+        return None, "not Windows"
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_LOCATE],
+                           capture_output=True, text=True, timeout=timeout, creationflags=0x08000000)
+        out = (r.stdout or "").strip().splitlines()[-1:] or [""]
+    except Exception as e:  # noqa: BLE001
+        return None, str(e)
+    ll = parse_latlon(out[0])
+    if ll:
+        return ll, ""
+    return None, ("Windows location is turned off for desktop apps" if out[0] == "denied"
+                  else "Windows doesn't know where this computer is")
+
+
+def locate_ip(timeout=10):
+    """Approximate location from the internet connection (city level, usually within 10-50 km - plenty for
+    planning: a target's altitude hardly changes over that distance). Returns ((lat, lon, place), '') or
+    (None, why)."""
+    import json
+    import urllib.request
+    why = ""
+    for url in IP_SERVICES:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "SubZeroAstro"})
+            with urllib.request.urlopen(req, timeout=timeout) as f:
+                got = parse_ip_answer(json.loads(f.read().decode("utf-8", "replace")))
+            if got:
+                return got, ""
+            why = "no location in the answer"
+        except Exception as e:  # noqa: BLE001
+            why = str(e)
+    return None, why or "no answer"

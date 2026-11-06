@@ -232,6 +232,13 @@ class TargetPickerDialog(QDialog):
                      "FITS or XISF file you shot with this rig")
         b.clicked.connect(lambda: self.from_picture())
         gl.addWidget(b, 4, 0, 1, 2)
+        self.b_here = QPushButton("Use My Location")
+        self.b_here.setToolTip("Fills in your latitude and longitude: from Windows' own location service (Wi-Fi/GPS) "
+                               "when it's on, otherwise approximately from your internet connection (asks an online "
+                               "service; city level - plenty for planning). The date and times always come from "
+                               "this computer's clock and time zone.")
+        self.b_here.clicked.connect(lambda: self.use_my_location())
+        gl.addWidget(self.b_here, 5, 0, 1, 2)
         top.addWidget(g)
 
         # ---- your sky
@@ -435,6 +442,46 @@ class TargetPickerDialog(QDialog):
                 got.append(name)
         self.summary.setText("From the picture: " + (", ".join(got) if got else "nothing useful (no site or "
                                                                                  "optics in its header)") + ".")
+
+    def use_my_location(self, answer=None):
+        """Use My Location: the computer's location (Windows location service), else an approximate one from the
+        internet connection; tonight's date from the computer's clock. answer = (lat, lon, how) for the self-test."""
+        if answer is None:
+            from PySide6.QtCore import QThread, Signal as _Sig
+
+            class _Find(QThread):
+                found = _Sig(object)
+
+                def run(self):
+                    ll, why = tp.locate_windows()
+                    if ll:
+                        self.found.emit((ll[0], ll[1], "this computer's location service"))
+                        return
+                    got, why2 = tp.locate_ip()
+                    if got:
+                        self.found.emit((got[0], got[1], "your internet connection (approximate"
+                                         + (f", near {got[2]}" if got[2] else "") + ")"))
+                    else:
+                        self.found.emit((None, None, (why if why and why != "not Windows" else "") or why2))
+            self.b_here.setEnabled(False)
+            self.summary.setText("Finding where you are…")
+            self._find = _Find(self)
+            self._find.found.connect(lambda a: (self.b_here.setEnabled(True), self.use_my_location(a)))
+            self._find.start()
+            return None
+        lat, lon, how = answer
+        if lat is None:
+            self.summary.setText(f"Couldn't find your location ({how}). Type your latitude and longitude, pick a "
+                                 f"N.I.N.A. profile, or fill them in from one of your pictures.")
+            return False
+        self.lat.setValue(round(float(lat), 4))
+        self.lon.setValue(round(float(lon), 4))
+        self.date.setDate(QDate.currentDate())
+        self.settings.setValue("picker/lat", self.lat.value())
+        self.settings.setValue("picker/lon", self.lon.value())
+        self.summary.setText(f"Location from {how}: {self.lat.value():.4f}, {self.lon.value():.4f}; "
+                             f"tonight's date and times from this computer's clock.")
+        return True
 
     def load_horizon(self, path=None):
         if path is None:

@@ -555,7 +555,7 @@ class OrganizeDialog(QDialog):
                 return
 
         def work(job):
-            return O.execute(self.items, lib, move=move,
+            return O.execute(self.items, lib, move=move, keep=[p if p.is_dir() else p.parent for p in self.sources()],
                              progress=lambda t, i, n: job.note.emit(t, i, n), stop=lambda: job.stop)
 
         def done(log):
