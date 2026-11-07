@@ -129,8 +129,8 @@ table(["Page", "What happens there"], [
 ], [2700, 6660]);
 p("At every page you can also **stop and continue in PixInsight** - SubZeroAstro saves exactly what you have so far, plus a note of what to do next there.");
 img("0_splash_4.00s.png", "The SubZeroAstro start-up screen", 520);
-sec("1.2", "What only SubZeroAstro does", ["Unique features", "N.I.N.A. integration", "ASIAIR integration", "Live grading", "Same framing", "Fetch From My ASIAIRs"]);
-p("Plenty of programs stack and process. SubZeroAstro is built around **the whole night, from planning to the finished picture** - and it works hand in hand with the two programs most of us capture with, **N.I.N.A.** and the **ZWO ASIAIR**. No other single program we know of does all of this:");
+sec("1.2", "Everything in one app", ["Unique features", "N.I.N.A. integration", "ASIAIR integration", "Live grading", "Same framing", "Fetch From My ASIAIRs"]);
+p("Planning a night, bringing the subs in, filing them, checking and culling, calibrating, stacking and processing usually take several programs - each to buy, learn and keep in step with the others. **SubZeroAstro does all of it in one app**, with one set of rigs and one way of working, and works hand in hand with the two programs most of us capture with, **N.I.N.A.** and the **ZWO ASIAIR**:");
 table(["Feature", "What it does for you", "Where"], [
   ["Target planning", "What to shoot tonight from your site and horizon - hours in the dark, peak altitude, Moon, size in your frame - sent straight into N.I.N.A.'s target list.", "6.5"],
   ["Rigs imported from N.I.N.A.", "Your rigs read from N.I.N.A.'s profiles; its file name pattern checked for typos.", "4.5"],
