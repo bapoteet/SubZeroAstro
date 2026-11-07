@@ -25,14 +25,18 @@ let listInstance = 0;
 const anchorOf = (num) => "s_" + String(num).replace(/\./g, "_");
 
 function runs(text, base = {}) {
-  // **bold**, *italic*, `code`
+  // **bold**, *italic*, `code`, [text](https://link)
   const out = [];
-  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+  const re = /(\[[^\]]+\]\(https?:[^)\s]+\)|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
   let last = 0, m;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(new TextRun({ text: text.slice(last, m.index), ...base }));
     const t = m[0];
-    if (t.startsWith("**")) out.push(new TextRun({ text: t.slice(2, -2), bold: true, ...base }));
+    if (t.startsWith("[")) {
+      const k = t.indexOf("](");
+      out.push(new ExternalHyperlink({ link: t.slice(k + 2, -1), children: [new TextRun({
+        text: t.slice(1, k), color: "1F6FC5", underline: {}, ...base })] }));
+    } else if (t.startsWith("**")) out.push(new TextRun({ text: t.slice(2, -2), bold: true, ...base }));
     else if (t.startsWith("`")) out.push(new TextRun({ text: t.slice(1, -1), font: "Consolas", size: 19, ...base }));
     else out.push(new TextRun({ text: t.slice(1, -1), italics: true, ...base }));
     last = m.index + t.length;
@@ -196,8 +200,8 @@ tip("Images on a network drive (NAS) work fine. SubZeroAstro reads them carefull
 sec("2.2", "Companion programs (optional but recommended)", ["ASTAP", "GraXpert", "RC-Astro CLI", "BlurXTerminator", "NoiseXTerminator", "StarXTerminator", "PixInsight"]);
 p("SubZeroAstro works on its own, but it can call these free or commercial programs for the best results. Install them **before** the first setup (Chapter 4); SubZeroAstro finds them automatically in their usual places. Each time it starts, page 1 checks for them quietly in the background and shows an amber note if one is missing or not licensed (4.1).");
 table(["Program", "Used for", "Where to get it", "Without it"], [
-  ["**ASTAP** + a star database (D50 suits most setups)", "Plate solving (page 3)", "hnsky.org/astap.htm (free)", "Plate solving is skipped (PixInsight can do it later)"],
-  ["**GraXpert**", "AI gradient removal (page 3)", "graxpert.com (free)", "A built-in gradient remover is used"],
+  ["**ASTAP** + a star database (D50 suits most setups)", "Plate solving (page 3)", "[hnsky.org/astap.htm](https://www.hnsky.org/astap.htm) (free)", "Plate solving is skipped (PixInsight can do it later)"],
+  ["**GraXpert**", "AI gradient removal (page 3)", "[graxpert.com](https://graxpert.com/) (free)", "A built-in gradient remover is used"],
   ["**RC-Astro CLI** with your BlurXTerminator, NoiseXTerminator and StarXTerminator licences", "Sharpening, noise reduction and star removal (pages 3 and 4)", "Your RC-Astro account (rc-astro.com)", "These steps are skipped; Take Stars Out is not available"],
   ["**PixInsight** (optional)", "Further processing after any page", "pixinsight.com", "Not needed - SubZeroAstro can finish the picture"],
 ], [2500, 2200, 2360, 2300]);
@@ -243,6 +247,17 @@ steps([
   "**Build your calibration library**: **Stack › Build Calibration Masters…** turns your darks, flats and bias into masters that are matched to every night automatically (chapter 7).",
   "**Optional**: **Organize Automatically…** to file new frames on a schedule (13.3), and **Settings › Open FITS / XISF Files With SubZeroAstro…** so a double-click opens them in its viewer (6.4).",
 ]);
+p("**Where to get everything** (all free except the RC-Astro tools; **Settings › Your Tools…** also has a Download Page button for the first three):");
+table(["What", "Download", "Notes"], [
+  ["ASTAP and its star databases", "[hnsky.org/astap.htm](https://www.hnsky.org/astap.htm)", "Install ASTAP, then a database from the same page: D50 for most telescopes, W08 too for camera lenses"],
+  ["GraXpert", "[graxpert.com](https://graxpert.com/)", "Gradient removal"],
+  ["RC-Astro BlurXTerminator, NoiseXTerminator, StarXTerminator", "[rc-astro.com](https://www.rc-astro.com/?p=173572)", "Paid; install the RC-Astro CLI, then activate with the code from your rc-astro.com account (4.1)"],
+  ["N.I.N.A.", "[nighttime-imaging.eu](https://nighttime-imaging.eu/)", "Windows capture program"],
+  ["Session Metadata plugin for N.I.N.A.", "Inside N.I.N.A.: *Plugins › Available › Session Metadata* ([about it](https://github.com/tcpalmer/nina.plugin.sessionmetadata))", "Writes each frame's guiding RMS for SubZeroAstro"],
+  ["ASIAIR app", "Apple App Store or Google Play (search *ASIAIR*)", "Shows each ASIAIR's IP address (Wi-Fi settings) and sets its focal length"],
+  ["PixInsight (optional)", "[pixinsight.com](https://pixinsight.com/)", "Paid; only if you want to continue there"],
+  ["SubZeroAstro updates", "[github.com/bapoteet/SubZeroAstro/releases](https://github.com/bapoteet/SubZeroAstro/releases)", "SubZeroAstro also offers each update itself"],
+], [3000, 3400, 2960]);
 sec("4.1", "Tell SubZeroAstro where your tools are", ["Tool locations", "ASTAP", "GraXpert", "RC-Astro CLI", "Device (GPU)"]);
 p("When SubZeroAstro starts, it checks for ASTAP, GraXpert and the RC-Astro CLI in the background. If one is missing - or RC-Astro is installed but a tool is not licensed, or ASTAP has no star database next to it (ASTAP can't plate solve without one; D50 is a separate download on the same page) - a slim **amber banner** appears at the top of page 1, saying what you would miss (for example *plate solving is skipped*). Nothing is wrong: you can still cull and stack. The banner has two buttons:");
 bullets([

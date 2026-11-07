@@ -146,6 +146,14 @@ class NinaDialog(QDialog):
         pat.setWordWrap(True)
         pat.setTextInteractionFlags(Qt.TextSelectableByMouse)
         l1.addWidget(pat)
+        smd = QLabel("<b>Guiding RMS for every frame:</b> install N.I.N.A.'s free <b>Session Metadata</b> plugin "
+                     "(in N.I.N.A.: Plugins › Available › Session Metadata - <a href='https://github.com/tcpalmer/"
+                     "nina.plugin.sessionmetadata'>about it</a>). It writes an ImageMetaData.csv next to your frames, "
+                     "and SubZeroAstro shows, charts and culls on each frame's guiding. Don't have N.I.N.A.? "
+                     "<a href='https://nighttime-imaging.eu/'>nighttime-imaging.eu</a>")
+        smd.setWordWrap(True)
+        smd.setOpenExternalLinks(True)
+        l1.addWidget(smd)
         h = QHBoxLayout()
         b = QPushButton("Add Ticked to Your Rigs…")
         b.setToolTip("Opens Your Rigs with these added - check them, then Save My Rigs")
