@@ -4545,6 +4545,17 @@ def run(app, out_dir: Path) -> int:
               and sorted(p.name for p in _zz_left.iterdir()) == ["MyPicture.jpg"],
               f"Organize names a frame that is all zeros (never written) and deletes it when asked; ASIAIR .jpg "
               f"previews left on their own in the incoming folder are deleted too, other pictures kept")
+        _rr_rigs = [{"name": "SQA60", "focals": [360]}]
+        _rr = [_og.match_rig(_NS(focal=f, camera="x", precal=pc, telescope=tl), pth, _rr_rigs) for f, pc, tl, pth in (
+            (530, None, None, "D:/TL/CHI-1-CCD_2019-12-02T05-36-00_NGC_2359_Halpha_300s_1_cal.fits"),
+            (360, None, None, "D:/TL/CHI-1-CCD_2019-12-02T05-36-01_NGC_2359_Halpha_300s_2_cal.fits"),
+            (None, None, None, "D:/x/calibrated-T21-me-M31-20261101-L-300s.fit"),
+            (900, "Telescope Live: PROC = True", "SPA-3", "D:/x/frame.fits"),
+            (900, None, None, "D:/x/Light_M31_0001.fits"))]
+        check([r[0] for r in _rr] == ["Telescope Live CHI-1", "Telescope Live CHI-1", "iTelescope T21",
+                                      "Telescope Live SPA-3", None],
+              f"Organize files rented-telescope data under its telescope (Telescope Live, iTelescope) without a "
+              f"rig in My Rigs; your own unknown frames still wait for you ({_rr})")
         _mr_d = w.open_my_rigs(show=False)
         check(type(_mr_d).__name__ == "YourRigsDialog" and w.act_my_rigs.text() == "My Rigs…",
               "Settings › My Rigs… opens the rigs table straight away")

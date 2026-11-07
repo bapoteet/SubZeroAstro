@@ -137,6 +137,31 @@ def _rig_folder_key(name) -> str:
     return k if len(k) >= 3 else ""
 
 
+REMOTE_RIGS = True          # Organize: data from rented telescopes filed under the service's telescope
+
+
+def remote_rig(info, path, by_name=False) -> str:
+    """Frames from a telescope you rent time on (not one of your rigs): 'Telescope Live CHI-1', 'iTelescope T21',
+    or the telescope named in an already-calibrated file's header - so they're filed under that telescope
+    instead of waiting in Which Rig?. '' when it isn't such a file."""
+    if not REMOTE_RIGS:
+        return ""
+    n = Path(str(path)).name if path is not None else ""
+    m = re.match(r"^([A-Z]{3}-\d{1,2})(?:-(?:CCD|CMOS|[A-Z]{2,5}))?_", n)          # CHI-1-CCD_2019-12-02T…
+    if m:
+        return f"Telescope Live {m.group(1)}"
+    m = re.match(r"^(?:raw|calibrated)-(T\d{1,2})-", n, re.I)                      # calibrated-T21-user-M31-…
+    if m:
+        return f"iTelescope {m.group(1).upper()}"
+    if by_name:
+        return ""
+    pre = str(getattr(info, "precal", "") or "")
+    if "telescope live" in pre.lower():
+        tel = str(getattr(info, "telescope", "") or "").strip()
+        return f"Telescope Live {tel}".strip() if tel else "Telescope Live"
+    return ""
+
+
 def match_rig(info, path, riglist, tol=0.03):
     """(rig name or None, reason). A folder you assigned to a rig wins; otherwise the focal length in the header
     within ±tol of one of a rig's focal lengths (and the camera, when the rig lists one). reason:
@@ -150,6 +175,11 @@ def match_rig(info, path, riglist, tol=0.03):
                 best = (r["name"], len(fp))
     if best:
         return best[0], "folder"
+    # a Telescope Live / iTelescope file name says outright whose telescope took it - even when its focal
+    # length happens to match one of your rigs
+    rem = remote_rig(None, path, by_name=True)
+    if rem:
+        return rem, "remote"
     # a folder on the way named after a rig ("RASA11/Light/M31/…", e.g. one USB stick filled from several
     # ASIAIRs, each into a folder named after its rig) settles what the header can't: two rigs with the same
     # scope and camera, or no focal length at all. A header that names another rig, or none of them, still wins.
@@ -158,7 +188,10 @@ def match_rig(info, path, riglist, tol=0.03):
     by_folder = named[0] if len(named) == 1 else None
     fl = getattr(info, "focal", None)
     if not fl:
-        return (by_folder, "folder") if by_folder else (None, "nofocal")
+        if by_folder:
+            return by_folder, "folder"
+        rem = remote_rig(info, path)
+        return (rem, "remote") if rem else (None, "nofocal")
     cam = _cam_norm(getattr(info, "camera", None))
     hits, cam_off = {}, []
     for r in riglist or []:
@@ -184,7 +217,8 @@ def match_rig(info, path, riglist, tol=0.03):
     if not hits and cam_off:
         return None, "camera: " + ", ".join(cam_off)
     if not hits:
-        return None, "nomatch"
+        rem = remote_rig(info, path)
+        return (rem, "remote") if rem else (None, "nomatch")
     return None, "ambiguous: " + ", ".join(hits)
 
 
