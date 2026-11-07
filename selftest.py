@@ -4640,6 +4640,10 @@ def run(app, out_dir: Path) -> int:
         except Exception as _wxl_e:  # noqa: BLE001
             _wxl_t = f"FAILED: {str(_wxl_e)[:300]}"
         check(True, f"(info) live weather forecast from this build: {_wxl_t}")
+        import target_picker as _tpl
+        _tpl_got, _tpl_why = _tpl.locate_ip()
+        check(True, f"(info) Use My Location from this build's internet connection: "
+                    f"{'found' if _tpl_got else 'FAILED: ' + str(_tpl_why)[:200]}")
         check(_wxl._why(KeyError(0)) == "KeyError '0'", "a weather error is shown in words, never a bare '0'")
         # My Weather Forecast: the dark hours of each night, hour by hour, and a bottom line for the night
         import weather as _wx

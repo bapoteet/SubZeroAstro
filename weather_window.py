@@ -128,8 +128,8 @@ class WeatherDialog(QDialog):
                     if ll:
                         self.found.emit((ll[0], ll[1]))
                         return
-                    got, _why2 = tp.locate_ip()
-                    self.found.emit((got[0], got[1]) if got else (None, None))
+                    got, why2 = tp.locate_ip()
+                    self.found.emit((got[0], got[1]) if got else (None, why2))
             self.status.setText("Finding where you are…")
             self._find = _Find(self)
             self._find.found.connect(lambda a: self.use_my_location(a))
@@ -137,7 +137,9 @@ class WeatherDialog(QDialog):
             return None
         lat, lon = answer
         if lat is None:
-            self.status.setText("Couldn't find your location - type your latitude and longitude.")
+            self.status.setText("Couldn't find your location" + (f" ({str(lon)[:200]})" if lon else "")
+                                + " - type your latitude and longitude (a pin dropped in Google or Apple Maps "
+                                  "shows them).")
             return False
         self.lat.setValue(round(float(lat), 4))
         self.lon.setValue(round(float(lon), 4))

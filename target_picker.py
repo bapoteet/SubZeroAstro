@@ -722,17 +722,15 @@ def locate_ip(timeout=10):
     """Approximate location from the internet connection (city level, usually within 10-50 km - plenty for
     planning: a target's altitude hardly changes over that distance). Returns ((lat, lon, place), '') or
     (None, why)."""
-    import json
-    import urllib.request
-    why = ""
+    import weather            # its fetch: certifi + the system's certificates, then Qt's networking (a packaged
+    why = ""                  # Mac app has no certificates of its own - plain urllib failed there)
     for url in IP_SERVICES:
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "SubZeroAstro"})
-            with urllib.request.urlopen(req, timeout=timeout) as f:
-                got = parse_ip_answer(json.loads(f.read().decode("utf-8", "replace")))
+            got = parse_ip_answer(weather._get(url, timeout=timeout))
             if got:
                 return got, ""
             why = "no location in the answer"
         except Exception as e:  # noqa: BLE001
             why = str(e)
+    weather._log(f"Use My Location: couldn't find it from the internet connection ({why})")
     return None, why or "no answer"
