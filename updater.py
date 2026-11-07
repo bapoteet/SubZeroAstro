@@ -208,10 +208,43 @@ def windows_script(pid: int, new_dir: Path, target: Path, stage: Path) -> str:
         "@echo off\r\n"
         ":wait\r\n"
         f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)\r\n'
-        f'robocopy "{new_dir}" "{target}" /E /R:10 /W:1 /NFL /NDL /NJH /NJS /NP >nul\r\n'
-        f'start "" "{target / "SubZeroAstro.exe"}"\r\n'
+        f'robocopy "{new_dir}" "{target}" /E /R:3 /W:1 /NFL /NDL /NJH /NJS /NP >nul\r\n'
+        # robocopy 8 and up: a file could not be replaced (in use - e.g. another SubZeroAstro still running):
+        # start the copy that is there and say so, instead of leaving you with nothing
+        f'if errorlevel 8 (start "" "{target / "SubZeroAstro.exe"}" --update-failed) '
+        f'else (start "" "{target / "SubZeroAstro.exe"}")\r\n'
         f'rmdir /S /Q "{stage}" >nul 2>&1\r\n'
     )
+
+
+def other_instances(pid=None) -> list:
+    """Windows: the PIDs of every other SubZeroAstro.exe running (another window, or an automatic organize run
+    in the background) - while one runs, its program files are locked and an update can't replace them."""
+    import os
+    import subprocess
+    if sys.platform != "win32":
+        return []
+    me = pid if pid is not None else os.getpid()
+    try:
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq SubZeroAstro.exe", "/FO", "CSV", "/NH"],
+                           capture_output=True, text=True, timeout=20, creationflags=0x08000000)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return parse_tasklist(r.stdout, me)
+
+
+def parse_tasklist(text, me) -> list:
+    out = []
+    for line in (text or "").splitlines():
+        f = [x.strip('"') for x in line.strip().split('","')]
+        if len(f) >= 2 and f[0].lower() == "subzeroastro.exe":
+            try:
+                p = int(f[1].strip('"'))
+            except ValueError:
+                continue
+            if p != me:
+                out.append(p)
+    return out
 
 
 def mac_script(pid: int, zip_path: Path, target: Path, stage: Path) -> str:
@@ -421,6 +454,15 @@ class UpdateBanner(QFrame):
                 self._info("Update SubZeroAstro", "SubZeroAstro can't update itself here: " + reason
                            + ".\n\nAfter that, Update Now will work. The download page opens now.")
             QDesktopServices.openUrl(QUrl(self.release.get("page") or PAGE))
+            return
+        others = other_instances() if getattr(sys, "frozen", False) else []
+        if others:
+            self._info("Update SubZeroAstro",
+                       f"SubZeroAstro is also running somewhere else on this computer ({len(others)} other copy) - "
+                       "most likely an automatic organize run working in the background, or a second window.\n\n"
+                       "While it runs, Windows won't let the update replace the program files. Let it finish (the "
+                       "Organize window shows the last automatic run when it's done) or close the other window, "
+                       "then press Update Now again. (Task Manager › SubZeroAstro shows every copy running.)")
             return
         if ask and QMessageBox.question(
                 self.window(), "Update SubZeroAstro",

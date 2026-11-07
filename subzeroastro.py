@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.224 beta"
+APP_VERSION = "0.9.225 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -3379,6 +3379,9 @@ def _install_place() -> str:
 
 
 def main():
+    upd_failed = "--update-failed" in sys.argv          # the updater couldn't replace the program files
+    if upd_failed:
+        sys.argv = [a for a in sys.argv if a != "--update-failed"]
     if "--auto-organize" in sys.argv:
         # started by Windows Task Scheduler / a macOS LaunchAgent: one automatic organize run, no window
         import organizer_auto
@@ -3462,8 +3465,16 @@ def main():
             ui_header.fit_to_screen(w)
         w.raise_()
         w.activateWindow()
-        if len(sys.argv) <= 1:
+        if len(sys.argv) <= 1 and not upd_failed:
             QTimer.singleShot(400, w.offer_resume)
+        if upd_failed:
+            QTimer.singleShot(600, lambda: QMessageBox.information(
+                w, "Update SubZeroAstro",
+                f"The update could not be installed - this is still SubZeroAstro {APP_VERSION}.\n\n"
+                "Windows wouldn't let it replace the program files because they were in use - usually another "
+                "SubZeroAstro still running (an automatic organize run in the background, or a second window). "
+                "Let it finish or close it (Task Manager shows every copy), then Help › Check for Updates › "
+                "Update Now again."))
     if sp is not None:
         sp.finished.connect(show_main)
         sp.app_ready()

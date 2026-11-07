@@ -3783,6 +3783,14 @@ def run(app, out_dir: Path) -> int:
         # in-app updates: the newest GitHub release, the blue banner, Update Now's helper (no network needed)
         import updater as _up
         import zipfile as _uzf
+        _ut = ('"SubZeroAstro.exe","4100","Console","1","412,000 K"\n'
+               '"SubZeroAstro.exe","5200","Console","1","98,000 K"\n"python.exe","77","Console","1","1 K"\n')
+        _uws = _up.windows_script(4100, Path("C:/stage/new"), Path("C:/Apps/SubZeroAstro"), Path("C:/stage"))
+        check(_up.parse_tasklist(_ut, 4100) == [5200] and _up.parse_tasklist("INFO: No tasks are running", 1) == []
+              and "if errorlevel 8" in _uws and "--update-failed" in _uws,
+              "updates: another SubZeroAstro still running (e.g. an automatic organize run) is noticed before "
+              "updating, and a copy that couldn't be replaced starts the old version with a message instead of "
+              "leaving nothing running")
         _an = _up.asset_name()
         _rels = [{"tag_name": "v9.0.200-beta", "draft": True, "assets": [{"name": _an}]},
                  {"tag_name": "v9.0.150-beta", "assets": [{"name": "SomethingElse.zip"}]},
