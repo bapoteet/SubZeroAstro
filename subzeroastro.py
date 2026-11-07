@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.228 beta"
+APP_VERSION = "0.9.229 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -965,6 +965,9 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_actions()
         self._restore_settings()
+        if self.settings.value("asiair/night", False, type=bool):    # Fetch From My ASIAIRs: through the night
+            QTimer.singleShot(8000, lambda: self.set_asiair_night(True, int(self.settings.value("asiair/every", 10)
+                                                                              or 10)))
         QTimer.singleShot(3000, self.cleanup_checkpoints)
         QTimer.singleShot(1200, self.tools_banner.start_check)     # optional helpers, checked in the background
         if "--selftest" not in sys.argv:
@@ -1392,6 +1395,11 @@ class MainWindow(QMainWindow):
                                  "you're told if clouds, dew, focus or guiding go wrong")
         self.act_live.toggled.connect(lambda on: self.set_live(on))
         m.addAction(self.act_live)
+        self.act_asiair = QAction("Fetch From My ASIAIRs…", self)
+        self.act_asiair.setToolTip("Copy the new subs from your ASIAIRs over the network into your incoming folder, "
+                                   "each under its rig - no USB stick")
+        self.act_asiair.triggered.connect(lambda: self.open_asiair())
+        m.addAction(self.act_asiair)
         m.addSeparator()
         if ORGANIZER_ENABLED:
             m.addAction(self.act_organize)
@@ -1632,6 +1640,47 @@ class MainWindow(QMainWindow):
         if not self.settings.value("organize/intro_ok", False, type=bool):
             w.show_intro()
         return w
+
+    def open_asiair(self, show=True):
+        """File › Fetch From My ASIAIRs…"""
+        import asiair_window
+        d = asiair_window.AsiairDialog(self, self.settings)
+        if show:
+            d.exec()
+        return d
+
+    def set_asiair_night(self, on, minutes=10):
+        """Keep fetching from the ASIAIRs every few minutes while the app is open (Wi-Fi: spread over the night)."""
+        if not hasattr(self, "asiair_timer"):
+            self.asiair_timer = QTimer(self)
+            self.asiair_timer.timeout.connect(self.asiair_night_tick)
+            self.asiair_job = None
+        self.asiair_timer.setInterval(max(1, int(minutes)) * 60_000)
+        if on:
+            self.asiair_timer.start()
+            QTimer.singleShot(1000, self.asiair_night_tick)
+        else:
+            self.asiair_timer.stop()
+
+    def asiair_night_tick(self):
+        import asiair as A
+        from organizer_window import _Job
+        if getattr(self, "asiair_job", None) is not None and self.asiair_job.isRunning():
+            return                                   # the last fetch is still copying (slow Wi-Fi)
+        units = [u for u in A.load_units(self.settings) if u.get("address")]
+        inc = (self.settings.value("asiair/incoming", "") or "").strip()
+        if not units or not inc:
+            return
+        free = self.settings.value("asiair/free", False, type=bool)
+        self.asiair_job = _Job(lambda job: A.fetch_all(units, inc, stop=lambda: job.stop, free=free))
+
+        def done(reps):
+            text = time.strftime("%H:%M") + "  ASIAIRs: " + A.describe(reps).replace("\n", "; ")
+            self.settings.setValue("asiair/last", time.strftime("%Y-%m-%d ") + text)
+            if sum(r["copied"] for r in reps) or any(r["error"] or r["failed"] for r in reps):
+                self.statusBar().showMessage(text, 60000)
+        self.asiair_job.ok.connect(done)
+        self.asiair_job.start()
 
     def open_nina(self, show=True, tab=None):
         """Settings › Work With N.I.N.A.… (tab="framing": Stack › Same Framing Next Session…)"""

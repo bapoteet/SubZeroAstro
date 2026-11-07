@@ -117,6 +117,18 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
             tol = float(s.value("organize/rig_tol", 3)) / 100.0
         except (TypeError, ValueError):
             tol = 0.03
+        if s.value("asiair/with_auto", False, type=bool):       # the ASIAIRs' new subs first
+            try:
+                import asiair as A
+                units = A.load_units(s)
+                inc = (s.value("asiair/incoming", "") or "").strip() or str(src)
+                if units:
+                    if progress:
+                        progress("Fetching from your ASIAIRs…")
+                    reps = A.fetch_all(units, inc, free=s.value("asiair/free", False, type=bool))
+                    rep["asiair"] = A.describe(reps).replace("\n", "; ")
+            except Exception as e:  # noqa: BLE001
+                rep["asiair"] = f"ASIAIR fetch failed: {e}"
         t_now = now if now is not None else time.time()
         paths, settling = [], 0
         for p in O.scan(src):
@@ -273,6 +285,8 @@ def describe(rep) -> str:
     if rep.get("error"):
         return f"{rep['time']}: not run - {rep['error']}"
     t = f"{rep['time']}: {rep['filed']} file(s) filed"
+    if rep.get("asiair"):
+        t += f" [ASIAIRs: {rep['asiair']}]"
     if rep.get("jpgs"):
         t += f", {rep['jpgs']} .jpg preview(s) deleted"
     if rep["left"]:

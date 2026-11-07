@@ -186,8 +186,13 @@ class OrganizeDialog(QDialog):
         self.b_auto.clicked.connect(lambda: self.open_auto())
         self.auto_note = QLabel("")
         self.auto_note.setWordWrap(True)
+        self.b_asiair = QPushButton("Fetch From My ASIAIRs…")
+        self.b_asiair.setToolTip("Copy the new subs from your ASIAIRs over the network into the incoming folder, "
+                                 "each under its rig - no USB stick")
+        self.b_asiair.clicked.connect(self.open_asiair)
         h.addWidget(self.b_resort)
         h.addWidget(self.b_auto)
+        h.addWidget(self.b_asiair)
         h.addWidget(self.auto_note, 1)
         lay.addLayout(h)
         self._show_auto_note()
@@ -745,6 +750,13 @@ class OrganizeDialog(QDialog):
         self._run(work, done, wait)
 
     # ---------------------------------------------------------------- Your Rigs
+    def open_asiair(self):
+        p = self.parent()
+        if p is not None and hasattr(p, "open_asiair"):
+            return p.open_asiair()
+        import asiair_window
+        return asiair_window.AsiairDialog(self, self.settings).exec()
+
     def riglist(self):
         import json as _json
         try:

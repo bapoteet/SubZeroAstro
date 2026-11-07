@@ -1,0 +1,224 @@
+"""
+asiair.py - fetch the night's subs from your ASIAIRs over the network, no USB stick.
+
+An ASIAIR shares its storage on the network as Windows folders (\\\\<its IP>\\EMMC Images, \\Udisk Images …; its IP
+is in the ASIAIR app's Wi-Fi settings). Fetch copies every FITS file that hasn't been fetched before into your
+incoming folder, in a folder named after that ASIAIR's rig - so Organize files it under the right rig even when two
+rigs have the same scope and camera. The .jpg previews are left behind. Each copy is checked (size) before it
+counts; only then, and only if you ask, is the sub deleted from the ASIAIR to free its space. What was fetched is
+remembered, so organizing (which empties the incoming folder) never makes a sub come over twice.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+SETTLE_S = 120                       # a sub changed in the last 2 minutes may still be being written
+GUESS_SHARES = ("EMMC Images", "Udisk Images", "TF Images", "SD Images")
+
+
+def _exts():
+    import fits_core as core
+    return {e.lower() for e in core.LIGHT_EXTS}
+
+
+def safe_name(name) -> str:
+    n = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " ", str(name or "")).strip().rstrip(".")
+    return n or "ASIAIR"
+
+
+def is_ip(address) -> bool:
+    return bool(re.fullmatch(r"\s*\d{1,3}(\.\d{1,3}){3}\s*", str(address or "")))
+
+
+def unc(address) -> str:
+    """'192.168.1.50' -> '\\\\192.168.1.50'; anything else (a share or folder path) unchanged."""
+    a = str(address or "").strip()
+    return "\\\\" + a if is_ip(a) else a
+
+
+def parse_net_view(text) -> list:
+    """Disk share names from Windows' 'net view \\\\host' output."""
+    out, table = [], False
+    for ln in str(text or "").splitlines():
+        if ln.startswith("---"):
+            table = True
+            continue
+        if not table or not ln.strip():
+            continue
+        parts = re.split(r"\s{2,}", ln.strip())
+        if len(parts) >= 2 and parts[1].lower() in ("disk", "datenträger", "disque", "disco"):
+            out.append(parts[0])
+    return out
+
+
+def shares(address) -> list:
+    """The folders to look through for an ASIAIR: its image shares for an IP address, else the folder given."""
+    a = str(address or "").strip()
+    if not a:
+        return []
+    if not is_ip(a):
+        return [Path(a)]
+    host = unc(a)
+    names = []
+    if sys.platform.startswith("win"):
+        try:
+            r = subprocess.run(["net", "view", host], capture_output=True, text=True, timeout=25,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            names = [n for n in parse_net_view(r.stdout) if "image" in n.lower()] or parse_net_view(r.stdout)
+        except (OSError, subprocess.SubprocessError):
+            names = []
+    found = []
+    for n in names or GUESS_SHARES:
+        p = Path(host + "\\" + n)
+        try:
+            if p.is_dir():
+                found.append(p)
+        except OSError:
+            pass
+    return found
+
+
+def scan(roots, now=None, stop=None) -> list:
+    """[(file, share root, relative path, size, mtime)] for the subs on the ASIAIR (FITS / XISF, not the .jpgs);
+    a sub written in the last couple of minutes is left for next time."""
+    now = time.time() if now is None else now
+    exts = _exts()
+    out = []
+    for root in roots:
+        root = Path(root)
+        for dp, dns, fns in os.walk(root):
+            if stop and stop():
+                return out
+            dns[:] = sorted(d for d in dns if not d.startswith((".", "$")))
+            for n in sorted(fns):
+                p = Path(dp) / n
+                if p.suffix.lower() not in exts:
+                    continue
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                if now - st.st_mtime < SETTLE_S:
+                    continue
+                out.append((p, root, p.relative_to(root).as_posix(), st.st_size, st.st_mtime))
+    return out
+
+
+def manifest_path(name) -> Path:
+    import fits_core as core
+    d = core.cache_dir() / "asiair"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / (re.sub(r"[^A-Za-z0-9_.-]+", "_", safe_name(name)) + ".json")
+
+
+def load_manifest(name) -> dict:
+    try:
+        return json.loads(manifest_path(name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_manifest(name, data):
+    p = manifest_path(name)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    tmp.replace(p)
+
+
+def _mkey(root, rel, size) -> str:
+    return f"{Path(root).name}/{rel}|{size}"
+
+
+def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, roots=None) -> dict:
+    """Copy one ASIAIR's new subs into incoming/<rig>/<share>/…  unit = {name, address, rig}.
+    Returns {name, copied, already, failed: [(file, why)], deleted, bytes, error}."""
+    name = safe_name(unit.get("name") or unit.get("address"))
+    rep = {"name": name, "copied": 0, "already": 0, "failed": [], "deleted": 0, "bytes": 0, "error": ""}
+    roots = shares(unit.get("address")) if roots is None else roots
+    if not roots:
+        rep["error"] = (f"can't reach {unit.get('address') or '(no address)'} - is the ASIAIR on and on the same "
+                        "network? (Its IP is in the ASIAIR app's Wi-Fi settings.)")
+        return rep
+    dest_top = Path(incoming) / safe_name(unit.get("rig") or name)
+    seen = load_manifest(name)
+    if progress:
+        progress(f"{name}: looking for new subs…", 0, 0)
+    subs = scan(roots, now=now, stop=stop)
+    todo = [s for s in subs if _mkey(s[1], s[2], s[3]) not in seen]
+    rep["already"] = len(subs) - len(todo)
+    if free:                                     # fetched (and checked) on an earlier run: free them now
+        for p, root, rel, size, mt in subs:
+            if _mkey(root, rel, size) in seen:
+                try:
+                    p.unlink()
+                    rep["deleted"] += 1
+                except OSError:
+                    pass
+    for i, (p, root, rel, size, mt) in enumerate(todo):
+        if stop and stop():
+            break
+        if progress:
+            progress(f"{name}: {p.name}", i, len(todo))
+        dst = dest_top / Path(root).name / rel
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if not (dst.exists() and dst.stat().st_size == size):
+                tmp = dst.with_name(dst.name + ".fetching")
+                shutil.copy2(p, tmp)
+                if tmp.stat().st_size != size:
+                    tmp.unlink()
+                    raise OSError("the copy came out a different size")
+                tmp.replace(dst)
+                rep["copied"] += 1
+                rep["bytes"] += size
+            seen[_mkey(root, rel, size)] = mt
+            if free:
+                try:
+                    p.unlink()
+                    rep["deleted"] += 1
+                except OSError as e:
+                    rep["failed"].append((rel, f"copied, but couldn't delete it from the ASIAIR: {e}"))
+        except Exception as e:  # noqa: BLE001
+            rep["failed"].append((rel, str(e)))
+        if i % 25 == 0:
+            save_manifest(name, seen)
+    save_manifest(name, seen)
+    return rep
+
+
+def fetch_all(units, incoming, progress=None, stop=None, free=False) -> list:
+    return [fetch(u, incoming, progress, stop, free) for u in units if u.get("address")]
+
+
+def describe(reps) -> str:
+    out = []
+    for r in reps:
+        if r["error"]:
+            out.append(f"{r['name']}: not fetched - {r['error']}")
+            continue
+        t = f"{r['name']}: {r['copied']} new sub(s) ({r['bytes'] / 1e9:.1f} GB)"
+        if r["deleted"]:
+            t += f", {r['deleted']} freed on the ASIAIR"
+        if r["failed"]:
+            t += f", {len(r['failed'])} failed ({r['failed'][0][1]})"
+        out.append(t)
+    return "\n".join(out) if out else "No ASIAIRs set up."
+
+
+def load_units(settings) -> list:
+    try:
+        v = json.loads(settings.value("asiair/list", "[]") or "[]")
+        return [u for u in v if isinstance(u, dict)]
+    except (ValueError, TypeError):
+        return []
+
+
+def save_units(settings, units):
+    settings.setValue("asiair/list", json.dumps(units))

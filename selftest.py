@@ -4548,6 +4548,42 @@ def run(app, out_dir: Path) -> int:
               and not (_uz_in / "a.jpg").exists() and (_uz_libd / "final.jpg").exists(),
               f"Organize: a folder named after a rig claims its files ({_uz_m}); {_uz_n} ASIAIR .jpg previews "
               f"deleted, the frame and the library's pictures kept")
+        # Fetch From My ASIAIRs: new subs copied over the network into incoming/<rig>/…, never twice, .jpgs left
+        import asiair as _as
+        _as_root = _au_root / "asiair_share"
+        _as_sh = _as_root / "EMMC Images" / "Autorun" / "Light" / "M31"
+        _as_sh.mkdir(parents=True, exist_ok=True)
+        _as_old = time.time() - 900
+        for _as_n in ("Light_M31_300.0s_0001.fit", "Light_M31_300.0s_0001.jpg", "Light_M31_300.0s_0002.fit"):
+            (_as_sh / _as_n).write_bytes(b"x" * 64)
+            os.utime(_as_sh / _as_n, (_as_old, _as_old))
+        _as_name = f"SelfTest Air {int(time.time())}"
+        w.settings.setValue("asiair/list", __import__("json").dumps(
+            [{"name": _as_name, "address": str(_as_root / "EMMC Images"), "rig": "RASA 11"}]))
+        _as_inc = _au_root / "asiair_incoming"
+        w.settings.setValue("asiair/incoming", str(_as_inc))
+        w.settings.setValue("asiair/free", False)
+        _as_d = w.open_asiair(show=False)
+        _as_d.fetch_now(wait=True)
+        _as_r1 = getattr(_as_d, "results", None)
+        _as_files = sorted(str(p.relative_to(_as_inc)).replace("\\", "/") for p in _as_inc.rglob("*") if p.is_file())
+        _as_d.fetch_now(wait=True)
+        _as_r2 = getattr(_as_d, "results", None)
+        _as_d.free.setChecked(True)
+        _as_d.fetch_now(wait=True)
+        _as_left = sorted(p.name for p in _as_sh.iterdir())
+        _as_d.free.setChecked(False)
+        _as_d.save()
+        _as_d.close()
+        check(_as_r1 and _as_r1[0]["copied"] == 2 and _as_r2 and _as_r2[0]["copied"] == 0
+              and _as_files == ["RASA 11/EMMC Images/Autorun/Light/M31/Light_M31_300.0s_0001.fit",
+                                "RASA 11/EMMC Images/Autorun/Light/M31/Light_M31_300.0s_0002.fit"]
+              and _as_left == ["Light_M31_300.0s_0001.jpg"]
+              and _as.parse_net_view("Share name  Type\n------\nEMMC Images   Disk\nUdisk Images  Disk\n")
+              == ["EMMC Images", "Udisk Images"],
+              f"Fetch From My ASIAIRs: the new subs copied into the rig's folder ({_as_files}), never twice "
+              f"({_as_r2[0]['copied'] if _as_r2 else None} the second time), .jpgs left; freeing space deletes only "
+              f"fetched subs ({_as_left})")
         _owin.change_layout(str(_au_lib), "target_rig", wait=True)
         _owin.go(ask=False, wait=True)
         _au_re = sorted(str(p.relative_to(_og.org_base(_au_lib))).replace("\\", "/").rsplit("/", 1)[0]
