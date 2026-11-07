@@ -233,6 +233,16 @@ sec("3.4", "Removing SubZeroAstro", ["Uninstall"]);
 p("Delete the app folder (Windows) or drag SubZeroAstro from Applications to the Bin (Mac). Saved progress can be cleared first under **Settings › Saved Progress**. Your images are never touched.");
 
 ch(4, "First-time setup");
+p("**Your setup checklist.** SubZeroAstro works out of the box, but these few steps - once, about half an hour - switch on everything it can do:");
+steps([
+  "**Install the helper programs** (all optional, all recommended): **ASTAP** *and a star database for it* (D50 for most telescopes, W08 too for wide lenses - ASTAP can't plate solve without one), **GraXpert**, and the **RC-Astro CLI** with your BlurXTerminator, NoiseXTerminator and StarXTerminator licences. **Settings › Your Tools…** shows what's found and has a Download Page button for each (4.1).",
+  "**Name your rigs**: **File › Organize My Astro Files… › Your Rigs…** - one row per rig with its focal length; **From N.I.N.A.…** fills them in from N.I.N.A.'s profiles (4.5, 13.3). Organize, Calibrate and Stack and Fetch From My ASIAIRs all use these names.",
+  "**Tell it where you are**: press **Use My Location** in **Tonight's Target Picker** or **My Weather Forecast**. That turns on the weather light on page 1, the seven-night forecast and target planning for your sky (6.5).",
+  "**With N.I.N.A.**: **Settings › Work With N.I.N.A.…** - check its file name pattern, add your rigs, and, for Fast Track after the night, paste the External Script line into your sequence. Install N.I.N.A.'s free **Session Metadata** plugin to get each frame's guiding RMS (4.5, 6.2).",
+  "**With an ASIAIR**: set the telescope's focal length in each ASIAIR (it goes in every file's header), then **File › Fetch From My ASIAIRs…** - add each one's IP address and rig, and pick your incoming folder (13.3).",
+  "**Build your calibration library**: **Stack › Build Calibration Masters…** turns your darks, flats and bias into masters that are matched to every night automatically (chapter 7).",
+  "**Optional**: **Organize Automatically…** to file new frames on a schedule (13.3), and **Settings › Open FITS / XISF Files With SubZeroAstro…** so a double-click opens them in its viewer (6.4).",
+]);
 sec("4.1", "Tell SubZeroAstro where your tools are", ["Tool locations", "ASTAP", "GraXpert", "RC-Astro CLI", "Device (GPU)"]);
 p("When SubZeroAstro starts, it checks for ASTAP, GraXpert and the RC-Astro CLI in the background. If one is missing - or RC-Astro is installed but a tool is not licensed, or ASTAP has no star database next to it (ASTAP can't plate solve without one; D50 is a separate download on the same page) - a slim **amber banner** appears at the top of page 1, saying what you would miss (for example *plate solving is skipped*). Nothing is wrong: you can still cull and stack. The banner has two buttons:");
 bullets([
