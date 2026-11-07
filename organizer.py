@@ -152,7 +152,7 @@ def match_rig(info, path, riglist, tol=0.03):
         return best[0], "folder"
     # a folder on the way named after a rig ("RASA11/Light/M31/…", e.g. one USB stick filled from several
     # ASIAIRs, each into a folder named after its rig) settles what the header can't: two rigs with the same
-    # scope and camera, or no / an unknown focal length. A header that clearly names another rig still wins.
+    # scope and camera, or no focal length at all. A header that names another rig, or none of them, still wins.
     parts = {_rig_folder_key(x) for x in re.split(r"[\\/]", str(path or ""))[:-1]} - {""}
     named = [r["name"] for r in riglist or [] if _rig_folder_key(r.get("name")) in parts]
     by_folder = named[0] if len(named) == 1 else None
@@ -179,7 +179,7 @@ def match_rig(info, path, riglist, tol=0.03):
         if near[0][1] <= 0.5 * near[1][1] and near[0][1] < near[1][1]:     # (a tie is no answer)
             return near[0][0], "focal"
     hits = list(hits)
-    if by_folder and (by_folder in hits or not hits):
+    if by_folder and by_folder in hits:            # a tie the folder settles (a focal length no rig has is not)
         return by_folder, "folder"
     if not hits and cam_off:
         return None, "camera: " + ", ".join(cam_off)
