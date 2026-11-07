@@ -70,6 +70,15 @@ def problems(cfg) -> list:
     return out
 
 
+def _note(text):
+    """A line in the session log (so Zip My Logs shows which files an automatic run left, and why)."""
+    try:
+        import session_log
+        session_log.write("organizer", text)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def run(cfg=None, settings=None, progress=None, now=None) -> dict:
     """One automatic run. Returns a report {time, filed, left: {why: n}, log, error}; also saved as text in the
     library's organize folder and as the 'last run' line shown in the app."""
@@ -155,8 +164,16 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
                 rep["filed"] = len(d.get("done", []))
                 if d.get("failed"):
                     rep["left"]["could not be copied (see the log)"] = len(d["failed"])
+                    _note(f"could not be copied ({len(d['failed'])}; full list in {log}):")
+                    for fl in d["failed"][:40]:
+                        _note(f"  {fl.get('src')}  -  {fl.get('error')}")
             except (OSError, ValueError):
                 rep["filed"] = len(todo)
+        unread = [i for i in items if i.status == "error"]
+        if unread:
+            _note(f"could not be read ({len(unread)}):")
+            for i in unread[:40]:
+                _note(f"  {i.src}  -  {i.why}")
         for i in items:
             if i.status == "move" or i.status == "here":
                 continue
