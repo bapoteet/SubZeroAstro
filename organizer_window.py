@@ -136,6 +136,14 @@ class OrganizeDialog(QDialog):
         self.del_jpg.setChecked(self.settings.value("organize/delete_jpgs", True, type=bool))
         self.del_jpg.toggled.connect(lambda on: self.settings.setValue("organize/delete_jpgs", on))
         h.addWidget(self.del_jpg)
+        self.del_empty = QCheckBox("Delete empty frames (all zeros)")
+        self.del_empty.setToolTip("A frame that is all zeros (or 0 bytes) was never written - the capture or a copy "
+                                  "was cut short - and holds no picture. Ticked, such frames are deleted from the "
+                                  "folders being organized (checked again just before). Can't be undone, but "
+                                  "there is nothing in them.")
+        self.del_empty.setChecked(self.settings.value("organize/delete_empty", False, type=bool))
+        self.del_empty.toggled.connect(lambda on: self.settings.setValue("organize/delete_empty", on))
+        h.addWidget(self.del_empty)
         h.addStretch(1)
         lay.addLayout(h)
         h = QHBoxLayout()
@@ -567,10 +575,17 @@ class OrganizeDialog(QDialog):
                 return
 
         del_jpg = self.del_jpg.isChecked()
+        del_empty = self.del_empty.isChecked()
 
         def work(job):
             if del_jpg:
-                self.jpgs_deleted = O.delete_previews(self.items, lib)
+                self.jpgs_deleted = O.delete_previews(self.items, lib,
+                                                      roots=[p for p in self.sources() if p.is_dir()])
+            if del_empty:
+                gone = O.delete_empty(self.items)
+                self.empty_deleted = len(gone)
+                for g in gone:
+                    _slog(f"deleted empty frame (all zeros): {g}")
             return O.execute(self.items, lib, move=move, keep=[p if p.is_dir() else p.parent for p in self.sources()],
                              progress=lambda t, i, n: job.note.emit(t, i, n), stop=lambda: job.stop)
 
@@ -587,6 +602,9 @@ class OrganizeDialog(QDialog):
             nleft = len(rows)
             msg = [f"<b>Done: {len(d['done'])} file(s) {'moved' if move else 'copied'}</b> into "
                    f"<b>{O.org_base(lib)}</b>. Undo Last Run puts everything back."]
+            if getattr(self, "empty_deleted", 0):
+                msg.append(f"{self.empty_deleted} empty frame(s) (all zeros, never written) deleted.")
+                self.empty_deleted = 0
             if getattr(self, "jpgs_deleted", 0):
                 msg.append(f"{self.jpgs_deleted} .jpg preview(s) deleted from the incoming folders.")
                 self.jpgs_deleted = 0

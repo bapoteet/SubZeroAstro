@@ -4535,8 +4535,16 @@ def run(app, out_dir: Path) -> int:
         _zz.parent.mkdir(parents=True, exist_ok=True)
         _zz.write_bytes(bytes(3 * 2880 * 100))
         _zz_it = _og.classify([_zz])[0]
-        check(_zz_it.status == "error" and "all zeros" in _zz_it.why,
-              f"Organize names a frame that is all zeros (never written) as such ({_zz_it.why[:60]})")
+        _zz_left = _au_root / "zeros" / "Autorun" / "Light" / "M31"
+        _zz_left.mkdir(parents=True, exist_ok=True)
+        for _zz_n in ("Light_M31_300.0s_Bin1_0001.jpg", "Light_M31_300.0s_Bin1_0001_thn.jpg", "MyPicture.jpg"):
+            (_zz_left / _zz_n).write_bytes(b"x")
+        _zz_gone = _og.delete_empty([_zz_it])
+        _zz_j = _og.delete_previews([], _au_root / "zeros_lib", roots=[_au_root / "zeros"])
+        check(_zz_it.status == "handled" and _zz_gone == [str(_zz)] and not _zz.exists() and _zz_j == 2
+              and sorted(p.name for p in _zz_left.iterdir()) == ["MyPicture.jpg"],
+              f"Organize names a frame that is all zeros (never written) and deletes it when asked; ASIAIR .jpg "
+              f"previews left on their own in the incoming folder are deleted too, other pictures kept")
         # Organize: one USB stick from several ASIAIRs - a folder named after a rig claims its files; the
         # ASIAIR's .jpg previews are deleted from the incoming folders (never from the library)
         _uz_rigs = [{"name": "RASA 11", "focals": [620]}, {"name": "SQA55", "focals": [264]}]

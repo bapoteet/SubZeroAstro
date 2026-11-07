@@ -43,7 +43,8 @@ def load_config(settings=None) -> dict:
             "layout": s.value("auto_org/layout", "") or s.value("organize/layout", "rig") or "rig",
             "freq": s.value("auto_org/freq", "daily") or "daily", "time": s.value("auto_org/time", "11:00") or "11:00",
             "on": s.value("auto_org/on", False, type=bool),
-            "jpgs": s.value("organize/delete_jpgs", True, type=bool)}
+            "jpgs": s.value("organize/delete_jpgs", True, type=bool),
+            "empty": s.value("organize/delete_empty", False, type=bool)}
 
 
 def save_config(cfg, settings=None):
@@ -154,7 +155,12 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
                                   riglist=riglist, tol=tol), lib)
         todo = [i for i in items if i.status == "move"]
         if cfg.get("jpgs", True):
-            rep["jpgs"] = O.delete_previews(items, lib)      # the ASIAIR's .jpg previews
+            rep["jpgs"] = O.delete_previews(items, lib, roots=[src])   # the ASIAIR's .jpg previews
+        if cfg.get("empty", False):                          # frames that are all zeros (never written)
+            gone = O.delete_empty(items)
+            rep["empty"] = len(gone)
+            for g in gone:
+                _note(f"deleted empty frame (all zeros): {g}")
         if todo:
             log = O.execute(items, lib, move=True, keep=[src],
                             progress=(lambda t, i, n: progress(t)) if progress else None)
@@ -304,6 +310,8 @@ def describe(rep) -> str:
     t = f"{rep['time']}: {rep['filed']} file(s) filed"
     if rep.get("asiair"):
         t += f" [ASIAIRs: {rep['asiair']}]"
+    if rep.get("empty"):
+        t += f", {rep['empty']} empty frame(s) deleted"
     if rep.get("jpgs"):
         t += f", {rep['jpgs']} .jpg preview(s) deleted"
     if rep["left"]:

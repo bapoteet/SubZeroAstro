@@ -817,6 +817,11 @@ def execute(items, library, move=False, progress=None, stop=None, keep=None) -> 
                 if move:
                     src.unlink()
                 done.append({"src": str(src), "dst": str(dst)})
+            except FileNotFoundError as e:
+                gone = not _exists(src)
+                failed.append({"src": str(src), "dst": str(dst), "error": (
+                    "it was gone when its turn came - moved or deleted by something else while this run was going "
+                    "(another Organize, on this or another computer, or a sync)" if gone else str(e))})
             except Exception as e:  # noqa: BLE001
                 failed.append({"src": str(src), "dst": str(dst), "error": str(e)})
         if i % 50 == 0:
@@ -881,11 +886,13 @@ def carry_nina_metadata(done, move=False) -> list:
 
 
 PREVIEW_EXTS = {".jpg", ".jpeg"}
+ASIAIR_JPG = re.compile(r"^(light|flat|dark|bias|darkflat|preview|live|stack)_.+\.jpe?g$|_thn\.jpe?g$", re.I)
 
 
-def preview_files(items, library=None) -> list:
-    """The .jpg previews (an ASIAIR saves one with every frame) in the folders these frames came from - never
-    anything inside the organized library."""
+def preview_files(items, library=None, roots=None) -> list:
+    """The .jpg previews (an ASIAIR saves one with every frame) in the folders these frames came from, and
+    anywhere under the incoming folders being organized (`roots`: previews left behind on their own once
+    their frames had been filed) - never anything inside the organized library."""
     base = None
     if library is not None and str(library) not in ("", "."):
         try:
@@ -893,7 +900,14 @@ def preview_files(items, library=None) -> list:
         except OSError:
             base = None
     out, seen = [], set()
-    for d in {Path(it.src).parent for it in items if getattr(it, "src", None) is not None}:
+    frame_dirs = {Path(it.src).parent for it in items if getattr(it, "src", None) is not None}
+    dirs = [(d, True) for d in frame_dirs]
+    for r in roots or []:
+        for dp, dns, _fns in os.walk(Path(r)):
+            dns[:] = [x for x in dns if not x.startswith((".", "#", "@"))]
+            if Path(dp) not in frame_dirs:
+                dirs.append((Path(dp), False))
+    for d, with_frames in dirs:
         try:
             rd = d.resolve()
         except OSError:
@@ -902,22 +916,48 @@ def preview_files(items, library=None) -> list:
             continue
         seen.add(rd)
         try:
-            out += [p for p in d.iterdir() if p.suffix.lower() in PREVIEW_EXTS and p.is_file()]
+            # beside frames: every .jpg; elsewhere under the incoming folder only an ASIAIR's own previews
+            # (Light_…/Flat_…/…_thn.jpg) - never your own pictures that happen to be there
+            out += [p for p in d.iterdir() if p.suffix.lower() in PREVIEW_EXTS and p.is_file()
+                    and (with_frames or ASIAIR_JPG.search(p.name))]
         except OSError:
             continue
     return sorted(out)
 
 
-def delete_previews(items, library=None) -> int:
+def delete_previews(items, library=None, roots=None) -> int:
     """Delete those .jpg previews (Organize › 'Delete the .jpg previews'). Returns how many went."""
-    n = 0
-    for p in preview_files(items, library):
+    n, parents = 0, set()
+    for p in preview_files(items, library, roots):
         try:
             p.unlink()
             n += 1
+            parents.add(p.parent)
         except OSError:
             pass
+    if roots and parents:                 # folders left holding nothing but those previews: tidied away too
+        _remove_empty_dirs(parents, keep=[Path(r) for r in roots])
     return n
+
+
+def empty_frames(items) -> list:
+    """The frames found to be empty - all zeros or 0 bytes, never written (see _empty_reason)."""
+    return [it for it in items if it.status == "error" and (it.why or "").startswith(("all zeros", "empty file"))]
+
+
+def delete_empty(items) -> list:
+    """Delete the empty frames (Organize › 'Delete empty frames'): checked again just before - only a file that is
+    still all zeros goes. Returns the paths deleted."""
+    gone = []
+    for it in empty_frames(items):
+        if _empty_reason(it.src):
+            try:
+                it.src.unlink()
+                it.status, it.why = "handled", "deleted: empty (never written)"
+                gone.append(str(it.src))
+            except OSError:
+                pass
+    return gone
 
 
 def _remove_empty_dirs(dirs, stop_at=None, keep=None):
