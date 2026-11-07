@@ -253,3 +253,97 @@ class WeatherDialog(QDialog):
         t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         lay.addWidget(t, 1)
         return w
+
+
+SHORT = {W.GREAT: "great for imaging", W.GOOD: "so-so - some clouds", W.POOR: "a processing night"}
+
+
+class TonightLight:
+    """The weather light on page 1's banner (beside Zip My Logs): green / yellow / red for tonight, refreshed
+    every couple of hours; a click opens My Weather Forecast."""
+
+    REFRESH_MS = 2 * 3600 * 1000
+
+    def __init__(self, owner, settings, layout, auto=True):
+        from PySide6.QtCore import QTimer
+        import ui_header
+        self.owner, self.settings = owner, settings
+        self.btn = QPushButton("●  Tonight's weather")
+        self.btn.setCursor(Qt.PointingHandCursor)
+        self.btn.clicked.connect(self.open)
+        self._base = ui_header.BACK_STYLE
+        self.level = None
+        self._paint(None)
+        self.btn.setToolTip("Tonight's weather at your site - click for the next seven nights")
+        layout.addWidget(self.btn)
+        self.timer = QTimer(owner)
+        self.timer.setInterval(self.REFRESH_MS)
+        self.timer.timeout.connect(self.refresh)
+        if auto:
+            self.timer.start()
+            QTimer.singleShot(4000, self.refresh)
+
+    def _paint(self, level):
+        col = LEVEL_COLOR.get(level, "#8a8a96")
+        self.btn.setStyleSheet(self._base + f"QPushButton {{ color:{col}; font-weight:bold; }}")
+
+    def _where(self):
+        try:
+            lat = float(self.settings.value("picker/lat", 0.0) or 0.0)
+            lon = float(self.settings.value("picker/lon", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return None
+        return (lat, lon) if (lat or lon) else None
+
+    def refresh(self, data=None):
+        """Fetch tonight's forecast in the background (or use `data` = (hours, notes): the self-test)."""
+        where = self._where()
+        if where is None:
+            self.btn.setText("●  Tonight's weather?")
+            self.btn.setToolTip("Click to set your location (Use My Location) and see the forecast")
+            self._paint(None)
+            return None
+        if data is not None:
+            return self.show(data)
+        if getattr(self, "_fetch", None) is not None and self._fetch.isRunning():
+            return None
+        self._fetch = _Fetch(where[0], where[1], self.btn)
+        self._fetch.done.connect(self.show)
+        self._fetch.start()
+        return None
+
+    def show(self, data):
+        if isinstance(data, Exception):
+            self.btn.setText("●  Tonight: no forecast")
+            self.btn.setToolTip(f"Couldn't get the forecast ({data}). Click to try again.")
+            self._paint(None)
+            return None
+        hours, _notes = data
+        where = self._where() or (0.0, 0.0)
+        today = _dt.datetime.now().date()
+        if _dt.datetime.now().hour < 9:
+            today -= _dt.timedelta(days=1)
+        res = W.nights(hours, where[0], where[1], today, 1)
+        if not res:
+            return None
+        v = res[0][3]
+        self.level = v["level"]
+        self.btn.setText(f"●  Tonight: {SHORT[v['level']]}")
+        loc = (lambda x: x.astimezone().strftime("%H:%M") if x else "")
+        tip = v["headline"] + "\n" + "\n".join("• " + r for r in v["reasons"])
+        if v.get("window"):
+            tip += f"\nBest window: {loc(v['window'][0])} – {loc(v['window'][1])}"
+        self.btn.setToolTip(tip + "\n\nClick for the next seven nights")
+        self._paint(v["level"])
+        return v
+
+    def open(self):
+        d = WeatherDialog(self.owner, self.settings)
+        d.exec()
+        if d.result:                                  # the dialog's fresh forecast updates the light too
+            v = d.result[0][3]
+            self.level = v["level"]
+            self.btn.setText(f"●  Tonight: {SHORT[v['level']]}")
+            self._paint(v["level"])
+        else:
+            self.refresh()

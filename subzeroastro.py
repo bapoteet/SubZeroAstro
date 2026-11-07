@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.231 beta"
+APP_VERSION = "0.9.232 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -962,6 +962,9 @@ class MainWindow(QMainWindow):
         cp.set_root(self.settings.value("checkpoints/dir", "") or None)
         import ui_header
         ui_header.install_header(self, ui_header.PAGE_CULL, with_menu=True)
+        import weather_window as _wxw              # tonight's weather light, beside Zip My Logs
+        self.weather_light = _wxw.TonightLight(self, self.settings, self.app_header.left,
+                                               auto="--selftest" not in sys.argv)
         self._build_ui()
         self._build_actions()
         self._restore_settings()

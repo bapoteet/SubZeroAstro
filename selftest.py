@@ -4607,6 +4607,18 @@ def run(app, out_dir: Path) -> int:
         _wx_tabs = _wx_d.tabs.count()
         _wx_st = _wx_d.status.text()
         _wx_d.close()
+        _wx_lt = w.weather_light
+        _wx_lkeep = (w.settings.value("picker/lat", 0.0), w.settings.value("picker/lon", 0.0))
+        w.settings.setValue("picker/lat", 32.78)
+        w.settings.setValue("picker/lon", -96.80)
+        _wx_lv = _wx_lt.refresh(data=(_wx_hours, []))
+        _wx_ltext = _wx_lt.btn.text()
+        _wx_lvis = _wx_lt.btn.isVisibleTo(w)
+        w.settings.setValue("picker/lat", _wx_lkeep[0])
+        w.settings.setValue("picker/lon", _wx_lkeep[1])
+        check(_wx_lv is not None and _wx_lv["level"] == "great" and "great" in _wx_ltext and _wx_lvis
+              and _wx_lt.btn.parent() is not None,
+              f"Page 1's banner shows tonight's weather light beside Zip My Logs ({_wx_ltext!r})")
         _wx_7 = _wx.parse_7timer({"init": "2026110700", "dataseries": [{"timepoint": 3, "seeing": 2,
                                                                         "transparency": 7}]})
         _wx_om = _wx.parse_open_meteo({"hourly": {"time": ["2026-11-07T00:00"], "cloud_cover": [40],
