@@ -243,7 +243,7 @@ class OrganizeDialog(QDialog):
         """Where you are: steps done get a ✓ and go grey, the next one is highlighted - also after a break."""
         rigs_done = bool(self.riglist())
         scanned = bool(self.items)
-        issues = [g for g in O.rig_issues(self.items) if g["reason"] != "nomatch"] if scanned else []
+        issues = O.rig_issues(self.items) if scanned else []
         dups = bool(O.duplicates(self.items)) if scanned else False
         tomove = bool([i for i in self.items if i.status == "move"]) if scanned else False
         done = {self.b_rigs: rigs_done, self.b_scan: scanned or self._organized,
@@ -417,7 +417,7 @@ class OrganizeDialog(QDialog):
             self.dst.setEnabled(not self.same.isChecked())
             self.b_go.setEnabled(bool([i for i in self.items if i.status == "move"]))
             self.b_dups.setEnabled(bool(O.duplicates(self.items)))
-            self.b_which.setEnabled(bool([g for g in O.rig_issues(self.items) if g["reason"] != "nomatch"]))
+            self.b_which.setEnabled(bool(O.rig_issues(self.items)))
         self.b_stop.setVisible(on)
         self.bar.setVisible(on)
         if not on and hasattr(self, "_labels"):
@@ -530,7 +530,7 @@ class OrganizeDialog(QDialog):
         self.b_go.setEnabled(sm["files"] > 0)
         self.b_dups.setEnabled(bool(O.duplicates(items)))
         issues = O.rig_issues(items, (getattr(self, "_plan_args", None) or (None, None, None))[2])
-        self.b_which.setEnabled(bool([g for g in issues if g["reason"] != "nomatch"]))
+        self.b_which.setEnabled(bool(issues))
         if issues:
             nm = [g for g in issues if g["reason"] == "nomatch"]
             cam = [g for g in issues if g["reason"] == "camera"]
@@ -892,17 +892,34 @@ class OrganizeDialog(QDialog):
         """Which Rig?…: the files a focal length can't place (fits two rigs, or none in the header) - you pick
         the rig for each folder; remembered for that folder."""
         root = (getattr(self, "_plan_args", None) or (None, None, None))[2]
-        groups = [g for g in O.rig_issues(self.items, root) if g["reason"] != "nomatch"]
+        groups = O.rig_issues(self.items, root)
         if not groups:
             return False
         riglist = self.riglist()
-        if answers is None:
+        ask = answers is None
+        if ask:
             d = WhichRigDialog(self, groups, [r["name"] for r in riglist])
             if not d.exec():
                 return False
             answers = d.answers()
+        doomed = [it for g, name in zip(groups, answers) if name == DELETE for it in g["items"]]
+        if doomed:
+            if ask and QMessageBox.question(
+                    self, "Delete Files?",
+                    f"Delete {len(doomed)} file(s) that match none of your rigs, for good?\n\n"
+                    + "\n".join(str(it.src) for it in doomed[:8]) + ("\n…" if len(doomed) > 8 else "")
+                    + "\n\nThey can't be brought back with Undo.") != QMessageBox.Yes:
+                doomed = []
+            for it in doomed:
+                try:
+                    it.src.unlink()
+                    it.status, it.why = "handled", "deleted (matched no rig)"
+                    _slog(f"deleted (matched no rig): {it.src}")
+                except OSError as e:
+                    _slog(f"couldn't delete {it.src}: {e}")
+            self.items = [it for it in self.items if it.status != "handled"]
         for g, name in zip(groups, answers):
-            if not name:
+            if not name or name == DELETE:
                 continue
             for r in riglist:
                 if r["name"] == name:
@@ -1269,6 +1286,9 @@ class YourRigsDialog(QDialog):
         self.accept()
 
 
+DELETE = "__delete__"
+
+
 class WhichRigDialog(QDialog):
     """Files a focal length can't place: say which rig each folder belongs to (remembered for that folder)."""
 
@@ -1276,8 +1296,10 @@ class WhichRigDialog(QDialog):
         super().__init__(owner)
         self.setWindowTitle("Which Rig?")
         lay = QVBoxLayout(self)
-        lab = QLabel("These files can't be placed by focal length alone - it fits more than one of your rigs, or the "
-                     "header has none. Pick the rig for each folder; SubZeroAstro remembers it for that folder.")
+        lab = QLabel("These files can't be placed by focal length alone - it fits more than one of your rigs, none "
+                     "of them, or the header has none. Pick the rig for each folder; SubZeroAstro remembers it for "
+                     "that folder. Stray files you don't want: pick <b>✕ Delete these files</b> (you're asked to "
+                     "confirm).")
         lab.setWordWrap(True)
         lay.addWidget(lab)
         self.table = QTableWidget(len(groups), 4)
@@ -1292,11 +1314,14 @@ class WhichRigDialog(QDialog):
             choices = [n.strip() for n in g["names"].split(",")] if g.get("names") else names
             for n in choices + [n for n in names if n not in choices]:
                 box.addItem(n, n)
+            box.addItem("✕ Delete these files", DELETE)
             if g.get("names"):
                 box.setCurrentIndex(0)
             self.table.setCellWidget(r, 0, box)
             self.boxes.append(box)
             why = (f"{g['focal']:.0f} mm fits {g['names']}" if g["reason"] == "ambiguous" else
+                   f"{g['focal']:.0f} mm - none of your rigs" if g["reason"] == "nomatch" and g.get("focal") else
+                   "the camera doesn't match the rig" if g["reason"] == "camera" else
                    "no focal length in the header")
             for k, v in ((1, g["folder"]), (2, str(g["files"])), (3, f"{why} ({g['camera']})")):
                 cell = QTableWidgetItem(v)

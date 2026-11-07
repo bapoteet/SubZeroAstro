@@ -4545,6 +4545,25 @@ def run(app, out_dir: Path) -> int:
               and sorted(p.name for p in _zz_left.iterdir()) == ["MyPicture.jpg"],
               f"Organize names a frame that is all zeros (never written) and deletes it when asked; ASIAIR .jpg "
               f"previews left on their own in the incoming folder are deleted too, other pictures kept")
+        # Which Rig?: stray files that match none of your rigs can be deleted there
+        import organizer_window as _ow2
+        _nr_dir = _au_root / "norig" / "Stray"
+        _nr_dir.mkdir(parents=True, exist_ok=True)
+        _nr_f = _nr_dir / "stray_0001.fits"
+        core.write_fits(_nr_f, np.zeros((16, 16), np.float32), {"IMAGETYP": "Light Frame", "EXPTIME": 60.0,
+                                                               "FOCALLEN": 1234.0, "OBJECT": "M 1",
+                                                               "DATE-OBS": "2026-10-01T03:00:00"})
+        _nr_items = _og.plan(_og.classify([_nr_f], library=_au_root / "norig_lib", root=_au_root / "norig",
+                                          riglist=[{"name": "SQA60", "focals": [360]}]), _au_root / "norig_lib")
+        _nr_keep = (_owin.items, getattr(_owin, "_plan_args", None))
+        _owin.items, _owin._plan_args = _nr_items, (_au_root / "norig_lib", "rig", _au_root / "norig")
+        _nr_groups = _og.rig_issues(_nr_items, _au_root / "norig")
+        _owin.which_rig(answers=[_ow2.DELETE] * len(_nr_groups))
+        _owin.items, _owin._plan_args = _nr_keep
+        check(_nr_items[0].status == "handled" and not _nr_f.exists() and _nr_groups
+              and _nr_groups[0]["reason"] == "nomatch",
+              f"Which Rig?: a stray file matching none of your rigs is deleted when you pick 'Delete these files' "
+              f"({[g['reason'] for g in _nr_groups]})")
         # Organize: one USB stick from several ASIAIRs - a folder named after a rig claims its files; the
         # ASIAIR's .jpg previews are deleted from the incoming folders (never from the library)
         _uz_rigs = [{"name": "RASA 11", "focals": [620]}, {"name": "SQA55", "focals": [264]}]
