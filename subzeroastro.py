@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.229 beta"
+APP_VERSION = "0.9.230 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -1310,6 +1310,9 @@ class MainWindow(QMainWindow):
                               QStyle.SP_FileDialogContentsView,
                               "What to shoot tonight from your site and your patch of sky - by type, size in "
                               "your frame, hours in the dark - ready for N.I.N.A.")
+        self.act_weather = act("My Weather Forecast…", lambda: self.open_weather(), None, QStyle.SP_MessageBoxInformation,
+                               "The next nights at your site, hour by hour through the dark - cloud, rain, seeing, "
+                               "transparency, wind, dew - and a bottom line: image tonight, or process?")
         self.act_start_over = act("Start Over – Load New Data…", self.start_over, "Ctrl+N",
                                   QStyle.SP_BrowserReload,
                                   "Clear this session and open a new folder (Ctrl+N)")
@@ -1350,6 +1353,8 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_fit)
         tb.addAction(self.act_100)
         tb.addAction(self.act_show_image)
+        tb.addSeparator()
+        tb.addAction(self.act_weather)
 
         # Second row: auto-cull presets and Start Over
         self.addToolBarBreak()
@@ -1407,6 +1412,7 @@ class MainWindow(QMainWindow):
             self.act_organize.setShortcut("Ctrl+Alt+Shift+O")
             self.addAction(self.act_organize)
         m.addAction(self.act_picker)
+        m.addAction(self.act_weather)
         m.addSeparator()
         m.addAction(self.act_export)
         m.addAction(self.act_viewer)
@@ -1640,6 +1646,14 @@ class MainWindow(QMainWindow):
         if not self.settings.value("organize/intro_ok", False, type=bool):
             w.show_intro()
         return w
+
+    def open_weather(self, show=True):
+        """File › My Weather Forecast…"""
+        import weather_window
+        d = weather_window.WeatherDialog(self, self.settings)
+        if show:
+            d.exec()
+        return d
 
     def open_asiair(self, show=True):
         """File › Fetch From My ASIAIRs…"""

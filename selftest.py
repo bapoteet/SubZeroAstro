@@ -4584,6 +4584,40 @@ def run(app, out_dir: Path) -> int:
               f"Fetch From My ASIAIRs: the new subs copied into the rig's folder ({_as_files}), never twice "
               f"({_as_r2[0]['copied'] if _as_r2 else None} the second time), .jpgs left; freeing space deletes only "
               f"fetched subs ({_as_left})")
+        # My Weather Forecast: the dark hours of each night, hour by hour, and a bottom line for the night
+        import weather as _wx
+        import weather_window as _wxw
+        import datetime as _wdt
+        _wx_today = _wdt.datetime.now().date()
+        if _wdt.datetime.now().hour < 9:
+            _wx_today -= _wdt.timedelta(days=1)
+        _wx_base = _wdt.datetime(_wx_today.year, _wx_today.month, _wx_today.day, tzinfo=_wdt.timezone.utc)
+        _wx_hours = {}
+        for _wx_i in range(96):
+            _wx_t = _wx_base + _wdt.timedelta(hours=_wx_i)
+            _wx_c = 5.0 if _wx_i < 36 else (95.0 if _wx_i < 60 else (5.0 if (_wx_i % 24) < 9 else 90.0))
+            _wx_hours[_wx_t] = {"cloud": _wx_c, "low": _wx_c, "mid": 0.0, "high": 0.0,
+                                "rain": 80.0 if 36 <= _wx_i < 60 else 0.0, "rh": 60.0, "dew": 2.0, "temp": 10.0,
+                                "wind": 8.0, "gust": 15.0, "seeing": 2, "transp": 2}
+        _wx_d = _wxw.WeatherDialog(w, w.settings, auto=False)
+        _wx_d.lat.setValue(32.78)
+        _wx_d.lon.setValue(-96.80)
+        _wx_res = _wx_d.refresh(data=(_wx_hours, [])) or []
+        _wx_levels = [v["level"] for _d, _r, _n, v in _wx_res]
+        _wx_tabs = _wx_d.tabs.count()
+        _wx_st = _wx_d.status.text()
+        _wx_d.close()
+        _wx_7 = _wx.parse_7timer({"init": "2026110700", "dataseries": [{"timepoint": 3, "seeing": 2,
+                                                                        "transparency": 7}]})
+        _wx_om = _wx.parse_open_meteo({"hourly": {"time": ["2026-11-07T00:00"], "cloud_cover": [40],
+                                                  "dew_point_2m": [3.5]}})
+        check(len(_wx_levels) >= 2 and _wx_levels[0] == "great" and _wx_levels[1] == "poor" and _wx_tabs == len(_wx_res)
+              and "great night" in _wx_st
+              and list(_wx_7.values())[0] == {"seeing": 2, "transp": 7}
+              and list(_wx_om.values())[0]["cloud"] == 40.0 and list(_wx_om.values())[0]["dew"] == 3.5
+              and "processing" in _wx.HEADLINE["poor"],
+              f"My Weather Forecast: a clear night says image, a rainy one says process ({_wx_levels}); "
+              f"the hourly table for each night; Open-Meteo and 7Timer answers read")
         _owin.change_layout(str(_au_lib), "target_rig", wait=True)
         _owin.go(ask=False, wait=True)
         _au_re = sorted(str(p.relative_to(_og.org_base(_au_lib))).replace("\\", "/").rsplit("/", 1)[0]

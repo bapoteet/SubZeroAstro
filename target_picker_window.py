@@ -239,6 +239,10 @@ class TargetPickerDialog(QDialog):
                                "this computer's clock and time zone.")
         self.b_here.clicked.connect(lambda: self.use_my_location())
         gl.addWidget(self.b_here, 5, 0, 1, 2)
+        b = QPushButton("My Weather Forecast…")
+        b.setToolTip("The next nights here, hour by hour through the dark, with a bottom line for each")
+        b.clicked.connect(lambda: self.open_weather())
+        gl.addWidget(b, 6, 0, 1, 2)
         top.addWidget(g)
 
         # ---- your sky
@@ -442,6 +446,12 @@ class TargetPickerDialog(QDialog):
                 got.append(name)
         self.summary.setText("From the picture: " + (", ".join(got) if got else "nothing useful (no site or "
                                                                                  "optics in its header)") + ".")
+
+    def open_weather(self):
+        self.settings.setValue("picker/lat", self.lat.value())
+        self.settings.setValue("picker/lon", self.lon.value())
+        import weather_window
+        return weather_window.WeatherDialog(self, self.settings).exec()
 
     def use_my_location(self, answer=None):
         """Use My Location: the computer's location (Windows location service), else an approximate one from the
