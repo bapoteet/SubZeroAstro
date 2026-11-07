@@ -818,10 +818,15 @@ class OrganizeDialog(QDialog):
         finally:
             QApplication.restoreOverrideCursor()
 
-    def edit_rigs(self, rows=None, tol_pct=None):
-        """Your Rigs…: the table of rigs (name, focal lengths, camera). rows given = save those (self-test)."""
+    def edit_rigs(self, rows=None, tol_pct=None, preload=None, show=True):
+        """Your Rigs…: the table of rigs (name, focal lengths, camera). rows given = save those (self-test).
+        preload: N.I.N.A. profiles to add (Work With N.I.N.A.); show=False returns the dialog unopened."""
         if rows is None:
             d = YourRigsDialog(self, self.riglist(), round(self.tol() * 100), self._found())
+            if preload:
+                d.add_from_nina(preload)
+            if not show:
+                return d
             if not d.exec():
                 return False
             rows, tol_pct = d.result_rows(), d.tol.value()
@@ -1007,6 +1012,10 @@ class YourRigsDialog(QDialog):
                      "none of your rigs matches")
         b.clicked.connect(self.find)
         h.addWidget(b)
+        b = QPushButton("From N.I.N.A.…")
+        b.setToolTip("Add rigs from N.I.N.A.'s profiles: each one names its telescope and focal length")
+        b.clicked.connect(lambda: self.add_from_nina())
+        h.addWidget(b)
         b = QPushButton("Export…")
         b.setToolTip("Save your rigs to a small file, to load them into SubZeroAstro on another computer")
         b.clicked.connect(lambda: self.export_rigs())
@@ -1106,19 +1115,7 @@ class YourRigsDialog(QDialog):
         except (OSError, ValueError, KeyError, TypeError) as e:
             self.err.setText(f"That file couldn't be read as SubZeroAstro rigs ({e}).")
             return 0
-        names = {(self.table.item(r, 0).text() or "").strip().lower(): r for r in range(self.table.rowCount())}
-        n = 0
-        for g in rigs:
-            fl = ", ".join(f"{float(f):g}" for f in g["focals"])
-            key = str(g["name"]).strip().lower()
-            if key in names:
-                r = names[key]
-                self.table.item(r, 1).setText(fl)
-                self.table.item(r, 2).setText(str(g.get("camera") or ""))
-                self.table.item(r, 3).setText("updated from the imported file")
-            else:
-                self.add_row(str(g["name"]).strip(), fl, str(g.get("camera") or ""), "imported")
-            n += 1
+        n = self.merge_rows(rigs, "imported")
         if isinstance(data, dict) and data.get("tolerance_pct"):
             try:
                 self.tol.setValue(int(data["tolerance_pct"]))
@@ -1126,6 +1123,59 @@ class YourRigsDialog(QDialog):
                 pass
         self.sort_rows(remember=False)
         self.err.setText(f"Imported {n} rig(s) - press Save My Rigs to keep them.")
+        return n
+
+    def add_from_nina(self, profiles=None):
+        """From N.I.N.A.…: rigs from N.I.N.A.'s profiles (telescope name and focal length; the camera only when
+        two rigs share a focal length)."""
+        import nina_link as NL
+        if profiles is None:
+            import nina_window
+            d = nina_window.ProfilesPicker(getattr(self.owner, "settings", None), self)
+            if not d.exec():
+                return 0
+            profiles = d.t.checked()
+        existing = [{"name": (self.table.item(r, 0).text() or "").strip(),
+                     "focals": [x for x in re.findall(r"\d+(?:\.\d+)?",
+                                                      self.table.item(r, 1).text() if self.table.item(r, 1) else "")]}
+                    for r in range(self.table.rowCount())]
+        rows = NL.rigs_from_profiles(profiles, existing, self.tol.value() / 100.0)
+        n = self.merge_rows(rows, "from N.I.N.A.", add_focals=True)
+        self.sort_rows(remember=False)
+        self.err.setText(f"Added {n} rig(s) from N.I.N.A. - check the names, then Save My Rigs.")
+        return n
+
+    def merge_rows(self, rigs, note, add_focals=False) -> int:
+        """Rigs into the table: the same name (any case) is updated, others added; nothing removed.
+        add_focals: a focal length is added to the rig's own (a scope with and without its reducer) and an empty
+        camera leaves the rig's alone - instead of replacing them (Import…)."""
+        names = {(self.table.item(r, 0).text() or "").strip().lower(): r for r in range(self.table.rowCount())}
+        n = 0
+        for g in rigs:
+            fl = ", ".join(f"{float(f):g}" for f in g["focals"])
+            key = str(g["name"]).strip().lower()
+            if key in names:
+                r = names[key]
+                if add_focals:
+                    have = [x.strip() for x in (self.table.item(r, 1).text() or "").split(",") if x.strip()]
+                    have_f = []
+                    for x in have:
+                        try:
+                            have_f.append(float(x))
+                        except ValueError:
+                            pass
+                    for f in g["focals"]:
+                        if not any(abs(float(f) - h) < 0.5 for h in have_f):
+                            have.append(f"{float(f):g}")
+                    fl = ", ".join(have)
+                self.table.item(r, 1).setText(fl)
+                if g.get("camera") or not add_focals:
+                    self.table.item(r, 2).setText(str(g.get("camera") or ""))
+                self.table.item(r, 3).setText(f"updated ({note})")
+            else:
+                self.add_row(str(g["name"]).strip(), fl, str(g.get("camera") or ""), note)
+                names[str(g["name"]).strip().lower()] = self.table.rowCount() - 1
+            n += 1
         return n
 
     def add_row(self, name, focals, camera, note, new=False, edit=False):

@@ -43,7 +43,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.226 beta"
+APP_VERSION = "0.9.227 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -1435,6 +1435,12 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self.set_file_association)
         m.addAction(a)
         self.act_file_assoc = a
+        a = QAction("Work With N.I.N.A.…", self)
+        a.setToolTip("Your rigs from N.I.N.A.'s profiles, a check of its file name pattern, and Fast Track run by "
+                     "N.I.N.A. after the night")
+        a.triggered.connect(lambda: self.open_nina())
+        m.addAction(a)
+        self.act_nina = a
         a = QAction("Saved Progress (crash recovery)…", self)
         a.triggered.connect(lambda: CheckpointDialog(self, self.settings).exec())
         m.addAction(a)
@@ -1597,6 +1603,14 @@ class MainWindow(QMainWindow):
         if not self.settings.value("organize/intro_ok", False, type=bool):
             w.show_intro()
         return w
+
+    def open_nina(self, show=True):
+        """Settings › Work With N.I.N.A.…"""
+        import nina_window
+        d = nina_window.NinaDialog(self, self.settings)
+        if show:
+            d.exec()
+        return d
 
     def open_pixinsight_project(self, folder=None):
         """A PixInsight project: its pictures are written as XISF files and opened on Astro Image Processing."""
@@ -3386,6 +3400,10 @@ def main():
         # started by Windows Task Scheduler / a macOS LaunchAgent: one automatic organize run, no window
         import organizer_auto
         sys.exit(organizer_auto.main_auto())
+    import nina_link
+    fast_cli = nina_link.parse_cli(sys.argv)          # --fast-track <folder>: started by N.I.N.A. after the night
+    if fast_cli is not None:
+        sys.argv = sys.argv[:1]
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     ui_header.set_app_icon(app)
@@ -3447,6 +3465,13 @@ def main():
     sys.excepthook = excepthook
 
     sp = None
+    if fast_cli is not None:
+        session_log.write("fast-track", "started by N.I.N.A. (or a script): " + str(fast_cli))
+        w = MainWindow()
+        w.showMinimized()
+        import fasttrack_window
+        QTimer.singleShot(500, lambda: fasttrack_window.run_cli(w, fast_cli))
+        sys.exit(app.exec())
     if QSettings("FITSBlasterWin", "FITSBlasterWin").value("ui/splash", True, type=bool):
         try:
             import splash

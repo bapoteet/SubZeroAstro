@@ -700,7 +700,15 @@ class FastTrackWindow(QMainWindow):
         import finish as F
         import targets as tg
         dlg = StartDialog(self.owner, names, counts, note, filters)
-        if getattr(self.owner, "_fast_auto", False):         # self-test: take the suggestion
+        want = (getattr(self.owner, "_fast_target", "") or "").replace(" ", "").lower()
+        if want:                                             # --fast-track --target NAME
+            for i in range(dlg.target.count()):
+                if (dlg.target.itemData(i) or "").replace(" ", "").lower() == want:
+                    dlg.target.setCurrentIndex(i)
+        elif getattr(self.owner, "_fast_auto", False) and counts:
+            best = max(names, key=lambda n: counts.get(n, 0))      # unattended: the target with the most frames
+            dlg.target.setCurrentIndex(max(0, dlg.target.findData(best)))
+        if getattr(self.owner, "_fast_auto", False):         # self-test / N.I.N.A.: take the suggestion
             ok = True
         else:
             ok = dlg.exec() == QDialog.Accepted
@@ -1131,3 +1139,107 @@ def start(owner, where: str):
         owner._fast_track = None
         return None
     return w
+
+
+# --------------------------------------------------------------------------
+# subzeroastro --fast-track <folder>: started by N.I.N.A. (External Script) after the night
+# --------------------------------------------------------------------------
+
+def run_cli(w, opt, done_cb=None, max_hours=8.0):
+    """The night's frames in opt['folder'] (changed in the last opt['hours']) through Fast Track on the
+    suggested settings; the finished picture saved (JPEG + TIFF) to opt['out'] or the usual Finished folder;
+    then SubZeroAstro closes. Any message box that pops up on the way is noted in the log and answered with its
+    default, so nothing waits for a person. done_cb(code, message) - default: quit the app with that code."""
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    import nina_link as NL
+    import session_log
+    t_start = time.time()
+    st = {"ft": None}
+
+    def log(t):
+        session_log.write("fast-track", t)
+
+    def end(code, msg):
+        log(msg)
+        tick.stop()
+        if done_cb is not None:
+            done_cb(code, msg)
+        else:
+            QApplication.exit(code)
+
+    def dismiss():
+        m = QApplication.activeModalWidget()
+        if m is None or m is getattr(w, "_ft_keep", None):
+            return
+        if isinstance(m, QMessageBox):
+            log("message answered by itself: " + (m.text() or "")[:300].replace("\n", " "))
+            b = m.defaultButton() or m.escapeButton()
+            if b is not None:
+                b.click()
+            else:
+                m.done(0)
+        elif time.time() - getattr(m, "_ft_seen", time.time()) > 60:
+            log(f"window closed by itself: {m.windowTitle()}")
+            m.reject()
+        elif not hasattr(m, "_ft_seen"):
+            m._ft_seen = time.time()
+
+    def step():
+        dismiss()
+        if time.time() - t_start > max_hours * 3600:
+            end(4, f"stopped: not finished after {max_hours:g} hours")
+            return
+        ft = st["ft"]
+        if ft is None:
+            if not w.frames:
+                if time.time() - t_start > 900:
+                    end(3, "stopped: the frames did not load")
+                return
+            if getattr(w, "_measuring", False):
+                return
+            st["ft"] = start(w, "frames")
+            if st["ft"] is None:
+                end(3, "stopped: Fast Track could not start (no light frames with a target among them?)")
+            return
+        if ft.cancelled:
+            end(5, "stopped: Fast Track was cancelled")
+            return
+        if not ft.finished_ok:
+            return
+        try:
+            import finish as F
+            from finish_window import save_rgb8
+            import checkpoints as cp
+            fw = ft.fw
+            out = Path(opt["out"]) if opt.get("out") else fw.default_out_dir()
+            folder = out / F.picture_folder_name(fw.state.target, fw.state.sources)
+            name = f"{cp.safe_name(fw.state.target)}_finished"
+            files = F.export(fw.state, folder / name, ("jpg", "tif"), save_rgb8=save_rgb8, credit=fw.credit_corner())
+            el = int(time.time() - t_start)
+            end(0, f"finished {fw.state.target} in {el // 60} min: saved " + ", ".join(str(f) for f in files))
+        except Exception as e:  # noqa: BLE001
+            end(6, f"stopped: the picture could not be saved ({e})")
+
+    folder = opt.get("folder") or ""
+    if not folder or not Path(folder).is_dir():
+        log(f"stopped: the folder '{folder}' can't be found")
+        if done_cb is not None:
+            done_cb(2, "no folder")
+        else:
+            QTimer.singleShot(0, lambda: QApplication.exit(2))
+        return None
+    frames = NL.recent_frames(folder, opt.get("hours", 18))
+    log(f"N.I.N.A. Fast Track: {len(frames)} frame(s) from the last {opt.get('hours', 18):g} h in {folder}")
+    if not frames:
+        if done_cb is not None:
+            done_cb(2, "no frames")
+        else:
+            QTimer.singleShot(0, lambda: QApplication.exit(2))
+        return None
+    w._fast_auto = True
+    w._fast_target = opt.get("target") or ""
+    tick = QTimer(w)
+    tick.timeout.connect(step)
+    tick.start(1000)
+    w.open_sources([("files", frames)])
+    return tick

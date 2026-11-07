@@ -263,6 +263,15 @@ bullets([
   "**Settings › Show Intro Animation at Startup** - turn the start-up animation on or off. *Help › Play the Intro Animation* plays it any time.",
 ]);
 
+sec("4.5", "Working with N.I.N.A.", ["N.I.N.A.", "NINA", "Work With N.I.N.A.", "N.I.N.A. profiles", "Image file pattern", "External Script", "--fast-track", "Fast Track after the night"]);
+p("**Settings › Work With N.I.N.A.…** brings together everything SubZeroAstro does with N.I.N.A.:");
+bullets([
+  "**Your Rigs & File Names** - every N.I.N.A. profile on this computer is listed with its telescope name and focal length (N.I.N.A.: *Options › Equipment › Telescope*), camera and filters. If N.I.N.A. runs on each rig's own computer, copy that computer's profile files (the *.profile* files in *%LOCALAPPDATA%\\NINA\\Profiles*) over and press **Add Profile Files…** (they are remembered). Tick the rigs and press **Add Ticked to Your Rigs…** - Your Rigs opens with them added (a rig with the same name gets the focal length added, e.g. with and without a reducer); check the names, then **Save My Rigs**. *Your Rigs* has the same as a **From N.I.N.A.…** button.",
+  "**File name pattern check** - SubZeroAstro reads what it needs from each file's header, so any pattern works, but a token N.I.N.A. doesn't know ends up in your file names as typed, or as a bare *$$*. The *File name pattern* column flags it; fix it in N.I.N.A. under *Options › Imaging › Image File Pattern*. **Copy Suggested Pattern** gives a clear one.",
+  "**After the Night** - let N.I.N.A. start **Fast Track** when the imaging is done: in the Advanced Sequencer, at the end of the sequence (after warming the camera and parking), add *Utility › External Script* and paste the line from **Copy for N.I.N.A.**, e.g. `\"C:\\…\\SubZeroAstro.exe\" --fast-track \"D:\\NINA\\Images\" --hours 18`. SubZeroAstro starts (minimised), takes the frames changed in the last 18 hours, runs Fast Track on the suggested settings for the target with the most frames (`--target \"M 31\"` to choose), saves the picture as JPEG and TIFF in the usual *Finished* folder (`--out \"D:\\Pictures\"` to choose) and closes. Any message on the way is answered with its default and noted in the log. It runs on the computer N.I.N.A. runs on, so SubZeroAstro must be installed there.",
+  "**Targets** - *Tonight's Target Picker* reads your site and horizon from a N.I.N.A. profile and sends the targets you pick straight to N.I.N.A. (6.5).",
+]);
+
 ch(5, "Finding your way around");
 sec("5.1", "The banner and page buttons", ["Banner", "Continue button", "Back button", "Page navigation"]);
 p("Every page has the same banner at the top: **SubZeroAstro**, the author and the **version** in small print (e.g. *v0.9.10 beta*), the **page title**, and beside it the **target** you are working on (e.g. *Target: M28*; with several targets loaded, *Targets: M27, M28*). On the right is a blue **Continue to …  ➜** button that turns to the next page; on the left a grey **◀ previous page** button goes back. Going back keeps your work: press Continue again and the page you left comes back exactly as it was.");

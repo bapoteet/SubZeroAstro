@@ -4401,6 +4401,48 @@ def run(app, out_dir: Path) -> int:
               f"none removed ({_rs_got})")
         check(_rs_f == ["sqa55", "SQA106", "RASA11", "C14"] and _rs_n == ["C14", "RASA11", "sqa55", "SQA106"],
               f"Your Rigs: sorted by focal length {_rs_f}, or by name A-Z with numbers counted as numbers {_rs_n}")
+        # Work With N.I.N.A.: rigs from N.I.N.A.'s profiles, its file name pattern checked, and the line for its
+        # External Script instruction that runs Fast Track after the night
+        import nina_link as _nl
+        import nina_window as _nlw
+        import fasttrack_window as _nft
+        _nl_dir = _au_root / "nina"
+        _nl_dir.mkdir(exist_ok=True)
+        _nl_file = _nl_dir / "a.profile"
+        _nl_file.write_text(
+            '<?xml version="1.0" encoding="utf-8"?><Profile xmlns="http://schemas.datacontract.org/2004/07/NINA.Profile">'
+            '<CameraSettings><Id>ZWO ASI2600MM Pro</Id><LastDeviceName>ZWO ASI2600MM Pro</LastDeviceName></CameraSettings>'
+            '<FilterWheelSettings><FilterWheelFilters xmlns:a="http://schemas.datacontract.org/2004/07/NINA.Core.Model.Equipment">'
+            '<a:FilterInfo><a:_name>L</a:_name></a:FilterInfo><a:FilterInfo><a:_name>Ha</a:_name></a:FilterInfo>'
+            '</FilterWheelFilters></FilterWheelSettings><ImageFileSettings><FilePath>D:\\NINA</FilePath>'
+            '<FilePattern>$$TARGETNAME$$_$$GAIN$$_$$$$_$$TELESCOPE$$</FilePattern></ImageFileSettings>'
+            '<LastUsed>2026-11-06T20:00:00</LastUsed><Name>Big refractor</Name><TelescopeSettings>'
+            '<FocalLength>1260</FocalLength><Name>WO181</Name></TelescopeSettings></Profile>', encoding="utf-8")
+        _nl_p = _nl.read_profiles([_nl_file])
+        _nl_rd = _ow_mod.YourRigsDialog(_owin, [{"name": "WO181", "focals": [900]}], 3, [])
+        _nl_n = _nl_rd.add_from_nina(_nl_p)
+        _nl_rows = {x["name"]: x["focals"] for x in _nl_rd.result_rows()}
+        _nl_rd.close()
+        _nl_d = w.open_nina(show=False)
+        _nl_d.profiles.add_files([str(_nl_file)])
+        _nl_pat = _nl_d.profiles.table.item(_nl_d.profiles.table.rowCount() - 1, 4).text()
+        _nl_d.folder.setText("D:/NINA")
+        _nl_cmd = _nl_d.cmd.text()
+        _nl_d.close()
+        check(len(_nl_p) == 1 and _nl_p[0]["telescope"] == "WO181" and _nl_p[0]["focal"] == 1260
+              and _nl_p[0]["filters"] == ["L", "Ha"] and _nl_p[0]["profile"] == "Big refractor"
+              and _nl_n == 1 and _nl_rows.get("WO181") == [900.0, 1260.0]
+              and "empty token" in _nl_pat and _nl.check_pattern(_nl.SUGGESTED_PATTERN) == []
+              and '--fast-track "D:/NINA" --hours 18' in _nl_cmd,
+              f"Work With N.I.N.A.: a rig read from a N.I.N.A. profile ({_nl_p[0] if _nl_p else None}) and added to "
+              f"Your Rigs ({_nl_rows}); a broken file name pattern flagged ({_nl_pat}); the External Script line "
+              f"({_nl_cmd})")
+        _nl_codes = []
+        _nft.run_cli(w, {"folder": str(_au_root / "no such folder")}, done_cb=lambda c, m: _nl_codes.append(c))
+        _nft.run_cli(w, {"folder": str(_nl_dir), "hours": 1}, done_cb=lambda c, m: _nl_codes.append(c))
+        check(_nl_codes == [2, 2] and _nl.parse_cli(["x", "--fast-track", "D:/N", "--hours", "12", "--target", "M 31"])
+              == {"folder": "D:/N", "hours": 12.0, "target": "M 31", "out": ""},
+              f"--fast-track: a missing folder, or no frames from the night, ends cleanly with a note ({_nl_codes})")
         _owin.change_layout(str(_au_lib), "target_rig", wait=True)
         _owin.go(ask=False, wait=True)
         _au_re = sorted(str(p.relative_to(_og.org_base(_au_lib))).replace("\\", "/").rsplit("/", 1)[0]
