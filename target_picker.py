@@ -604,6 +604,7 @@ def nina_target_json(t: Target, name: str, template: str | None = None) -> str:
     name and every set of coordinates change; without one, an empty container with just the target."""
     import json
     title = t.common or t.name
+    pa = float(getattr(t, "pa", 0.0) or 0.0)       # camera position angle (same framing as a solved picture)
     if template:
         doc = json.loads(template)
 
@@ -614,7 +615,7 @@ def nina_target_json(t: Target, name: str, template: str | None = None) -> str:
                 if "TargetName" in o:
                     o["TargetName"] = title
                     if "PositionAngle" in o:
-                        o["PositionAngle"] = 0.0
+                        o["PositionAngle"] = pa
                 for v in o.values():
                     walk(v)
             elif isinstance(o, list):
@@ -627,7 +628,7 @@ def nina_target_json(t: Target, name: str, template: str | None = None) -> str:
     doc = {
         "$id": "1", "$type": "NINA.Sequencer.Container.DeepSkyObjectContainer, NINA.Sequencer",
         "Target": {"$id": "2", "$type": "NINA.Astrometry.InputTarget, NINA.Astrometry", "Expanded": True,
-                   "TargetName": title, "PositionAngle": 0.0,
+                   "TargetName": title, "PositionAngle": pa,
                    "InputCoordinates": dict({"$id": "3", "$type": "NINA.Astrometry.InputCoordinates, NINA.Astrometry"},
                                             **_coords(t))},
         "ExposureInfoListExpanded": False,

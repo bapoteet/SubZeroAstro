@@ -42,7 +42,8 @@ def load_config(settings=None) -> dict:
     return {"src": s.value("auto_org/src", "") or "", "dst": s.value("auto_org/dst", "") or "",
             "layout": s.value("auto_org/layout", "") or s.value("organize/layout", "rig") or "rig",
             "freq": s.value("auto_org/freq", "daily") or "daily", "time": s.value("auto_org/time", "11:00") or "11:00",
-            "on": s.value("auto_org/on", False, type=bool)}
+            "on": s.value("auto_org/on", False, type=bool),
+            "jpgs": s.value("organize/delete_jpgs", True, type=bool)}
 
 
 def save_config(cfg, settings=None):
@@ -131,6 +132,8 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
         items = O.plan(O.classify(paths, library=lib, layout=cfg.get("layout") or "rig", root=src,
                                   riglist=riglist, tol=tol), lib)
         todo = [i for i in items if i.status == "move"]
+        if cfg.get("jpgs", True):
+            rep["jpgs"] = O.delete_previews(items, lib)      # the ASIAIR's .jpg previews
         if todo:
             log = O.execute(items, lib, move=True, keep=[src],
                             progress=(lambda t, i, n: progress(t)) if progress else None)
@@ -270,6 +273,8 @@ def describe(rep) -> str:
     if rep.get("error"):
         return f"{rep['time']}: not run - {rep['error']}"
     t = f"{rep['time']}: {rep['filed']} file(s) filed"
+    if rep.get("jpgs"):
+        t += f", {rep['jpgs']} .jpg preview(s) deleted"
     if rep["left"]:
         t += "; left in the incoming folder: " + ", ".join(f"{n} {w}" for w, n in rep["left"].items())
     return t

@@ -131,6 +131,12 @@ def _cam_norm(c):
     return s
 
 
+def _rig_folder_key(name) -> str:
+    """'RASA 11' / 'rasa-11' / 'RASA11' -> 'rasa11' (short names like 'C' are ignored)."""
+    k = re.sub(r"[^a-z0-9]+", "", str(name or "").lower())
+    return k if len(k) >= 3 else ""
+
+
 def match_rig(info, path, riglist, tol=0.03):
     """(rig name or None, reason). A folder you assigned to a rig wins; otherwise the focal length in the header
     within ±tol of one of a rig's focal lengths (and the camera, when the rig lists one). reason:
@@ -144,6 +150,12 @@ def match_rig(info, path, riglist, tol=0.03):
                 best = (r["name"], len(fp))
     if best:
         return best[0], "folder"
+    # a folder on the way named after a rig ("RASA11/Light/M31/…") - one USB stick filled from several ASIAIRs,
+    # each copied into a folder with its rig's name, is sorted out whatever their headers say
+    parts = {_rig_folder_key(x) for x in re.split(r"[\\/]", str(path or ""))[:-1]} - {""}
+    named = [r["name"] for r in riglist or [] if _rig_folder_key(r.get("name")) in parts]
+    if len(named) == 1:
+        return named[0], "folder"
     fl = getattr(info, "focal", None)
     if not fl:
         return None, "nofocal"
@@ -700,13 +712,13 @@ def execute(items, library, move=False, progress=None, stop=None, keep=None) -> 
     logd.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y-%m-%d_%H%M%S")
     log_path = logd / f"organize_{stamp}.json"
-    done, failed = [], []
+    done, failed, extra = [], [], {}
     todo = [it for it in items if it.status == "move"]
 
     def write_log():
-        log_path.write_text(json.dumps({"app": "SubZeroAstro", "kind": "organize", "move": move,
-                                        "library": str(library), "time": stamp, "done": done,
-                                        "failed": failed}, indent=1), encoding="utf-8")
+        log_path.write_text(json.dumps(dict({"app": "SubZeroAstro", "kind": "organize", "move": move,
+                                             "library": str(library), "time": stamp, "done": done,
+                                             "failed": failed}, **extra), indent=1), encoding="utf-8")
     for i, it in enumerate(todo):
         if stop and stop():
             break
@@ -735,10 +747,103 @@ def execute(items, library, move=False, progress=None, stop=None, keep=None) -> 
                 failed.append({"src": str(src), "dst": str(dst), "error": str(e)})
         if i % 50 == 0:
             write_log()
+    meta = carry_nina_metadata(done, move)
+    if meta:
+        extra["meta"] = meta
     write_log()
     if move:
         _remove_empty_dirs({Path(d["src"]).parent for d in done}, stop_at=library, keep=keep)
     return log_path
+
+
+def carry_nina_metadata(done, move=False) -> list:
+    """N.I.N.A.'s Session Metadata file (ImageMetaData.csv - guiding RMS per frame) goes with the frames: a copy
+    into every folder they were filed into. After a move, the original goes too once its folder has no frames
+    left. Returns what was done, for Undo: [{src, copies, removed}]."""
+    import nina_meta as NM
+    by_src = {}
+    for d in done:
+        by_src.setdefault(Path(d["src"]).parent, set()).add(Path(d["dst"]).parent)
+    out = []
+    for sdir, ddirs in by_src.items():
+        try:
+            metas = [p for p in sdir.iterdir() if p.is_file() and NM.looks_like(p)]
+        except OSError:
+            continue
+        for mf in metas:
+            rec = {"src": str(mf), "copies": [], "removed": False}
+            try:
+                body = mf.read_bytes()
+            except OSError:
+                continue
+            for dd in sorted(ddirs):
+                t = dd / mf.name
+                try:
+                    if t.exists():
+                        old = t.read_bytes()
+                        if old == body:
+                            continue
+                        if not body.startswith(old):          # another night's file of the same name
+                            n = 2
+                            while t.exists() and t.read_bytes() != body:
+                                t = dd / f"{mf.stem} ({n}){mf.suffix}"
+                                n += 1
+                            if t.exists():
+                                continue
+                    t.write_bytes(body)
+                    rec["copies"].append(str(t))
+                except OSError:
+                    pass
+            if move and rec["copies"]:
+                try:
+                    if not any(p.suffix.lower() in EXTS for p in sdir.iterdir() if p.is_file()):
+                        mf.unlink()
+                        rec["removed"] = True
+                except OSError:
+                    pass
+            if rec["copies"]:
+                out.append(rec)
+    return out
+
+
+PREVIEW_EXTS = {".jpg", ".jpeg"}
+
+
+def preview_files(items, library=None) -> list:
+    """The .jpg previews (an ASIAIR saves one with every frame) in the folders these frames came from - never
+    anything inside the organized library."""
+    base = None
+    if library is not None and str(library) not in ("", "."):
+        try:
+            base = org_base(library).resolve()
+        except OSError:
+            base = None
+    out, seen = [], set()
+    for d in {Path(it.src).parent for it in items if getattr(it, "src", None) is not None}:
+        try:
+            rd = d.resolve()
+        except OSError:
+            continue
+        if rd in seen or (base is not None and (rd == base or base in rd.parents)):
+            continue
+        seen.add(rd)
+        try:
+            out += [p for p in d.iterdir() if p.suffix.lower() in PREVIEW_EXTS and p.is_file()]
+        except OSError:
+            continue
+    return sorted(out)
+
+
+def delete_previews(items, library=None) -> int:
+    """Delete those .jpg previews (Organize › 'Delete the .jpg previews'). Returns how many went."""
+    n = 0
+    for p in preview_files(items, library):
+        try:
+            p.unlink()
+            n += 1
+        except OSError:
+            pass
+    return n
 
 
 def _remove_empty_dirs(dirs, stop_at=None, keep=None):
@@ -794,6 +899,19 @@ def undo(log_path, progress=None) -> tuple:
                     skipped += 1
         except OSError:
             skipped += 1
+    for m in log.get("meta") or []:                # N.I.N.A.'s metadata file: back in place, copies removed
+        src, copies = Path(m["src"]), [Path(c) for c in m.get("copies") or []]
+        try:
+            if m.get("removed") and not src.exists():
+                first = next((c for c in copies if c.exists()), None)
+                if first is not None:
+                    src.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(first, src)
+            for c in copies:
+                if c.exists():
+                    c.unlink()
+        except OSError:
+            pass
     _remove_empty_dirs({Path(d["dst"]).parent for d in entries}, stop_at=log.get("library"))
     Path(log_path).rename(Path(log_path).with_suffix(".undone.json"))
     return undone, skipped

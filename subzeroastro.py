@@ -38,12 +38,14 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox,
 
 import checkpoints as cp
 import fits_core as core
+import live_watch as LW
+import nina_meta as NM
 import ui_header
 from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.227 beta"
+APP_VERSION = "0.9.228 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -56,10 +58,10 @@ BADGE_COLORS = {"green": QColor(70, 200, 95), "amber": QColor(235, 170, 50),
                 "red": QColor(230, 70, 70), "grey": QColor(130, 130, 140)}
 
 SORTS = ["File name", "Capture time", "Filter", "Quality score", "FWHM", "Eccentricity",
-         "SNR", "Star count", "Background"]
+         "SNR", "Star count", "Background", "Guiding RMS"]
 SORT_METRIC = {"Quality score": "score", "FWHM": "fwhm", "Eccentricity": "eccentricity",
-               "SNR": "snr", "Star count": "stars", "Background": "background"}
-CHART_METRICS = ["score", "fwhm", "eccentricity", "snr", "stars", "background"]
+               "SNR": "snr", "Star count": "stars", "Background": "background", "Guiding RMS": "guide_rms"}
+CHART_METRICS = ["score", "fwhm", "eccentricity", "snr", "stars", "background", "guide_rms"]
 
 
 # --------------------------------------------------------------------------
@@ -458,10 +460,13 @@ class AutoFlagDialog(QDialog):
         row(2, "stars", "Star count below", dspin(5, 100, 60, 5, 0), "% of the median")
         row(3, "snr", "SNR below", dspin(5, 100, 60, 5, 0), "% of the median")
         row(4, "bg", "Background above", dspin(101, 400, 140, 5, 0), "% of the median")
+        row(5, "guide", "Guiding RMS more than", dspin(1.1, 5.0, 1.8, 0.1), "× the median (N.I.N.A. data)")
+        self.rows["guide"][0].setToolTip("Needs N.I.N.A.'s Session Metadata plugin (its ImageMetaData file next to "
+                                         "the frames) and a guided rig - frames without guiding data are skipped")
         self.red_cb = QCheckBox("Every frame with a red badge")
         self.red_cb.setChecked(settings.value("af/red", False, type=bool))
         self.red_cb.toggled.connect(self.update_count)
-        grid.addWidget(self.red_cb, 5, 0, 1, 3)
+        grid.addWidget(self.red_cb, 6, 0, 1, 3)
         lay.addLayout(grid)
 
         self.count_label = QLabel()
@@ -495,6 +500,8 @@ class AutoFlagDialog(QDialog):
                 hit |= m["snr"] < gm["snr"] * on["snr"][1] / 100
             if on["bg"][0] and gm.get("background"):
                 hit |= m.get("background", 0) > gm["background"] * on["bg"][1] / 100
+            if on["guide"][0] and m.get("guide_rms") and gm.get("guide_rms"):
+                hit |= m["guide_rms"] > gm["guide_rms"] * on["guide"][1]
             if self.red_cb.isChecked():
                 hit |= f.badge == "red"
             if hit:
@@ -944,6 +951,13 @@ class MainWindow(QMainWindow):
         self.session_timer.setSingleShot(True)
         self.session_timer.setInterval(1500)
         self.session_timer.timeout.connect(self.save_session)
+        self.nina_meta = NM.MetaIndex()
+        self.live_on = False                     # File › Watch for New Frames
+        self.live_timer = QTimer(self)
+        self.live_timer.setInterval(LW.POLL_S * 1000)
+        self.live_timer.timeout.connect(self.live_tick)
+        self.tray = None
+        self.live_reset()
 
         cp.set_root(self.settings.value("checkpoints/dir", "") or None)
         import ui_header
@@ -1090,7 +1104,8 @@ class MainWindow(QMainWindow):
         qform.setLabelAlignment(Qt.AlignRight)
         self.q_labels = {}
         for key, label in [("score", "Score"), ("fwhm", "FWHM"), ("eccentricity", "Eccentricity"),
-                           ("snr", "SNR"), ("stars", "Stars"), ("background", "Background")]:
+                           ("snr", "SNR"), ("stars", "Stars"), ("background", "Background"),
+                           ("guide_rms", "Guiding")]:
             lab = QLabel("–")
             lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
             qform.addRow(label + ":", lab)
@@ -1107,7 +1122,8 @@ class MainWindow(QMainWindow):
         for key, label in [("file", "File"), ("status", "Status"), ("folder", "Folder"),
                            ("object", "Target"), ("filter", "Filter"), ("exptime", "Exposure"),
                            ("date_obs", "Captured"), ("night", "Night of"), ("camera", "Camera"),
-                           ("gain", "Gain"), ("temp", "Sensor temp"), ("size", "Size"), ("bayer", "Bayer")]:
+                           ("gain", "Gain"), ("temp", "Sensor temp"), ("pier", "Pier side"), ("size", "Size"),
+                           ("bayer", "Bayer")]:
             lab = QLabel("–")
             lab.setTextInteractionFlags(Qt.TextSelectableByMouse)
             lab.setWordWrap(True)
@@ -1370,6 +1386,12 @@ class MainWindow(QMainWindow):
         for a in (self.act_load, self.act_open_project, self.act_open_pi, self.act_open_masters, self.act_open, self.act_reopen, self.act_start_over, self.act_fresh,
                   self.act_reload, self.act_remeasure):
             m.addAction(a)
+        self.act_live = QAction("Watch for New Frames (grade them live)", self)
+        self.act_live.setCheckable(True)
+        self.act_live.setToolTip("During the night: new frames in the open folder are measured as they arrive and "
+                                 "you're told if clouds, dew, focus or guiding go wrong")
+        self.act_live.toggled.connect(lambda on: self.set_live(on))
+        m.addAction(self.act_live)
         m.addSeparator()
         if ORGANIZER_ENABLED:
             m.addAction(self.act_organize)
@@ -1416,6 +1438,13 @@ class MainWindow(QMainWindow):
         a.setToolTip("Colour, brighten, stars, palettes - pick from previews, step by step")
         a.triggered.connect(self.open_finish)
         m.addAction(a)
+        m.addSeparator()
+        a = QAction("Same Framing Next Session (N.I.N.A.)…", self)
+        a.setToolTip("From a plate-solved master: its centre and camera angle as a N.I.N.A. target, so the next "
+                     "session's frames line up with these")
+        a.triggered.connect(lambda: self.open_nina(tab="framing"))
+        m.addAction(a)
+        self.act_same_framing = a
         m = mb.addMenu("&View")
         m.addAction(self.act_viewer)
         m.addSeparator()
@@ -1604,10 +1633,12 @@ class MainWindow(QMainWindow):
             w.show_intro()
         return w
 
-    def open_nina(self, show=True):
-        """Settings › Work With N.I.N.A.…"""
+    def open_nina(self, show=True, tab=None):
+        """Settings › Work With N.I.N.A.… (tab="framing": Stack › Same Framing Next Session…)"""
         import nina_window
         d = nina_window.NinaDialog(self, self.settings)
+        if tab == "framing":
+            d.tabs.setCurrentIndex(d.fr_tab)
         if show:
             d.exec()
         return d
@@ -1715,6 +1746,144 @@ class MainWindow(QMainWindow):
         if n_src > 1:
             self.setWindowTitle(f"{APP_NAME} — {n_src} sources under {root}")
 
+
+    # ------------------------------------------------- live grading (File › Watch for New Frames)
+    def live_reset(self):
+        self.live_sizes = {}
+        self.live_state = LW.AlertState()
+        self.live_new = set()
+        self.live_events = []
+
+    def set_live(self, on, ask=True):
+        """Start / stop watching the open folder(s) for new frames and grading them as they arrive."""
+        on = bool(on)
+        if on and not self.sources:
+            folder = QFileDialog.getExistingDirectory(self, "Folder N.I.N.A. saves tonight's frames into",
+                                                      str(Path.home())) if ask else ""
+            if not folder:
+                on = False
+            else:
+                self.open_sources([("folder", Path(folder), True)])
+                if not self.sources:
+                    on = False
+        self.live_on = on
+        a = getattr(self, "act_live", None)
+        if a is not None and a.isChecked() != on:
+            a.blockSignals(True)
+            a.setChecked(on)
+            a.blockSignals(False)
+        if on:
+            self.live_reset()
+            self.live_timer.start()
+            QTimer.singleShot(0, self.live_tick)
+            if hasattr(self, "toast"):
+                self.toast.show_message(f"Watching for new frames every {LW.POLL_S} s - each one is graded as it "
+                                        "arrives, and you're told if clouds, dew, focus or guiding go wrong.", 8)
+        else:
+            self.live_timer.stop()
+        self.update_status()
+        return on
+
+    def live_tick(self):
+        if not self.live_on or not self.sources:
+            return []
+        if self.loaded_count < len(self.frames) - len(self.live_new):
+            return []                          # still measuring the first load
+        try:
+            found, _root = core.scan_sources(self.sources, [])
+        except OSError:
+            return []
+        known = {LW.frame_key(f.path, f.folder if f.rejected else None) for f in self.frames.values()}
+        known |= {LW.frame_key(f.path) for f in self.frames.values()}
+        now = time.time()
+        new = []
+        for f in found:
+            if f.rejected or LW.frame_key(f.path) in known:
+                continue
+            if LW.settled(f.path, f.size, (f.mtime_ns or 0) / 1e9, self.live_sizes, now):
+                new.append(f)
+        if new:
+            self.nina_meta.forget_dirs()
+            self.add_frames(new)
+        return new
+
+    def add_frames(self, frames):
+        """Add frames to the open session without starting over (live watching)."""
+        if not frames:
+            return
+        base = max(self.frames, default=-1) + 1
+        mode = self.measure_mode()
+        todo = []
+        for i, f in enumerate(frames):
+            f.uid = base + i
+            if self.root is not None:
+                f.root = self.root
+            f.filter_override = self.filter_overrides.get(str(f.path))
+            self.frames[f.uid] = f
+            if f.folder not in self.disk_cache:
+                self.disk_cache[f.folder] = core.load_cache(f.folder)
+            entry = self.disk_cache[f.folder].get(f.cache_key)
+            if entry is not None and (entry.get("mode") == mode or (mode == "fast" and entry.get("mode") == "full")):
+                self.apply_result(f, dict(entry, qthumb=to_qimage(entry["thumb"])), from_cache=True)
+                self.loaded_count += 1
+            else:
+                todo.append(f)
+            self.live_new.add(f.uid)
+        self.to_load += len(todo)
+        if todo and self.loaded_count >= len(self.frames) - len(todo):
+            self.load_started = time.time()          # nothing else measuring: time these from now
+        self.progress.setRange(0, max(1, len(self.frames)))
+        self.progress.setValue(self.loaded_count)
+        self.progress.setVisible(bool(todo))
+        self.rebuild_list()
+        for f in todo:
+            self.analyze_pool.start(AnalyzeTask(self.generation, f.uid, f.path, mode, self.signals))
+        for f in frames:
+            if f not in todo:
+                self.live_grade(f)
+        self.refresh_stats()
+        if not todo:
+            self.loading_finished()
+
+    def live_grade(self, f):
+        """A new frame has been measured: compare it with the night so far and raise / clear an alert."""
+        if f.uid not in self.live_new:
+            return None
+        self.live_new.discard(f.uid)
+        if f.error or f.rejected:
+            return None
+        ref = [x for x in self.frames.values() if x.group == f.group and x.uid != f.uid and x.metrics
+               and not x.rejected and x.uid not in self.live_new]
+        if len(ref) < LW.MIN_REF:
+            self.live_state.feed(f.name, None)
+            return None
+        gm = core.group_medians(ref).get(f.group, {})
+        verdict = LW.problem(f.metrics, gm)
+        ev = self.live_state.feed(f.name, verdict)
+        if ev:
+            self.live_alert(*ev)
+        return ev
+
+    def live_alert(self, what, kind, text):
+        title = (LW.KIND_TITLE.get(kind, "Check the rig") if what == "alert" else "All clear") + " - SubZeroAstro"
+        self.live_events.append((time.strftime("%H:%M"), title, text))
+        try:
+            from PySide6.QtWidgets import QSystemTrayIcon
+            if self.tray is None and QSystemTrayIcon.isSystemTrayAvailable():
+                self.tray = QSystemTrayIcon(QApplication.windowIcon(), self)
+                self.tray.setToolTip("SubZeroAstro - watching for new frames")
+                self.tray.show()
+            if self.tray is not None:
+                self.tray.showMessage(title, text, QSystemTrayIcon.Warning if what == "alert"
+                                      else QSystemTrayIcon.Information, 15000)
+        except Exception:  # noqa: BLE001
+            pass
+        if what == "alert":
+            QApplication.beep()
+        if hasattr(self, "toast"):
+            self.toast.show_message(f"{title.split(' - ')[0]}: {text}", 12)
+        self.statusBar().showMessage(f"{time.strftime('%H:%M')}  {title.split(' - ')[0]}: {text}")
+
     def reload(self):
         if self.sources:
             self.open_sources(self.sources)
@@ -1739,6 +1908,8 @@ class MainWindow(QMainWindow):
         self.current_uid = None
         self.disk_cache = {}
         self.cache_dirty = set()
+        self.nina_meta = NM.MetaIndex()
+        self.live_reset()
         self.filter_combo.blockSignals(True)
         self.filter_combo.clear()
         self.filter_combo.addItem("All filters")
@@ -1816,8 +1987,12 @@ class MainWindow(QMainWindow):
         f.info = dict(res["info"])
         if f.filter_override:
             f.info["filter"] = f.filter_override
-        f.metrics = res.get("metrics") or {}
+        f.metrics = dict(res.get("metrics") or {})
         f.night = core.night_of(f.info)
+        try:                             # guiding RMS / pier side from N.I.N.A.'s Session Metadata plugin
+            NM.attach(f, self.nina_meta.lookup(f.path))
+        except Exception:  # noqa: BLE001
+            pass
         filt = f.info.get("filter") or "No filter"
         if filt not in self.known_filters:
             self.known_filters.append(filt)
@@ -1838,6 +2013,8 @@ class MainWindow(QMainWindow):
         f = self.frames[uid]
         self.apply_result(f, res)
         self.loaded_count += 1
+        if uid in self.live_new:
+            self.live_grade(f)
         if self.loaded_count == min(10, len(self.frames)):
             QTimer.singleShot(0, self.suggest_filter_from_names)
         self.progress.setValue(self.loaded_count)
@@ -2354,6 +2531,11 @@ class MainWindow(QMainWindow):
         Q["snr"].setText(vs("snr", "{:.0f}"))
         Q["stars"].setText(vs("stars", "{:.0f}"))
         Q["background"].setText(vs("background", "{:.0f}", " ADU"))
+        g = vs("guide_rms", "{:.2f}", "″")
+        if m.get("guide_ra") is not None and m.get("guide_dec") is not None:
+            g = g.replace("″", f"″ (RA {m['guide_ra']:.2f}, Dec {m['guide_dec']:.2f})", 1)
+        Q["guide_rms"].setText(g if m.get("guide_rms") is not None else
+                               "<span style='color:#8a8a96'>– (from N.I.N.A.'s Session Metadata plugin)</span>")
         lines = []
         if f.reasons:
             col = BADGE_COLORS.get(f.badge, QColor("#ccc")).name()
@@ -2401,6 +2583,8 @@ class MainWindow(QMainWindow):
         L["camera"].setText(fmt(i.get("camera")))
         L["gain"].setText(fmt(i.get("gain")))
         L["temp"].setText(fmt(i.get("temp"), " °C"))
+        pier = i.get("pier") or (core.cards_to_dict(f.cards).get("PIERSIDE") if f.cards else None)
+        L["pier"].setText(fmt(str(pier).capitalize() if pier else None))
         if f.display_size:
             w, h = f.display_size
             L["size"].setText(f"{w * 2} × {h * 2}" if i.get("bayer") else f"{w} × {h}")
@@ -2757,6 +2941,7 @@ class MainWindow(QMainWindow):
         self.medians = {}
         self.disk_cache = {}
         self.cache_dirty = set()
+        self.set_live(False)
         self.filter_combo.blockSignals(True)
         self.filter_combo.clear()
         self.filter_combo.addItem("All filters")
@@ -3294,6 +3479,10 @@ class MainWindow(QMainWindow):
             parts.append(f"{len(self.order)} shown")
         if self.loaded_count < n:
             parts.append(f"measuring {self.loaded_count}/{n}")
+        if getattr(self, "live_on", False):
+            st_ = self.live_state
+            parts.append(("<span style='color:#e64646'>● LIVE: " + LW.KIND_TITLE.get(st_.alerting, "") + "</span>")
+                         if st_.alerting else "<span style='color:#46c85f'>● LIVE</span> " + st_.summary())
         self.status_label.setText("   ·   ".join(parts))
 
     # -------------------------------------------------------------- help

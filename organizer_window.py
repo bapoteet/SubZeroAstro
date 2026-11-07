@@ -129,6 +129,13 @@ class OrganizeDialog(QDialog):
         (self.move if self.settings.value("organize/move", False, type=bool) else self.copy).setChecked(True)
         h.addWidget(self.copy)
         h.addWidget(self.move)
+        self.del_jpg = QCheckBox("Delete the .jpg previews (ASIAIR)")
+        self.del_jpg.setToolTip("The .jpg an ASIAIR saves next to every frame is deleted from the folders the frames "
+                                "come from (never from your organized library). Deleted files can't be brought back "
+                                "with Undo Last Run.")
+        self.del_jpg.setChecked(self.settings.value("organize/delete_jpgs", True, type=bool))
+        self.del_jpg.toggled.connect(lambda on: self.settings.setValue("organize/delete_jpgs", on))
+        h.addWidget(self.del_jpg)
         h.addStretch(1)
         lay.addLayout(h)
         h = QHBoxLayout()
@@ -554,7 +561,11 @@ class OrganizeDialog(QDialog):
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return
 
+        del_jpg = self.del_jpg.isChecked()
+
         def work(job):
+            if del_jpg:
+                self.jpgs_deleted = O.delete_previews(self.items, lib)
             return O.execute(self.items, lib, move=move, keep=[p if p.is_dir() else p.parent for p in self.sources()],
                              progress=lambda t, i, n: job.note.emit(t, i, n), stop=lambda: job.stop)
 
@@ -571,6 +582,9 @@ class OrganizeDialog(QDialog):
             nleft = len(rows)
             msg = [f"<b>Done: {len(d['done'])} file(s) {'moved' if move else 'copied'}</b> into "
                    f"<b>{O.org_base(lib)}</b>. Undo Last Run puts everything back."]
+            if getattr(self, "jpgs_deleted", 0):
+                msg.append(f"{self.jpgs_deleted} .jpg preview(s) deleted from the incoming folders.")
+                self.jpgs_deleted = 0
             if nleft:
                 parts = [f"{len(v)} {k}" for k, v in left.items()]
                 if d["failed"]:

@@ -4443,6 +4443,111 @@ def run(app, out_dir: Path) -> int:
         check(_nl_codes == [2, 2] and _nl.parse_cli(["x", "--fast-track", "D:/N", "--hours", "12", "--target", "M 31"])
               == {"folder": "D:/N", "hours": 12.0, "target": "M 31", "out": ""},
               f"--fast-track: a missing folder, or no frames from the night, ends cleanly with a note ({_nl_codes})")
+        # N.I.N.A.'s Session Metadata plugin: guiding RMS / pier side per frame, used in grading and culling
+        import nina_meta as _nm
+        from types import SimpleNamespace as _NS
+        _nm_dir = _au_root / "nmeta" / "M31" / "LIGHT"
+        _nm_dir.mkdir(parents=True, exist_ok=True)
+        (_nm_dir.parent / "ImageMetaData.csv").write_text(
+            "ExposureNumber,FilePath,FilterName,HFR,DetectedStars,GuidingRMSArcSec,GuidingRMSRAArcSec,"
+            "GuidingRMSDECArcSec,PierSide,Airmass\n"
+            "1,C:\\NINA\\M31\\LIGHT\\M31_0001.fits,L,2.1,900,0.55,0.40,0.38,West,1.2\n"
+            "2,C:\\NINA\\M31\\LIGHT\\M31_0002.fits,L,2.2,880,0,0,0,n/a,1.2\n", encoding="utf-8")
+        _nm_ix = _nm.MetaIndex()
+        _nm_f1 = _NS(metrics={"fwhm": 3.0}, info={})
+        _nm_f2 = _NS(metrics={"fwhm": 3.0}, info={})
+        _nm_a1 = _nm.attach(_nm_f1, _nm_ix.lookup(_nm_dir / "M31_0001.fit"))
+        _nm_a2 = _nm.attach(_nm_f2, _nm_ix.lookup(_nm_dir / "M31_0002.fits"))
+        _nm_gm = {"fwhm": 3.0, "stars": 100, "snr": 50, "eccentricity": 0.3, "guide_rms": 0.5}
+        _nm_bad = core.cull_reasons(_NS(metrics={"fwhm": 3.0, "stars": 100, "snr": 50, "eccentricity": 0.3,
+                                                 "guide_rms": 1.4}), _nm_gm, core.CULL_PRESETS["semi"])
+        _nm_ok = core.cull_reasons(_NS(metrics={"fwhm": 3.0, "stars": 100, "snr": 50, "eccentricity": 0.3}),
+                                   _nm_gm, core.CULL_PRESETS["aggressive"])
+        check(_nm_a1 and _nm_f1.metrics.get("guide_rms") == 0.55 and _nm_f1.info.get("pier") == "West"
+              and not _nm_a2 and "guide_rms" not in _nm_f2.metrics and any("guiding" in r for r in _nm_bad)
+              and _nm_ok == [] and "guide_rms" in fb.CHART_METRICS,
+              f"N.I.N.A. Session Metadata: guiding RMS and pier side read for a guided frame ({_nm_f1.metrics}, "
+              f"{_nm_f1.info}), an unguided one left alone ({_nm_f2.metrics}); poor guiding culled ({_nm_bad}), "
+              f"frames without guiding data never culled for it")
+        _nm_src = _au_root / "nmeta2" / "M31"
+        _nm_src.mkdir(parents=True, exist_ok=True)
+        (_nm_src / "M31_0001.fits").write_bytes(b"1" * 16)
+        (_nm_src / "ImageMetaData.csv").write_text("ExposureNumber,FilePath,GuidingRMSArcSec\n1,M31_0001.fits,0.5\n",
+                                                   encoding="utf-8")
+        _nm_lib = _au_root / "nmeta2_lib"
+        _nm_dst = _og.org_base(_nm_lib) / "Light Frames" / "M31" / "M31_0001.fits"
+        _nm_log = _og.execute([_NS(src=_nm_src / "M31_0001.fits", dst=_nm_dst, status="move", companions=[])],
+                              _nm_lib, move=True, keep=[_nm_src.parent])
+        _nm_carried = (_nm_dst.parent / "ImageMetaData.csv").exists() and not (_nm_src / "ImageMetaData.csv").exists()
+        _og.undo(_nm_log)
+        check(_nm_carried and (_nm_src / "ImageMetaData.csv").exists() and (_nm_src / "M31_0001.fits").exists()
+              and not (_nm_dst.parent / "ImageMetaData.csv").exists(),
+              "Organize takes N.I.N.A.'s ImageMetaData.csv along with the frames, and Undo puts it back")
+        # Watch for New Frames: each new frame graded as it arrives; two poor in a row raise an alert, two good clear
+        import live_watch as _lw
+        _lw_gm = {"fwhm": 3.0, "stars": 200, "snr": 60, "background": 1000, "eccentricity": 0.3}
+        _lw_good = {"fwhm": 3.1, "stars": 190, "snr": 58, "background": 1020, "eccentricity": 0.32}
+        _lw_cloud = {"fwhm": 3.2, "stars": 40, "snr": 20, "background": 1300, "eccentricity": 0.3}
+        _lw_dew = {"fwhm": 4.4, "stars": 150, "snr": 40, "background": 1000, "eccentricity": 0.3}
+        _lw_st = _lw.AlertState()
+        _lw_ev = [_lw_st.feed(n, _lw.problem(m, _lw_gm)) for n, m in
+                  (("a", _lw_good), ("b", _lw_cloud), ("c", _lw_cloud), ("d", _lw_cloud), ("e", _lw_good),
+                   ("f", _lw_good))]
+        _lw_sizes = {}
+        _lw_s1 = _lw.settled("x.fits", 100, 0, _lw_sizes, 100)
+        _lw_s2 = _lw.settled("x.fits", 100, 0, _lw_sizes, 100)
+        _lw_on = w.set_live(True, ask=False)
+        _lw_stat = w.status_label.text()
+        w.set_live(False)
+        check([e[0] if e else None for e in _lw_ev] == [None, None, "alert", None, None, "clear"]
+              and _lw_ev[2][1] == "clouds" and _lw.problem(_lw_dew, _lw_gm)[0] == "dew"
+              and _lw.problem(_lw_good, _lw_gm) is None and not _lw_s1 and _lw_s2
+              and (_lw_on == bool(w.sources)) and (not _lw_on or "LIVE" in _lw_stat)
+              and not w.live_timer.isActive() and not w.act_live.isChecked(),
+              f"Watch for New Frames: clouds alerted after two poor frames and cleared after two good ones "
+              f"({[e[:2] if e else None for e in _lw_ev]}); a file still being written waits; on and off "
+              f"({_lw_on}, {_lw_stat[-60:]!r})")
+        # Same Framing Next Session: a solved master -> its centre and N.I.N.A. position angle -> a N.I.N.A. target
+        import framing as _fr
+        import json as _fjson
+        _fr_s = 1.2 / 3600
+        _fr_p = _au_root / "solved_master.fits"
+        core.write_fits(_fr_p, np.zeros((60, 80), np.float32),
+                        {"OBJECT": "M 31", "CTYPE1": "RA---TAN", "CTYPE2": "DEC--TAN", "CRVAL1": 10.6847,
+                         "CRVAL2": 41.2690, "CRPIX1": 40.5, "CRPIX2": 30.5, "CD1_1": -_fr_s, "CD1_2": 0.0,
+                         "CD2_1": 0.0, "CD2_2": _fr_s})
+        _fr_d = w.open_nina(show=False, tab="framing")
+        _fr_got = _fr_d.choose_framing(str(_fr_p), astap="")
+        _fr_out = _fr_d.send_framing(folder=_au_root / "nina_targets")
+        _fr_js = _fjson.loads(Path(_fr_out[0]).read_text(encoding="utf-8")) if _fr_out else {}
+        _fr_d.close()
+        _fr_none = None
+        try:
+            _fr.from_file(_au_root / "nmeta" / "x.fits", None)
+        except Exception as _fr_e:  # noqa: BLE001
+            _fr_none = str(_fr_e)
+        check(_fr_got is not None and abs(_fr_got["ra"] - 10.6847) < 1e-4 and abs(_fr_got["dec"] - 41.2690) < 1e-4
+              and _fr_got["pa"] == 180.0 and _fr_js.get("Target", {}).get("PositionAngle") == 180.0
+              and _fr_js["Target"]["TargetName"] == "M 31" and _fr_none is not None,
+              f"Same Framing Next Session: a solved master's centre and position angle ({_fr_got}) sent to "
+              f"N.I.N.A. as a target ({_fr_out}); an unsolved file without ASTAP is explained ({_fr_none})")
+        # Organize: one USB stick from several ASIAIRs - a folder named after a rig claims its files; the
+        # ASIAIR's .jpg previews are deleted from the incoming folders (never from the library)
+        _uz_rigs = [{"name": "RASA 11", "focals": [620]}, {"name": "SQA55", "focals": [264]}]
+        _uz_m = _og.match_rig(_NS(focal=None, camera=None), _au_root / "stick" / "rasa-11" / "Light" / "a.fit",
+                              _uz_rigs)
+        _uz_in = _au_root / "stick" / "SQA55" / "Light"
+        _uz_in.mkdir(parents=True, exist_ok=True)
+        for _uz_n in ("a.fit", "a.jpg", "a_thn.JPG"):
+            (_uz_in / _uz_n).write_bytes(b"x")
+        _uz_libd = _og.org_base(_au_root / "stick") / "Pictures"
+        _uz_libd.mkdir(parents=True, exist_ok=True)
+        (_uz_libd / "final.jpg").write_bytes(b"x")
+        _uz_n = _og.delete_previews([_NS(src=_uz_in / "a.fit"), _NS(src=_uz_libd / "x.fits")], _au_root / "stick")
+        check(_uz_m == ("RASA 11", "folder") and _uz_n == 2 and (_uz_in / "a.fit").exists()
+              and not (_uz_in / "a.jpg").exists() and (_uz_libd / "final.jpg").exists(),
+              f"Organize: a folder named after a rig claims its files ({_uz_m}); {_uz_n} ASIAIR .jpg previews "
+              f"deleted, the frame and the library's pictures kept")
         _owin.change_layout(str(_au_lib), "target_rig", wait=True)
         _owin.go(ask=False, wait=True)
         _au_re = sorted(str(p.relative_to(_og.org_base(_au_lib))).replace("\\", "/").rsplit("/", 1)[0]

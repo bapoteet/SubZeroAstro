@@ -1106,10 +1106,11 @@ METRIC_NAMES = {
     "snr": "SNR",
     "stars": "Star count",
     "background": "Background (ADU)",
+    "guide_rms": "Guiding RMS (″)",
 }
 # True = bigger is better
 METRIC_HIGHER_BETTER = {"score": True, "fwhm": False, "eccentricity": False, "snr": True,
-                        "stars": True, "background": False}
+                        "stars": True, "background": False, "guide_rms": False}
 
 
 def frame_value(f: Frame, key: str):
@@ -1124,7 +1125,8 @@ def group_medians(frames) -> dict:
     for f in frames:
         if not f.metrics or f.rejected:
             continue
-        g = groups.setdefault(f.group, {k: [] for k in ("fwhm", "eccentricity", "snr", "stars", "background")})
+        g = groups.setdefault(f.group, {k: [] for k in ("fwhm", "eccentricity", "snr", "stars", "background",
+                                                       "guide_rms")})
         for k in g:
             v = f.metrics.get(k)
             if v is not None:
@@ -1172,6 +1174,12 @@ def assess(frames, med: dict | None = None):
             amber = True; f.reasons.append(f"Lower SNR ({100*rn:.0f}% of median)")
         if rb > 1.5:
             amber = True; f.reasons.append(f"Bright background ({100*(rb-1):.0f}% above median)")
+        g, gmed = m.get("guide_rms"), gm.get("guide_rms")
+        if g and gmed:                   # guided rigs with N.I.N.A.'s Session Metadata only
+            if g > max(2.25 * gmed, gmed + 0.6):
+                red = True; f.reasons.append(f"Guiding trouble (RMS {g:.2f}″, median {gmed:.2f}″)")
+            elif g > max(1.5 * gmed, gmed + 0.25):
+                amber = True; f.reasons.append(f"Rougher guiding (RMS {g:.2f}″, median {gmed:.2f}″)")
         f.badge = "red" if red else ("amber" if amber else "green")
 
         # 100 = a typical frame for its group; higher is better
@@ -1191,15 +1199,20 @@ def assess(frames, med: dict | None = None):
 #   ecc:   flag if eccentricity is above max(abs, median + rel)
 #   snr:   flag if SNR is below this fraction of the median (thin cloud or haze
 #          can dim every star without making any disappear)
+#   guide: flag if the guiding RMS (from N.I.N.A.'s Session Metadata plugin; guided rigs only) is more than
+#          this many times the median (and at least 0.25" worse)
 #   combo: also flag when the "how close to the limit" scores add up to this
 #          much, i.e. a frame that is somewhat worse in two ways at once
 CULL_PRESETS = {
     "aggressive": {"label": "Aggressive", "fwhm": 1.10, "stars": 0.80, "snr": 0.75,
-                   "ecc_abs": 0.55, "ecc_rel": 0.08, "combo": 1.2},
+                   "ecc_abs": 0.55, "ecc_rel": 0.08, "combo": 1.2,
+                   "guide": 1.50},
     "semi": {"label": "Semi-aggressive", "fwhm": 1.20, "stars": 0.65, "snr": 0.60,
-             "ecc_abs": 0.65, "ecc_rel": 0.12, "combo": 1.5},
+             "ecc_abs": 0.65, "ecc_rel": 0.12, "combo": 1.5,
+             "guide": 1.80},
     "less": {"label": "Less aggressive", "fwhm": 1.35, "stars": 0.50, "snr": 0.45,
-             "ecc_abs": 0.75, "ecc_rel": 0.20, "combo": 1.8},
+             "ecc_abs": 0.75, "ecc_rel": 0.20, "combo": 1.8,
+             "guide": 2.20},
 }
 
 
@@ -1229,7 +1242,14 @@ def cull_reasons(f: Frame, gm: dict, p: dict) -> list[str]:
         out.append(f"eccentricity {e:.2f} (limit {e_lim:.2f})")
     if s_n >= 1:
         out.append(f"SNR {100 * rn:.0f}% of median (cloud or haze?)")
-    if not out and s_f + s_s + s_e + s_n >= p["combo"]:
+    g, gmed = m.get("guide_rms"), gm.get("guide_rms")
+    s_g = 0.0
+    if g and gmed and p.get("guide"):
+        lim = max(p["guide"] * gmed, gmed + 0.25)
+        s_g = max(0.0, (g - gmed) / max(lim - gmed, 1e-6))
+        if g > lim:
+            out.append(f"guiding RMS {g:.2f}″ ({g / gmed:.1f}× median)")
+    if not out and s_f + s_s + s_e + s_n + s_g >= p["combo"]:
         out.append("worse than usual in several ways at once")
     return out
 

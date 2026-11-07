@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QDoubleS
                                QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QTabWidget, QVBoxLayout, QWidget)
 
+import framing as FR
 import nina_link as NL
 
 
@@ -224,6 +225,43 @@ class NinaDialog(QDialog):
         l3.addStretch(1)
         tabs.addTab(w3, "Targets")
 
+        # 4 - same framing next session
+        w4 = QWidget()
+        l4 = QVBoxLayout(w4)
+        t4 = QLabel("Pick a <b>plate-solved master</b> (Astro Image Processing solves them when ASTAP is installed) "
+                    "or any solved picture of the target. SubZeroAstro works out its centre and the camera's "
+                    "<b>position angle</b> the way N.I.N.A. measures them, and <b>Send to N.I.N.A.</b> puts a "
+                    "target with both into N.I.N.A.'s target list. Next session, use it with <i>Slew, center and "
+                    "rotate</i> (a rotator, or N.I.N.A.'s manual rotator prompts) or <i>Slew and center</i> "
+                    "without one - and the new frames line up with the old ones. Not solved yet? ASTAP solves a "
+                    "copy first (your file isn't changed).")
+        t4.setWordWrap(True)
+        l4.addWidget(t4)
+        h = QHBoxLayout()
+        b = QPushButton("Choose Master or Picture…")
+        b.clicked.connect(lambda: self.choose_framing())
+        h.addWidget(b)
+        h.addStretch(1)
+        l4.addLayout(h)
+        self.fr_label = QLabel("")
+        self.fr_label.setWordWrap(True)
+        self.fr_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        l4.addWidget(self.fr_label)
+        h = QHBoxLayout()
+        self.b_fr_send = QPushButton("Send to N.I.N.A.")
+        self.b_fr_send.clicked.connect(lambda: self.send_framing())
+        self.b_fr_copy = QPushButton("Copy Centre && Angle")
+        self.b_fr_copy.clicked.connect(lambda: QApplication.clipboard().setText(FR.describe(self.framing)))
+        for x in (self.b_fr_send, self.b_fr_copy):
+            x.setEnabled(False)
+            h.addWidget(x)
+        h.addStretch(1)
+        l4.addLayout(h)
+        l4.addStretch(1)
+        self.fr_tab = tabs.addTab(w4, "Same Framing Next Session")
+        self.tabs = tabs
+        self.framing = None
+
         bb = QDialogButtonBox(QDialogButtonBox.Close)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
@@ -251,3 +289,58 @@ class NinaDialog(QDialog):
         if org is None:
             return None
         return org.edit_rigs(preload=picked, show=not wait)
+
+    # ---------------------------------------------------------------- same framing next session
+    def choose_framing(self, path=None, astap=None):
+        """Work out the framing of a solved picture (solving it with ASTAP first if needed)."""
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "A plate-solved master or picture", self.settings.value("nina/frame_dir", "") or
+                str(Path.home()), "FITS / XISF (*.fit *.fits *.fts *.xisf)")
+        if not path:
+            return None
+        if self.settings is not None:
+            self.settings.setValue("nina/frame_dir", str(Path(path).parent))
+        if astap is None:
+            import tools
+            astap = tools.find_astap(self.settings.value("prep/astap", "") or None if self.settings is not None
+                                     else None)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.fr_label.setText("Reading" + (" and plate solving…" if astap else "…"))
+            QApplication.processEvents()
+            fr = FR.from_file(path, astap)
+        except Exception as e:  # noqa: BLE001
+            fr = None
+            self.fr_label.setText(f"<span style='color:#eba932'>{Path(path).name}: {e}</span>")
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.framing = fr
+        for x in (self.b_fr_send, self.b_fr_copy):
+            x.setEnabled(fr is not None)
+        if fr is not None:
+            self.fr_label.setText(f"<b>{Path(path).name}</b>{' (solved just now by ASTAP)' if fr['solved_now'] else ''}"
+                                  f"<br>{FR.describe(fr)}")
+        return fr
+
+    def send_framing(self, folder=None):
+        """Write the framing as a N.I.N.A. target (with the saved Target Picker template, if there is one)."""
+        if not self.framing:
+            return None
+        import target_picker as tp
+        tpl = (self.settings.value("picker/nina_template", "") or "") if self.settings is not None else ""
+        template = Path(tpl).read_text(encoding="utf-8-sig") if tpl and Path(tpl).is_file() else None
+        if folder is None:
+            profs = tp.nina_profiles() if hasattr(tp, "nina_profiles") else []
+            folder = tp.nina_targets_folder(profs[0] if profs else None)
+        try:
+            paths = tp.save_nina_targets([FR.as_target(self.framing)], folder, "same framing", template)
+        except OSError as e:
+            self.fr_label.setText(self.fr_label.text() + f"<br><span style='color:#eba932'>Couldn't write to "
+                                  f"{folder}: {e}</span>")
+            return None
+        self.fr_label.setText(self.fr_label.text() + f"<br>✓ Sent to N.I.N.A.: {paths[0]} - in N.I.N.A.: "
+                              "Sequencer › Advanced › Targets › SubZeroAstro. (N.I.N.A. on another computer: copy "
+                              "the file into its Documents\\N.I.N.A\\Targets folder.)")
+        return paths
+
