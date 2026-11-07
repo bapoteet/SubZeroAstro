@@ -333,6 +333,9 @@ LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration
            "target": "By target (classic): Targets / target / night_rig, with darks and bias libraries"}
 
 
+READERS = 8
+
+
 def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None, layout="rig",
              root=None, riglist=None, tol=0.03) -> list:
     """Read each header and decide where the file belongs (relative to the library). Returns [Item].
@@ -343,23 +346,38 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     _RIGLIST, _TOL = riglist, tol
     read_info = read_info or st.read_info
     items, infos = [], []
-    for i, p in enumerate(paths):
-        if progress and i % 20 == 0:
-            progress(f"Reading headers {i + 1} of {len(paths)}", i)
-        if stop and stop():
-            break
-        it = Item(src=Path(p))
+
+    def one(p):
         try:
-            it.size = Path(p).stat().st_size
-            info = read_info(p)
+            return Path(p).stat().st_size, read_info(p), None
         except Exception as e:  # noqa: BLE001 - unreadable file: leave it where it is
-            it.status, it.why = "error", f"could not read it ({e})"
+            return 0, None, e
+
+    # several headers at once: on a NAS each file mostly waits for the network, not the disk (8x faster on Wi-Fi)
+    from concurrent.futures import ThreadPoolExecutor
+    paths = list(paths)
+    with ThreadPoolExecutor(max_workers=READERS) as pool:
+        futs = []
+        for p in paths:
+            futs.append(pool.submit(one, p))
+        for i, (p, fu) in enumerate(zip(paths, futs)):
+            if progress and i % 20 == 0:
+                progress(f"Reading headers {i + 1} of {len(paths)}", i)
+            if stop and stop():
+                for f2 in futs[i:]:
+                    f2.cancel()
+                break
+            size, info, err = fu.result()
+            it = Item(src=Path(p))
+            it.size = size
+            if err is not None:
+                it.status, it.why = "error", f"could not read it ({err})"
+                items.append(it)
+                infos.append(None)
+                continue
+            it.info = info
             items.append(it)
-            infos.append(None)
-            continue
-        it.info = info
-        items.append(it)
-        infos.append(info)
+            infos.append(info)
 
     # rigs without a name or a telescope in the header: the folder name their files sit under (SQA60Pro/…)
     global _GUESS
@@ -545,20 +563,35 @@ def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected, ta
         it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "the header doesn't say what it is"
 
 
+_HASHES = {}
+HASH_HEAD, HASH_TAIL = 128 << 10, 32 << 10
+
+
 def _quick_hash(p: Path) -> str:
-    """Size + the first and last MB: enough to tell real duplicates from different files of one name."""
+    """Size + the start (the whole header - capture time, target, settings - and the first pixels) and the end
+    of the file: enough to tell real duplicates from different files of one name, and only ~160 KB read per
+    file (it used to be 2 MB, which over a NAS on Wi-Fi made 'Checking for duplicates' take most of an hour
+    when a folder had been organized before)."""
+    p = Path(p)
+    st = p.stat()
+    k = (str(p), st.st_size, st.st_mtime_ns)
+    if k in _HASHES:
+        return _HASHES[k]
     h = hashlib.sha1()
-    size = p.stat().st_size
+    size = st.st_size
     h.update(str(size).encode())
     with open(p, "rb") as f:
-        h.update(f.read(1 << 20))
-        if size > 2 << 20:
-            f.seek(-(1 << 20), os.SEEK_END)
-            h.update(f.read(1 << 20))
-    return h.hexdigest()
+        h.update(f.read(HASH_HEAD))
+        if size > HASH_HEAD + HASH_TAIL:
+            f.seek(-HASH_TAIL, os.SEEK_END)
+            h.update(f.read(HASH_TAIL))
+    if len(_HASHES) > 200_000:
+        _HASHES.clear()
+    _HASHES[k] = h.hexdigest()
+    return _HASHES[k]
 
 
-def plan(items, library) -> list:
+def plan(items, library, progress=None, stop=None) -> list:
     """Final destinations: already in place / duplicate of a file already there / a numbered name if a
     different file of that name is in the way (also between files of this same run)."""
     library = Path(library)
@@ -579,7 +612,12 @@ def plan(items, library) -> list:
             it.same_as = seen[it.key]
         else:
             seen[it.key] = it.src
-    for it in items:
+    for i, it in enumerate(items):
+        if stop and stop():            # half a plan is no plan: nothing unchecked may be moved
+            raise RuntimeError("you pressed Stop while duplicates were being checked - nothing was changed; "
+                               "press Step 1 again to look through the files")
+        if progress and i % 20 == 0:
+            progress(f"Checking for duplicates and name clashes… {i:,} of {len(items):,}", i, len(items))
         if it.dst is None or it.status in ("error", "duplicate", "norig"):
             continue
         it.dst = Path(*[_safe(x) if k < len(Path(it.dst).parts) - 1 else x

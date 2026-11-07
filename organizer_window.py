@@ -473,7 +473,7 @@ class OrganizeDialog(QDialog):
             items = O.classify(paths, progress=lambda t, i: job.note.emit(t, i, len(paths)), stop=lambda: job.stop,
                                library=lib, layout=layout, root=src, riglist=riglist, tol=tol)
             job.note.emit("Checking for duplicates and name clashes…", 0, 0)
-            return O.plan(items, lib)
+            return O.plan(items, lib, progress=lambda t, i, n: job.note.emit(t, i, n), stop=lambda: job.stop)
         self._run(work, self._show_plan, wait)
 
     def _show_plan(self, items):
