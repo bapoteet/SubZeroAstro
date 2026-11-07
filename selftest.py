@@ -4531,6 +4531,12 @@ def run(app, out_dir: Path) -> int:
               and _fr_js["Target"]["TargetName"] == "M 31" and _fr_none is not None,
               f"Same Framing Next Session: a solved master's centre and position angle ({_fr_got}) sent to "
               f"N.I.N.A. as a target ({_fr_out}); an unsolved file without ASTAP is explained ({_fr_none})")
+        _zz = _au_root / "zeros" / "M31_0001.fits"
+        _zz.parent.mkdir(parents=True, exist_ok=True)
+        _zz.write_bytes(bytes(3 * 2880 * 100))
+        _zz_it = _og.classify([_zz])[0]
+        check(_zz_it.status == "error" and "all zeros" in _zz_it.why,
+              f"Organize names a frame that is all zeros (never written) as such ({_zz_it.why[:60]})")
         # Organize: one USB stick from several ASIAIRs - a folder named after a rig claims its files; the
         # ASIAIR's .jpg previews are deleted from the incoming folders (never from the library)
         _uz_rigs = [{"name": "RASA 11", "focals": [620]}, {"name": "SQA55", "focals": [264]}]

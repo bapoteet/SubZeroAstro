@@ -336,6 +336,25 @@ LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration
 READERS = 8
 
 
+def _empty_reason(p) -> str:
+    """Why a file can't be read, when it's plain: one that is all zeros (or empty) was never written - the
+    capture or a copy was cut short (a crash, the power, the network) - and holds no picture to rescue."""
+    try:
+        size = Path(p).stat().st_size
+        if size == 0:
+            return "empty file (0 bytes) - the capture or a copy was cut short; nothing to rescue"
+        with open(p, "rb") as f:
+            head = f.read(64 << 10)
+            f.seek(max(0, size // 2))
+            mid = f.read(64 << 10)
+        if not head.strip(b"\0") and not mid.strip(b"\0"):
+            return ("all zeros - the file was made but the picture was never written into it (the capture or a "
+                    "copy was cut short); nothing to rescue - check the copy on the imaging computer, else delete it")
+    except OSError:
+        pass
+    return ""
+
+
 def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None, layout="rig",
              root=None, riglist=None, tol=0.03) -> list:
     """Read each header and decide where the file belongs (relative to the library). Returns [Item].
@@ -371,7 +390,7 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             it = Item(src=Path(p))
             it.size = size
             if err is not None:
-                it.status, it.why = "error", f"could not read it ({err})"
+                it.status, it.why = "error", (_empty_reason(p) or f"could not read it ({err})")
                 items.append(it)
                 infos.append(None)
                 continue
