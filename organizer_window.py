@@ -1324,10 +1324,16 @@ class AutoDialog(QDialog):
             return False
         return True
 
+    def _remember_mounts(self, cfg):
+        for k in ("src", "dst"):                      # a Mac: how the NAS shares are connected, to reconnect later
+            if cfg.get(k):
+                self.A.ensure_mounted(cfg[k], self.settings)
+
     def turn_on(self):
         cfg = self.cfg()
         if not self._check(cfg):
             return
+        self._remember_mounts(cfg)
         ok, msg = self.A.schedule(cfg)
         cfg["on"] = ok
         self.A.save_config(cfg, self.settings)
@@ -1343,6 +1349,7 @@ class AutoDialog(QDialog):
         if not self._check(cfg):
             return None
         self.A.save_config({k: v for k, v in cfg.items() if k != "on"}, self.settings)
+        self._remember_mounts(cfg)
         if not wait:
             # the same as a scheduled run: its own process, so closing SubZeroAstro doesn't stop it
             before = self.settings.value("auto_org/last", "") or ""

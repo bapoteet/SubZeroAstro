@@ -4362,6 +4362,12 @@ def run(app, out_dir: Path) -> int:
               and _au_win[-3:] == ["WEEKLY", "/D", "MON,THU"] and "06:05" in _au_win,
               f"Organize Automatically: {_au.describe(_au_rep)}; the incoming folder may not be inside the library; "
               f"Task Scheduler: {' '.join(_au_win[-6:])}")
+        _au_mu = _au.mount_urls("//bapo@AstroNAS._smb._tcp.local/AstroDataOrganizedSAZ on /Volumes/AstroDataOrganizedSAZ "
+                                "(smbfs, nodev, nosuid, mounted by bapo)\n/dev/disk3s1 on / (apfs, local)")
+        check(_au_mu == {"/Volumes/AstroDataOrganizedSAZ": "smb://bapo@AstroNAS._smb._tcp.local/AstroDataOrganizedSAZ"}
+              and (sys.platform != "darwin" or "isn't connected" in _au._unreachable("/Volumes/NoSuchShare_x/y")),
+              f"Organize Automatically on a Mac: how a NAS share is connected is remembered, so a run can reconnect "
+              f"it; a share that isn't connected is named as such ({_au_mu})")
         _au_lk = _au_root / "lock_test"
         _au_lk.write_text(f"x|{os.getpid()}|{_au._host()}", encoding="utf-8")
         _au_l1 = _au._lock_alive(_au_lk)

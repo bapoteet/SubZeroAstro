@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import re
 import subprocess
 import sys
 import time
@@ -77,8 +78,14 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
     rep = {"time": stamp, "filed": 0, "left": {}, "log": "", "error": ""}
     bad = problems(cfg)
     src = Path(cfg.get("src", ""))
+    for k in ("src", "dst"):                         # a Mac: NAS folders must be mounted - remember / reconnect
+        if cfg.get(k):
+            ensure_mounted(cfg[k], s)
+    lib0 = Path(cfg.get("dst", ""))
     if not bad and not src.is_dir():
-        bad = [f"the incoming folder {src} can't be reached (is the NAS on?)"]
+        bad = [f"the incoming folder {src} can't be reached ({_unreachable(src)})"]
+    if not bad and not lib0.is_dir():
+        bad = [f"your library {lib0} can't be reached ({_unreachable(lib0)})"]
     riglist = []
     try:
         riglist = json.loads(s.value("organize/riglist", "[]") or "[]")
@@ -196,6 +203,67 @@ def _lock_alive(lock) -> bool:
         return _pid_alive(int(parts[1])) if len(parts) >= 2 else False
     except (OSError, ValueError):
         return False
+
+
+def _volume(path):
+    """macOS: '/Volumes/AstroDataOrganizedSAZ/x' -> '/Volumes/AstroDataOrganizedSAZ' (else None)."""
+    parts = Path(str(path)).parts
+    if sys.platform == "darwin" and len(parts) >= 3 and parts[1] == "Volumes":
+        return str(Path(*parts[:3]))
+    return None
+
+
+def _unreachable(path) -> str:
+    vol = _volume(path)
+    if vol and not Path(vol).exists():
+        return (f"the NAS folder {Path(vol).name} isn't connected on this Mac - Finder › Go › Connect to Server…, "
+                f"or add it to System Settings › General › Login Items so it connects at login")
+    return "is the NAS on and connected?"
+
+
+def mount_urls(text) -> dict:
+    """`mount` output -> {'/Volumes/Share': 'smb://user@server/Share'} for the network shares mounted now."""
+    out = {}
+    for line in (text or "").splitlines():
+        m = re.match(r"^//(\S+?) on (/Volumes/.+?) \((smbfs|afpfs|nfs)", line)
+        if m:
+            scheme = {"smbfs": "smb", "afpfs": "afp", "nfs": "nfs"}[m.group(3)]
+            out[m.group(2)] = f"{scheme}://{m.group(1)}"
+    return out
+
+
+def ensure_mounted(path, settings=None) -> bool:
+    """macOS: a library or incoming folder on a NAS lives under /Volumes/<share>, which exists only while the
+    share is connected. Remember how each share was connected; if it isn't connected at run time, reconnect it
+    (the password comes from the keychain, as when Finder connects). Windows network paths need nothing."""
+    vol = _volume(path)
+    if not vol:
+        return True
+    s = settings
+    key = "auto_org/mount/" + Path(vol).name
+    try:
+        r = subprocess.run(["mount"], capture_output=True, text=True, timeout=15)
+        urls = mount_urls(r.stdout)
+    except (OSError, subprocess.SubprocessError):
+        urls = {}
+    if vol in urls:
+        if s is not None:
+            s.setValue(key, urls[vol])
+        return True
+    if Path(vol).exists():
+        return True
+    url = s.value(key, "") if s is not None else ""
+    if not url:
+        return False
+    try:
+        subprocess.run(["osascript", "-e", f'mount volume "{url}"'], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    for _ in range(20):
+        if Path(vol).exists():
+            return True
+        time.sleep(0.5)
+    return False
 
 
 def describe(rep) -> str:
