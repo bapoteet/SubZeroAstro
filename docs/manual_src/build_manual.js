@@ -129,9 +129,21 @@ table(["Page", "What happens there"], [
 ], [2700, 6660]);
 p("At every page you can also **stop and continue in PixInsight** - SubZeroAstro saves exactly what you have so far, plus a note of what to do next there.");
 img("0_splash_4.00s.png", "The SubZeroAstro start-up screen", 520);
-sec("1.2", "Who this manual is for");
+sec("1.2", "What only SubZeroAstro does", ["Unique features", "N.I.N.A. integration", "ASIAIR integration", "Live grading", "Same framing", "Fetch From My ASIAIRs"]);
+p("Plenty of programs stack and process. SubZeroAstro is built around **the whole night, from the rig to the finished picture** - and it works hand in hand with the two programs most of us capture with, **N.I.N.A.** and the **ZWO ASIAIR**. These are the things we haven't found together in any other single program:");
+table(["Feature", "What it does for you", "Where"], [
+  ["Grades the night while it's happening", "Each new sub is measured as it lands and compared with the night so far; two poor frames in a row bring an alert - *Clouds?*, *Dew or haze?*, *Soft stars*, *Trailed stars*, *Guiding trouble* - and two good ones say it has cleared.", "File › Watch for New Frames (6.2)"],
+  ["Culls on N.I.N.A.'s guiding data", "The guiding RMS N.I.N.A. recorded for every sub (Session Metadata plugin) is shown, charted and used by Auto-cull - for guided rigs; unguided mounts are judged on their stars alone.", "Page 1 (6.2)"],
+  ["Same framing next session", "A plate-solved master becomes a N.I.N.A. target with the same centre and camera angle, measured the way N.I.N.A. measures it - next session's frames line up with the old ones.", "Stack › Same Framing Next Session (4.5)"],
+  ["A finished picture waiting in the morning", "N.I.N.A. starts SubZeroAstro's Fast Track at the end of its sequence: checked, calibrated, stacked and finished while you sleep.", "Settings › Work With N.I.N.A. (4.5)"],
+  ["No more USB sticks for the ASIAIR", "New subs come over from every ASIAIR on your network - through the night over Wi-Fi if you like - each under its own rig, never twice, without the .jpg previews.", "File › Fetch From My ASIAIRs (13.3)"],
+  ["Your whole archive, filed for you", "Every rig's frames sorted by rig or target, night and filter - on a schedule, from a NAS, with nothing guessed and everything undoable.", "Organize My Astro Files (13.3)"],
+  ["Your rigs and targets from N.I.N.A.", "Rigs read from N.I.N.A.'s profiles; tonight's targets picked for your site and horizon and sent straight into N.I.N.A.'s target list, built from your own template.", "4.5, 6.5"],
+  ["Raw subs to finished picture in one program", "Cull, calibrate, stack, process and finish on four pages - or in one press with Fast Track - with PixInsight one click away at every step.", "Chapters 6 - 9"],
+], [2500, 4900, 1960]);
+sec("1.3", "Who this manual is for");
 p("This manual is written for **newcomers** to astrophotography processing. No knowledge of PixInsight or other processing software is needed. Experienced imagers will find the PixInsight equivalent of each step mentioned along the way.");
-sec("1.3", "Words you will meet", ["Glossary", "Sub-frame", "Master", "Linear", "Stretched", "OSC", "Mono", "Dual-band filter", "Narrowband", "Plate solving", "FWHM", "Eccentricity", "SNR"]);
+sec("1.4", "Words you will meet", ["Glossary", "Sub-frame", "Master", "Linear", "Stretched", "OSC", "Mono", "Dual-band filter", "Narrowband", "Plate solving", "FWHM", "Eccentricity", "SNR"]);
 table(["Word", "What it means"], [
   ["Sub-frame (sub, light)", "One single exposure of your target, e.g. 180 seconds."],
   ["Calibration frames", "**Darks** (lens cap on, same exposure), **flats** (evenly lit, shows dust and vignetting), **bias** (shortest exposure) and **dark-flats**. They remove the camera's and telescope's own fingerprints."],
@@ -147,7 +159,7 @@ table(["Word", "What it means"], [
   ["Starless / stars-only", "The picture split in two by StarXTerminator, so the nebula and the stars can be processed separately."],
 ], [2600, 6760]);
 
-sec("1.4", "Your data, improved - never painted", ["Honest processing", "AI", "Painting", "Real data"]);
+sec("1.5", "Your data, improved - never painted", ["Honest processing", "AI", "Painting", "Real data"]);
 p("SubZeroAstro brings out what your camera **recorded** - it does not invent detail or paint the target. Every step works from your own data:");
 bullets([
   "**Brightness and colour:** brightening, Curves, Saturation and the colour tools re-map the brightness and colour your camera measured. The colour-preserving stretch keeps each pixel's measured colour mix; palettes such as HOO and Foraxx assign your filters' real signal to colours.",
