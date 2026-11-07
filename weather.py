@@ -4,7 +4,8 @@ line for each night.
 
 Sources (free, no account): Open-Meteo (open-meteo.com, CC BY 4.0) for cloud at three heights, rain, dew point,
 wind and temperature; 7Timer! ASTRO (7timer.info) for astronomical seeing and transparency. The dark hours come from
-the same Sun and Moon positions Tonight's Target Picker uses.
+the same Sun and Moon positions Tonight's Target Picker uses. Seven nights are shown; seeing and transparency
+reach about three days ahead, and any forecast gets less sure after the first two or three nights.
 """
 from __future__ import annotations
 
@@ -90,7 +91,7 @@ def merge(hours: dict, astro: dict) -> dict:
     return hours
 
 
-def fetch(lat, lon, days=4) -> tuple:
+def fetch(lat, lon, days=8) -> tuple:
     """(hours, notes): the merged hourly forecast and what couldn't be fetched."""
     notes = []
     try:
@@ -108,6 +109,14 @@ def fetch(lat, lon, days=4) -> tuple:
     if astro and notes:
         notes = []
     return merge(hours, astro), notes
+
+
+CONFIDENCE = {0: "high", 1: "high", 2: "fair", 3: "fair"}
+
+
+def confidence(k) -> str:
+    """How far to trust the forecast for the k-th night ahead (0 = tonight)."""
+    return CONFIDENCE.get(k, "low")
 
 
 def night_hours(hours: dict, lat, lon, date: _dt.date) -> list:

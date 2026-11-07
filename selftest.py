@@ -4611,7 +4611,8 @@ def run(app, out_dir: Path) -> int:
                                                                         "transparency": 7}]})
         _wx_om = _wx.parse_open_meteo({"hourly": {"time": ["2026-11-07T00:00"], "cloud_cover": [40],
                                                   "dew_point_2m": [3.5]}})
-        check(len(_wx_levels) >= 2 and _wx_levels[0] == "great" and _wx_levels[1] == "poor" and _wx_tabs == len(_wx_res)
+        check(len(_wx_levels) >= 2 and _wx_levels[0] == "great" and _wx_levels[1] == "poor"
+              and _wx_tabs == len(_wx_res) + 1
               and "great night" in _wx_st
               and list(_wx_7.values())[0] == {"seeing": 2, "transp": 7}
               and list(_wx_om.values())[0]["cloud"] == 40.0 and list(_wx_om.values())[0]["dew"] == 3.5

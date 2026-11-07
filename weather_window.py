@@ -101,7 +101,7 @@ class WeatherDialog(QDialog):
         lay.addWidget(self.tabs, 1)
         credit = QLabel("Forecast: <a href='https://open-meteo.com/'>Open-Meteo</a> (cloud, rain, wind, dew; CC BY "
                         "4.0) and <a href='https://www.7timer.info/'>7Timer!</a> (seeing, transparency). Only the dark "
-                        "hours are shown (sun 18° below the horizon). Forecasts are best for tonight and tomorrow.")
+                        "hours are shown (sun 18° below the horizon). Forecasts are most reliable for the next two or three nights.")
         credit.setOpenExternalLinks(True)
         credit.setWordWrap(True)
         credit.setStyleSheet("color:#8a8a96;")
@@ -169,18 +169,59 @@ class WeatherDialog(QDialog):
         today = _dt.datetime.now().date()
         if _dt.datetime.now().hour < 9:                 # after midnight: "tonight" is the night already going
             today -= _dt.timedelta(days=1)
-        self.result = W.nights(hours, self.lat.value(), self.lon.value(), today, 3)
+        self.result = W.nights(hours, self.lat.value(), self.lon.value(), today, 7)
         self.tabs.clear()
+        self.tabs.addTab(self._week_tab(self.result), "The Week Ahead")
         for i, (d, rows, nt, v) in enumerate(self.result):
-            label = "Tonight" if i == 0 else ("Tomorrow night" if i == 1 else d.strftime("%a %b %d"))
-            self.tabs.addTab(self._night_tab(d, rows, nt, v), f"{label}  ●")
-            self.tabs.tabBar().setTabTextColor(i, QColor(LEVEL_COLOR[v["level"]]))
+            self.tabs.addTab(self._night_tab(d, rows, nt, v, i), f"{self._label(i, d)}  ●")
+            self.tabs.tabBar().setTabTextColor(i + 1, QColor(LEVEL_COLOR[v["level"]]))
         best = self.result[0][3] if self.result else None
         self.status.setText(("<b>Tonight:</b> " + best["headline"] if best else "No forecast.")
                             + ("<br><span style='color:#8a8a96'>" + "; ".join(notes) + "</span>" if notes else ""))
         return self.result
 
-    def _night_tab(self, d, rows, nt, v):
+    @staticmethod
+    def _label(i, d):
+        return "Tonight" if i == 0 else ("Tomorrow" if i == 1 else d.strftime("%a %b %d"))
+
+    def _week_tab(self, result):
+        """One line per night: the bottom line, clear dark hours, best window, Moon, how sure the forecast is."""
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        good = [self._label(i, d) for i, (d, _r, _n, v) in enumerate(result) if v["level"] == W.GREAT]
+        lead = QLabel("<b>Best nights for imaging this week:</b> " + (", ".join(good) if good else
+                      "none look great yet - forecasts more than a few days out change a lot, so check again.")
+                      if result else "No forecast.")
+        lead.setWordWrap(True)
+        lay.addWidget(lead)
+        t = QTableWidget(len(result), 6)
+        t.setHorizontalHeaderLabels(["Night", "Bottom line", "Clear dark hours", "Best window", "Moon",
+                                     "Forecast confidence"])
+        t.verticalHeader().setVisible(False)
+        t.setEditTriggers(QTableWidget.NoEditTriggers)
+        loc = (lambda x: x.astimezone().strftime("%H:%M") if x else "")
+        for i, (d, rows, nt, v) in enumerate(result):
+            vals = [f"{self._label(i, d)} ({d.strftime('%b %d')})", v["headline"],
+                    f"{v['clear_hours']} of {len(rows)}",
+                    f"{loc(v['window'][0])} – {loc(v['window'][1])}" if v.get("window") else "",
+                    f"{nt.moon_lit * 100:.0f}% lit", W.confidence(i)]
+            for c, text in enumerate(vals):
+                it = QTableWidgetItem(text)
+                if c == 1:
+                    it.setBackground(QColor(LEVEL_COLOR[v["level"]]))
+                    it.setForeground(QColor("white"))
+                t.setItem(i, c, it)
+        hh = t.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        t.cellDoubleClicked.connect(lambda r, _c: self.tabs.setCurrentIndex(r + 1))
+        lay.addWidget(t, 1)
+        hint = QLabel("Double-click a night for its hours. Seeing and transparency reach about three days ahead.")
+        hint.setStyleSheet("color:#8a8a96;")
+        lay.addWidget(hint)
+        return w
+
+    def _night_tab(self, d, rows, nt, v, k=0):
         w = QWidget()
         lay = QVBoxLayout(w)
         col = LEVEL_COLOR[v["level"]]
@@ -190,7 +231,7 @@ class WeatherDialog(QDialog):
         lay.addWidget(head)
         loc = (lambda t: t.astimezone().strftime("%H:%M") if t else "–")
         info = [f"Dark from {loc(nt.dark_start)} to {loc(nt.dark_end)} ({nt.dark_hours:.1f} h)",
-                f"Moon {nt.moon_lit * 100:.0f}% lit"]
+                f"Moon {nt.moon_lit * 100:.0f}% lit", f"forecast confidence: {W.confidence(k)}"]
         if v.get("window"):
             info.append(f"<b>Best window: {loc(v['window'][0])} – {loc(v['window'][1])}</b>")
         details = QLabel(" · ".join(info) + "<br>" + "<br>".join("• " + r for r in v["reasons"]))
