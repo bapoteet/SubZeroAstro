@@ -662,12 +662,24 @@ def duplicates(items) -> list:
     return [i for i in items if i.status == "duplicate" and i.same_as is not None]
 
 
-def same_bytes(a, b) -> bool:
-    """True only if the two files are byte for byte identical (read in full)."""
-    import filecmp
+def same_bytes(a, b, chunk=8 << 20) -> bool:
+    """True only if the two files are byte for byte identical (read in full). Both files are read at the same
+    time, in big pieces, and it stops at the first difference - on a NAS that halves the wait."""
+    from concurrent.futures import ThreadPoolExecutor
     try:
         a, b = Path(a), Path(b)
-        return a.resolve() != b.resolve() and a.stat().st_size == b.stat().st_size and filecmp.cmp(a, b, shallow=False)
+        if _same_path(a, b) or a.stat().st_size != b.stat().st_size:
+            return False
+        if _quick_hash(a) != _quick_hash(b):
+            return False
+        with open(a, "rb") as fa, open(b, "rb") as fb, ThreadPoolExecutor(max_workers=2) as pool:
+            while True:
+                ra, rb = pool.submit(fa.read, chunk), pool.submit(fb.read, chunk)
+                xa, xb = ra.result(), rb.result()
+                if xa != xb:
+                    return False
+                if not xa:
+                    return True
     except OSError:
         return False
 
@@ -693,7 +705,10 @@ def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
         if not (it.same_as and _exists(it.same_as)):
             kept_back.append((it, "the copy to keep is no longer there"))
             continue
-        if not same_bytes(it.src, it.same_as):
+        # deleting: only a byte-for-byte twin goes. Moving to Duplicates (undoable): the size and the start and
+        # end of the file matching is enough - reading every byte of both over a NAS took ~10 s per frame
+        if (not same_bytes(it.src, it.same_as)) if delete else \
+                (it.src.stat().st_size != it.same_as.stat().st_size or _quick_hash(it.src) != _quick_hash(it.same_as)):
             kept_back.append((it, "not byte for byte the same as the kept copy - check it yourself"))
             continue
         try:

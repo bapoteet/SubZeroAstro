@@ -4584,6 +4584,15 @@ def run(app, out_dir: Path) -> int:
               f"Fetch From My ASIAIRs: the new subs copied into the rig's folder ({_as_files}), never twice "
               f"({_as_r2[0]['copied'] if _as_r2 else None} the second time), .jpgs left; freeing space deletes only "
               f"fetched subs ({_as_left})")
+        # the real forecast services, from this build (information only - the internet isn't the app's fault)
+        import weather as _wxl
+        try:
+            _wxl_h, _wxl_n = _wxl.fetch(32.78, -96.80)
+            _wxl_t = f"{len(_wxl_h)} hours via {_wxl.LAST}; 7Timer: {'ok' if not _wxl_n else _wxl_n[0][:120]}"
+        except Exception as _wxl_e:  # noqa: BLE001
+            _wxl_t = f"FAILED: {str(_wxl_e)[:300]}"
+        check(True, f"(info) live weather forecast from this build: {_wxl_t}")
+        check(_wxl._why(KeyError(0)) == "KeyError '0'", "a weather error is shown in words, never a bare '0'")
         # My Weather Forecast: the dark hours of each night, hour by hour, and a bottom line for the night
         import weather as _wx
         import weather_window as _wxw

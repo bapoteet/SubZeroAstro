@@ -33,10 +33,65 @@ HEADLINE = {GREAT: "Looks like a great night for imaging!",
             POOR: "Not a good night for imaging - but a great night for processing with SubZeroAstro."}
 
 
-def _get(url, timeout=20):
+def _log(text):
+    try:
+        import session_log
+        session_log.write("weather", text)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _why(e) -> str:
+    """An error in words, never just '0' (a bare KeyError or errno says nothing)."""
+    t = str(e).strip()
+    return f"{type(e).__name__}: {t}" if t and not t.isdigit() else f"{type(e).__name__} {t!r}"
+
+
+def _get_urllib(url, timeout):
+    from target_info import ssl_context        # certifi + the system's certificates (packaged app too)
     req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=timeout) as f:
-        return json.loads(f.read().decode("utf-8", "replace"))
+    with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as f:
+        return f.read()
+
+
+def _get_qt(url, timeout):
+    """The same request through Qt's own networking (Windows' TLS and proxy settings) - the fallback."""
+    from PySide6.QtCore import QEventLoop, QTimer, QUrl
+    from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
+    nam = QNetworkAccessManager()
+    rq = QNetworkRequest(QUrl(url))
+    rq.setRawHeader(b"User-Agent", UA["User-Agent"].encode())
+    reply = nam.get(rq)
+    loop = QEventLoop()
+    reply.finished.connect(loop.quit)
+    QTimer.singleShot(int(timeout * 1000), loop.quit)
+    loop.exec()
+    if not reply.isFinished():
+        reply.abort()
+        raise TimeoutError("no answer in time")
+    if reply.error() != reply.NetworkError.NoError:
+        raise OSError(reply.errorString())
+    return bytes(reply.readAll().data())
+
+
+LAST = ""                       # how the last answer came (Python / Qt), for the logs and the self-test
+
+
+def _get(url, timeout=20):
+    errs = []
+    for how, fn in (("Python", _get_urllib), ("Qt", _get_qt)):
+        try:
+            raw = fn(url, timeout)
+            d = json.loads(raw.decode("utf-8", "replace"))
+            if isinstance(d, dict) and d.get("error"):
+                raise ValueError(str(d.get("reason") or d.get("error")))
+            global LAST
+            LAST = how if not errs else f"{how} (after {errs[0]})"
+            return d
+        except Exception as e:  # noqa: BLE001
+            errs.append(f"{how}: {_why(e)}")
+            _log(f"{url.split('?')[0]} via {how} failed - {_why(e)}")
+    raise OSError("; ".join(errs))
 
 
 def _utc(s) -> _dt.datetime:
@@ -95,9 +150,23 @@ def fetch(lat, lon, days=8) -> tuple:
     """(hours, notes): the merged hourly forecast and what couldn't be fetched."""
     notes = []
     try:
-        hours = parse_open_meteo(_get(OPEN_METEO.format(lat=lat, lon=lon, days=days)))
+        raw = _get(OPEN_METEO.format(lat=lat, lon=lon, days=days))
     except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"couldn't get the forecast from Open-Meteo ({e}) - is this computer online?") from e
+        raise RuntimeError(f"couldn't get the forecast from Open-Meteo ({e}). If this computer is online, a "
+                           "firewall or antivirus may be blocking api.open-meteo.com - Zip My Logs has the "
+                           "details.") from e
+    try:
+        hours = parse_open_meteo(raw)
+    except Exception as e:  # noqa: BLE001
+        import traceback
+        _log("Open-Meteo answer not understood: " + traceback.format_exc()[-1500:] + " | answer starts: "
+             + json.dumps(raw)[:400])
+        raise RuntimeError(f"Open-Meteo answered, but not in a way SubZeroAstro understands ({_why(e)}) - "
+                           "Zip My Logs and send them") from e
+    if not hours:
+        _log("Open-Meteo answer had no hours: " + json.dumps(raw)[:400])
+        raise RuntimeError("Open-Meteo answered with no forecast hours - Zip My Logs and send them")
+    _log(f"forecast: {len(hours)} hours for {lat:.2f}, {lon:.2f} (via {LAST})")
     astro = {}
     for url in SEVEN_TIMER:
         try:
@@ -105,7 +174,7 @@ def fetch(lat, lon, days=8) -> tuple:
             if astro:
                 break
         except Exception as e:  # noqa: BLE001
-            notes.append(f"seeing and transparency unavailable (7Timer: {e})")
+            notes.append(f"seeing and transparency unavailable (7Timer: {_why(e)})")
     if astro and notes:
         notes = []
     return merge(hours, astro), notes
