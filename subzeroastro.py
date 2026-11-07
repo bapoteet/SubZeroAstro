@@ -1306,6 +1306,9 @@ class MainWindow(QMainWindow):
                                     QStyle.SP_DirOpenIcon,
                                     "Already stacked? Pick your master lights and go straight to Astro Image "
                                     "Processing (page 2) - no restacking")
+        self.act_my_rigs = act("My Rigs…", lambda: self.open_my_rigs(), None, QStyle.SP_ComputerIcon,
+                               "Add, edit or delete your rigs - the names and focal lengths Organize, Calibrate and "
+                               "Stack and Fetch From My ASIAIRs use")
         self.act_organize = act("Organize My Astro Files…", self.open_organizer, None, QStyle.SP_DirIcon,
                                 "Sort the FITS and XISF files in a folder, drive or NAS into Targets › night › "
                                 "LIGHT / FLAT, a darks library and masters folders - preview first, undo any time")
@@ -1411,6 +1414,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         if ORGANIZER_ENABLED:
             m.addAction(self.act_organize)
+            m.addAction(self.act_my_rigs)
         else:                          # not in the menu while it's reworked; Ctrl+Alt+Shift+O for the tester
             self.act_organize.setShortcut("Ctrl+Alt+Shift+O")
             self.addAction(self.act_organize)
@@ -1481,6 +1485,7 @@ class MainWindow(QMainWindow):
         a.triggered.connect(self.set_file_association)
         m.addAction(a)
         self.act_file_assoc = a
+        m.addAction(self.act_my_rigs)
         a = QAction("Work With N.I.N.A.…", self)
         a.setToolTip("Your rigs from N.I.N.A.'s profiles, a check of its file name pattern, and Fast Track run by "
                      "N.I.N.A. after the night")
@@ -1649,6 +1654,14 @@ class MainWindow(QMainWindow):
         if not self.settings.value("organize/intro_ok", False, type=bool):
             w.show_intro()
         return w
+
+    def open_my_rigs(self, show=True):
+        """Settings › My Rigs…: the rigs table straight away (add, edit, delete), without the Organize window."""
+        import organizer_window
+        w = getattr(self, "_organizer", None)
+        if w is None:
+            w = self._organizer = organizer_window.OrganizeDialog(self.settings, self)
+        return w.edit_rigs(show=show)
 
     def open_weather(self, show=True):
         """File › My Weather Forecast…"""

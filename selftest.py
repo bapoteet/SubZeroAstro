@@ -4545,6 +4545,10 @@ def run(app, out_dir: Path) -> int:
               and sorted(p.name for p in _zz_left.iterdir()) == ["MyPicture.jpg"],
               f"Organize names a frame that is all zeros (never written) and deletes it when asked; ASIAIR .jpg "
               f"previews left on their own in the incoming folder are deleted too, other pictures kept")
+        _mr_d = w.open_my_rigs(show=False)
+        check(type(_mr_d).__name__ == "YourRigsDialog" and w.act_my_rigs.text() == "My Rigs…",
+              "Settings › My Rigs… opens the rigs table straight away")
+        _mr_d.close()
         # Which Rig?: stray files that match none of your rigs can be deleted there
         import organizer_window as _ow2
         _nr_dir = _au_root / "norig" / "Stray"
