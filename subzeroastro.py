@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.248 beta"
+APP_VERSION = "0.9.249 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -1674,9 +1674,14 @@ class MainWindow(QMainWindow):
     def open_asiair(self, show=True):
         """File › Fetch From My ASIAIRs…"""
         import asiair_window
-        d = asiair_window.AsiairDialog(self, self.settings)
+        d = getattr(self, "_asiair_dlg", None)
+        if d is None:
+            d = self._asiair_dlg = asiair_window.AsiairDialog(self, self.settings)
+            d.setModal(False)              # keep working in SubZeroAstro while it fetches
         if show:
-            d.exec()
+            d.show()
+            d.raise_()
+            d.activateWindow()
         return d
 
     def set_asiair_night(self, on, minutes=10):
@@ -1697,6 +1702,9 @@ class MainWindow(QMainWindow):
         from organizer_window import _Job
         if getattr(self, "asiair_job", None) is not None and self.asiair_job.isRunning():
             return                                   # the last fetch is still copying (slow Wi-Fi)
+        dj = getattr(getattr(self, "_asiair_dlg", None), "job", None)
+        if dj is not None and dj.isRunning():
+            return                                   # a Fetch Now is running - it covers this round
         units = [u for u in A.load_units(self.settings) if u.get("address")]
         inc = (self.settings.value("asiair/incoming", "") or "").strip()
         if not units or not inc:

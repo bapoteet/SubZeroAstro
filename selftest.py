@@ -4669,6 +4669,7 @@ def run(app, out_dir: Path) -> int:
         _as_files = sorted(str(p.relative_to(_as_inc)).replace("\\", "/") for p in _as_inc.rglob("*") if p.is_file())
         _as_d.fetch_now(wait=True)
         _as_r2 = getattr(_as_d, "results", None)
+        _as_pj = _as_d.toggle_pause()                  # nothing running: Pause does nothing
         _as_d.free.setChecked(True)
         _as_d.fetch_now(wait=True)
         _as_left = sorted(p.name for p in _as_sh.iterdir())
@@ -4679,6 +4680,23 @@ def run(app, out_dir: Path) -> int:
         _as_left2 = sorted(p.name for p in _as_sh.iterdir())
         _as_d.save()
         _as_d.close()
+        _as_ps = _au_root / "pause_air" / "EMMC Images" / "Autorun"
+        _as_ps.mkdir(parents=True, exist_ok=True)
+        for _as_k in range(2):
+            (_as_ps / f"Light_P_{_as_k}.fit").write_bytes(b"x" * 64)
+            os.utime(_as_ps / f"Light_P_{_as_k}.fit", (_as_old, _as_old))
+        _as_paused = []
+        _as_pthr = __import__("threading").Thread(target=lambda: _as_paused.append(
+            _as.fetch({"name": f"PauseTest {time.time()}", "address": str(_as_ps.parent), "rig": "X"},
+                      _au_root / "pause_inc", pause=lambda: not _as_paused, stop=lambda: len(_as_paused) > 1)))
+        _as_pthr.start()
+        _as_pthr.join(1.5)
+        _as_held = _as_pthr.is_alive()                 # held by Pause
+        _as_paused.append("resume")                     # stop
+        _as_pthr.join(5)
+        check(_as_pj is None and _as_held and not _as_pthr.is_alive() and not w.open_asiair(show=False).isModal(),
+              "Fetch From My ASIAIRs: Pause holds the fetch between subs; the window doesn't block the rest of "
+              "SubZeroAstro")
         check(_as_jres is None and _as_left2 == [],
               f"Fetch From My ASIAIRs: freeing space took each sub's .jpg too; Delete .jpgs on This ASIAIR finds no "
               f"more ({_as_jres})")

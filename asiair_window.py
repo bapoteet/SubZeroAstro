@@ -103,11 +103,20 @@ class AsiairDialog(QDialog):
         self.b_stop = QPushButton("Stop")
         self.b_stop.setVisible(False)
         self.b_stop.clicked.connect(self._stop)
+        self.b_pause = QPushButton("Pause")
+        self.b_pause.setToolTip("Hold the fetch between subs (the one being copied finishes first); Resume carries on")
+        self.b_pause.setVisible(False)
+        self.b_pause.clicked.connect(lambda: self.toggle_pause())
         b_close = QPushButton("Save && Close")
         b_close.clicked.connect(self.accept)
         h.addWidget(self.b_fetch)
+        h.addWidget(self.b_pause)
         h.addWidget(self.b_stop)
         h.addStretch(1)
+        hint = QLabel("<i>You can close this window and keep working - the fetch carries on (progress in the "
+                      "status bar).</i>")
+        hint.setStyleSheet("color:#8a8a96;")
+        h.addWidget(hint)
         h.addWidget(b_close)
         lay.addLayout(h)
         for u in A.load_units(settings):
@@ -268,10 +277,17 @@ class AsiairDialog(QDialog):
         if not units:
             QMessageBox.information(self, "Fetch From My ASIAIRs", "Add an ASIAIR and its IP address first.")
             return None
+        night = getattr(self.owner, "asiair_job", None)
+        if night is not None and night.isRunning():
+            QMessageBox.information(self, "Fetch From My ASIAIRs", "The overnight fetch is copying right now - it "
+                                    "carries on by itself; Fetch Now isn't needed.")
+            return None
         from organizer_window import _Job
         free = self.free.isChecked()
         self.job = _Job(lambda job: A.fetch_all(units, inc, progress=lambda t, i, n: job.note.emit(t, i, n),
-                                                stop=lambda: job.stop, free=free))
+                                                stop=lambda: job.stop, free=free,
+                                                pause=lambda: getattr(job, "paused", False)))
+        self.job.paused = False
         self.job.note.connect(self._note)
         self.job.ok.connect(self._done)
         self.job.failed.connect(lambda e: (self._busy(False), self.status.setText("Stopped: " + e.split("\n")[0])))
@@ -288,16 +304,35 @@ class AsiairDialog(QDialog):
     def _busy(self, on):
         self.b_fetch.setEnabled(not on)
         self.b_stop.setVisible(on)
+        self.b_pause.setVisible(on)
+        self.b_pause.setText("Pause")
         self.bar.setVisible(on)
 
+    def toggle_pause(self):
+        """Pause / Resume the running fetch."""
+        if self.job is None or not self.job.isRunning():
+            return None
+        self.job.paused = not getattr(self.job, "paused", False)
+        self.b_pause.setText("Resume" if self.job.paused else "Pause")
+        if self.job.paused:
+            self.status.setText(self.status.text().split("<br>")[0] + "<br><b>Paused</b> - press Resume to carry on.")
+        return self.job.paused
+
     def _note(self, text, i, n):
+        if getattr(self.job, "paused", False):
+            text += "  (pausing after this sub)"
         self.status.setText(text)
         self.bar.setMaximum(max(n, 1))
         self.bar.setValue(i)
+        if not self.isVisible() and hasattr(self.owner, "statusBar"):      # window closed: show it there
+            self.owner.statusBar().showMessage(f"ASIAIR fetch: {text}  ({i} of {n})" if n else
+                                               f"ASIAIR fetch: {text}")
 
     def _done(self, reps):
         self._busy(False)
         self.results = reps
+        if not self.isVisible() and hasattr(self.owner, "statusBar"):
+            self.owner.statusBar().showMessage("ASIAIR fetch done: " + A.describe(reps).replace("\n", "; "), 60000)
         stamp = time.strftime("%Y-%m-%d %H:%M")
         text = f"{stamp}: " + A.describe(reps).replace("\n", "; ")
         self.settings.setValue("asiair/last", text)

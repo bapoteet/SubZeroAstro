@@ -175,7 +175,13 @@ def _drop_previews(sub: Path) -> int:
     return n
 
 
-def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, roots=None) -> dict:
+def _wait_if_paused(pause, stop):
+    """Pause button: hold here (between subs - never halfway through one) until resumed or stopped."""
+    while pause and pause() and not (stop and stop()):
+        time.sleep(0.4)
+
+
+def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, roots=None, pause=None) -> dict:
     """Copy one ASIAIR's new subs into incoming/<rig>/<share>/…  unit = {name, address, rig}.
     Returns {name, copied, already, failed: [(file, why)], deleted, bytes, error}."""
     name = safe_name(unit.get("name") or unit.get("address"))
@@ -202,6 +208,7 @@ def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, 
                 except OSError:
                     pass
     for i, (p, root, rel, size, mt) in enumerate(todo):
+        _wait_if_paused(pause, stop)
         if stop and stop():
             break
         if progress:
@@ -234,12 +241,12 @@ def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, 
     return rep
 
 
-def fetch_all(units, incoming, progress=None, stop=None, free=False, together=True) -> list:
+def fetch_all(units, incoming, progress=None, stop=None, free=False, together=True, pause=None) -> list:
     """Every ASIAIR's new subs. together: all of them at the same time - each ASIAIR has its own Wi-Fi radio,
     and that radio (not the network) is what's slow, so four ASIAIRs come over in about the time of one."""
     units = [u for u in units if u.get("address")]
     if not together or len(units) < 2:
-        return [fetch(u, incoming, progress, stop, free) for u in units]
+        return [fetch(u, incoming, progress, stop, free, pause=pause) for u in units]
     import threading
     from concurrent.futures import ThreadPoolExecutor
     lock = threading.Lock()
@@ -263,7 +270,7 @@ def fetch_all(units, incoming, progress=None, stop=None, free=False, together=Tr
         groups.setdefault(safe_name(u.get("name") or u.get("address")), []).append(u)
 
     def run_group(name, us):
-        return [fetch(u, incoming, prog_for(name), stop, free) for u in us]
+        return [fetch(u, incoming, prog_for(name), stop, free, pause=pause) for u in us]
     with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
         futs = [pool.submit(run_group, n, us) for n, us in groups.items()]
         return [r for f in futs for r in f.result()]

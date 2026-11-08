@@ -853,11 +853,9 @@ class OrganizeDialog(QDialog):
 
     # ---------------------------------------------------------------- Your Rigs
     def open_asiair(self):
-        p = self.parent()
-        if p is not None and hasattr(p, "open_asiair"):
-            return p.open_asiair()
+        # from inside this (modal) window: its own copy of the fetch window, on top of this one
         import asiair_window
-        return asiair_window.AsiairDialog(self, self.settings).exec()
+        return asiair_window.AsiairDialog(self.parent() or self, self.settings).exec()
 
     def riglist(self):
         import json as _json
