@@ -52,7 +52,8 @@ class AsiairDialog(QDialog):
         lay.addWidget(self.table, 1)
         h = QHBoxLayout()
         for text, fn in (("Add ASIAIR", lambda: self.add_row()), ("Remove", self.remove_row),
-                         ("Browse for Folder…", self.browse_row), ("Test", lambda: self.test())):
+                         ("Browse for Folder…", self.browse_row), ("Test", lambda: self.test()),
+                         ("Delete .jpgs on This ASIAIR…", lambda: self.delete_jpgs())):
             b = QPushButton(text)
             b.clicked.connect(fn)
             h.addWidget(b)
@@ -202,6 +203,53 @@ class AsiairDialog(QDialog):
                "and is the IP address right? (ASIAIR app › Wi-Fi settings.) Try opening \\\\<IP> in File Explorer.")
         self.status.setText(txt)
         return roots, len(subs), new
+
+    def delete_jpgs(self, row=None, confirm=True):
+        """On demand only: delete the .jpg previews on the selected ASIAIR (its subs are never touched)."""
+        r = self.table.currentRow() if row is None else row
+        units = self.units()
+        if not units:
+            return None
+        u = units[r if 0 <= r < len(units) else 0]
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            roots = A.shares(u["address"])
+            found = A.jpgs(roots) if roots else []
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not roots:
+            self.status.setText(f"<b>{u['name']}</b>: can't reach {u['address'] or '(no address)'}.")
+            return None
+        if not found:
+            self.status.setText(f"<b>{u['name']}</b>: no .jpg files on it.")
+            return 0
+        if confirm and QMessageBox.question(
+                self, "Delete .jpgs on the ASIAIR?",
+                f"Delete these from <b>{u['name']}</b>?<br><br>{A.jpg_summary(found, roots)}<br><br>Only the .jpg "
+                "pictures go - the FITS subs stay. They can't be brought back.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return None
+        from organizer_window import _Job
+        self.job = _Job(lambda job: A.delete_jpgs(found, progress=lambda t, i, n: job.note.emit(t, i, n),
+                                                  stop=lambda: job.stop))
+        self.job.note.connect(self._note)
+
+        def done(res):
+            self._busy(False)
+            self.jpg_result = res
+            self.status.setText(f"<b>{u['name']}</b>: {res[0]} .jpg deleted"
+                                + (f", {res[1]} couldn't be deleted" if res[1] else "") + ".")
+        self.job.ok.connect(done)
+        self.job.failed.connect(lambda e: (self._busy(False), self.status.setText("Stopped: " + e.split("\n")[0])))
+        self._busy(True)
+        self.job.start()
+        if not confirm:
+            while self.job.isRunning():
+                QApplication.processEvents()
+                self.job.wait(20)
+            for _ in range(5):
+                QApplication.processEvents()
+        return self.job
 
     def _stop(self):
         if self.job is not None:

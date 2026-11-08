@@ -222,3 +222,59 @@ def load_units(settings) -> list:
 
 def save_units(settings, units):
     settings.setValue("asiair/list", json.dumps(units))
+
+
+JPG_EXTS = (".jpg", ".jpeg")
+
+
+def jpgs(roots, stop=None) -> list:
+    """The .jpg pictures on the ASIAIR (its previews, saved next to every sub) - [(path, size)]."""
+    out = []
+    for root in roots:
+        for dp, dns, fns in os.walk(Path(root)):
+            if stop and stop():
+                return out
+            dns[:] = [d for d in dns if not d.startswith((".", "$"))]
+            for n in fns:
+                if n.lower().endswith(JPG_EXTS):
+                    p = Path(dp) / n
+                    try:
+                        out.append((p, p.stat().st_size))
+                    except OSError:
+                        pass
+    return out
+
+
+def jpg_summary(found, roots) -> str:
+    """'812 .jpg (1.4 GB): Autorun 790, Live 22'."""
+    import collections
+    c = collections.Counter()
+    for p, _s in found:
+        top = ""
+        for r in roots:
+            try:
+                top = p.relative_to(r).parts[0] if len(p.relative_to(r).parts) > 1 else "(top folder)"
+                break
+            except ValueError:
+                continue
+        c[top] += 1
+    size = sum(s for _p, s in found)
+    return f"{len(found)} .jpg ({size / 1e9:.2f} GB)" + (": " + ", ".join(f"{k} {n}" for k, n in c.most_common())
+                                                        if c else "")
+
+
+def delete_jpgs(found, progress=None, stop=None) -> tuple:
+    """Delete these .jpgs from the ASIAIR -> (deleted, failed)."""
+    done = failed = 0
+    for i, (p, _s) in enumerate(found):
+        if stop and stop():
+            break
+        if progress and i % 25 == 0:
+            progress(f"Deleting .jpgs on the ASIAIR… {i} of {len(found)}", i, len(found))
+        try:
+            p.unlink()
+            done += 1
+        except OSError:
+            failed += 1
+    return done, failed
+

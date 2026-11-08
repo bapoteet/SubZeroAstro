@@ -4647,8 +4647,14 @@ def run(app, out_dir: Path) -> int:
         _as_d.fetch_now(wait=True)
         _as_left = sorted(p.name for p in _as_sh.iterdir())
         _as_d.free.setChecked(False)
+        _as_d.table.setCurrentCell(0, 0)
+        _as_d.delete_jpgs(row=0, confirm=False)
+        _as_jres = getattr(_as_d, "jpg_result", None)
+        _as_left2 = sorted(p.name for p in _as_sh.iterdir())
         _as_d.save()
         _as_d.close()
+        check(_as_jres == (1, 0) and _as_left2 == [],
+              f"Fetch From My ASIAIRs: Delete .jpgs on This ASIAIR removes only its .jpg pictures ({_as_jres})")
         check(_as_r1 and _as_r1[0]["copied"] == 2 and _as_r2 and _as_r2[0]["copied"] == 0
               and _as_files == ["RASA 11/EMMC Images/Autorun/Light/M31/Light_M31_300.0s_0001.fit",
                                 "RASA 11/EMMC Images/Autorun/Light/M31/Light_M31_300.0s_0002.fit"]
