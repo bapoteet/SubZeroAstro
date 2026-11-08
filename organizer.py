@@ -655,7 +655,9 @@ def plan(items, library, progress=None, stop=None) -> list:
     seen = {}
     def keep_first(x):
         in_place = x.dst is not None and _same_path(org_base(library) / x.dst, x.src)
-        copyish = bool(re.search(r"copy|\(\d+\)|_\d+$", x.src.stem, re.I))
+        # Windows' "name (1).fits" / "name - Copy.fits", or our own "_2": the copy, not the original (a
+        # 4-digit frame number like _0042 is not a copy mark)
+        copyish = bool(re.search(r"(?:\s\(\d+\)|[ _-]+copy(?:\s*\(\d+\))?|(?<!\d)_\d{1,2})$", x.src.stem, re.I))
         return (0 if in_place else 1, 1 if copyish else 0, core.natural_key(str(x.src)))
     for it in sorted(items, key=keep_first):
         if it.key is None or it.status == "error":
@@ -679,6 +681,10 @@ def plan(items, library, progress=None, stop=None) -> list:
         if _same_path(dst, it.src):
             it.status, it.dst = "here", dst
             continue
+        clean = COPY_MARK.sub("", dst.stem)          # "M31_0042 (1).fits" is filed as "M31_0042.fits"
+        if clean and clean != dst.stem:
+            dst = dst.with_name(clean + dst.suffix)
+            it.dst = dst.relative_to(org_base(library))
         n = 1
         cand = dst
         while True:
@@ -920,6 +926,7 @@ def carry_nina_metadata(done, move=False) -> list:
 
 
 PREVIEW_EXTS = {".jpg", ".jpeg"}
+COPY_MARK = re.compile(r"(?:\s\(\d+\)|\s+-\s+copy(?:\s*\(\d+\))?)+$", re.I)   # Windows' copy names
 ASIAIR_JPG = re.compile(r"^(light|flat|dark|bias|darkflat|preview|live|stack)_.+\.jpe?g$|_thn\.jpe?g$", re.I)
 
 
@@ -972,6 +979,80 @@ def delete_previews(items, library=None, roots=None) -> int:
     if roots and parents:                 # folders left holding nothing but those previews: tidied away too
         _remove_empty_dirs(parents, keep=[Path(r) for r in roots])
     return n
+
+
+def other_files(roots, library=None, min_age_s=600) -> list:
+    """Everything under the incoming folders that isn't a FITS / XISF frame (.jpg, .csv, .txt, Thumbs.db,
+    .DS_Store …) - never anything inside the organized library, nothing changed in the last `min_age_s` seconds
+    (a copy still coming in), and never N.I.N.A.'s ImageMetaData file while frames it describes are still
+    waiting in its folder."""
+    import time
+    import fits_core as core
+    import nina_meta as NM
+    now = time.time()
+    keep = {e.lower() for e in core.LIGHT_EXTS}
+    base = None
+    if library is not None and str(library) not in ("", "."):
+        try:
+            base = org_base(library).resolve()
+        except OSError:
+            base = None
+    out = []
+    for r in roots or []:
+        for dp, dns, fns in os.walk(Path(r)):
+            d = Path(dp)
+            try:
+                rd = d.resolve()
+            except OSError:
+                continue
+            if base is not None and (rd == base or base in rd.parents):
+                dns[:] = []
+                continue
+            dns[:] = [x for x in dns if not x.startswith(("#", "@"))]
+            frames_here = any(Path(n).suffix.lower() in keep for n in fns)
+            for n in fns:
+                p = d / n
+                if p.suffix.lower() in keep:
+                    continue
+                try:
+                    if min_age_s and now - p.stat().st_mtime < min_age_s:
+                        continue
+                except OSError:
+                    continue
+                if frames_here and NM.looks_like(p):
+                    continue
+                out.append(p)
+    return sorted(out)
+
+
+def describe_files(paths) -> str:
+    """'30 .jpg, 2 .csv, 1 Thumbs.db (4.1 MB)'."""
+    import collections
+    c = collections.Counter((p.suffix.lower() or p.name) for p in paths)
+    size = 0
+    for p in paths:
+        try:
+            size += p.stat().st_size
+        except OSError:
+            pass
+    return ", ".join(f"{n} {k}" for k, n in c.most_common(6)) + (", …" if len(c) > 6 else "") + \
+        f" ({size / 1e6:.1f} MB)"
+
+
+def delete_other(roots, library=None, min_age_s=600) -> list:
+    """Delete everything under the incoming folders that isn't a FITS / XISF frame, then the folders left empty
+    (the incoming folders themselves stay). Returns the paths deleted."""
+    gone, parents = [], set()
+    for p in other_files(roots, library, min_age_s):
+        try:
+            p.unlink()
+            gone.append(str(p))
+            parents.add(p.parent)
+        except OSError:
+            pass
+    if parents:
+        _remove_empty_dirs(parents, keep=[Path(r) for r in roots])
+    return gone
 
 
 def empty_frames(items) -> list:

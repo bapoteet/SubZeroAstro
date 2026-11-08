@@ -144,6 +144,14 @@ class OrganizeDialog(QDialog):
         self.del_empty.setChecked(self.settings.value("organize/delete_empty", False, type=bool))
         self.del_empty.toggled.connect(lambda on: self.settings.setValue("organize/delete_empty", on))
         h.addWidget(self.del_empty)
+        self.del_other = QCheckBox("Delete other files too (anything not FITS / XISF)")
+        self.del_other.setToolTip("After a Move: everything left in the incoming folders that isn't a frame (.jpg, "
+                                  ".csv, .txt, Thumbs.db …) is deleted without asking, and folders left empty go "
+                                  "too. N.I.N.A.'s ImageMetaData.csv has been copied in with its frames by then. "
+                                  "Unticked, you're asked after each Move. Never touches your library.")
+        self.del_other.setChecked(self.settings.value("organize/delete_other", False, type=bool))
+        self.del_other.toggled.connect(lambda on: self.settings.setValue("organize/delete_other", on))
+        h.addWidget(self.del_other)
         h.addStretch(1)
         lay.addLayout(h)
         h = QHBoxLayout()
@@ -619,6 +627,7 @@ class OrganizeDialog(QDialog):
                            + "; ".join(f"{Path(p).name} ({w})" for p, w in O.SKIPPED[:4])
                            + (" …" if len(O.SKIPPED) > 4 else ""))
             self.status.setText("<br>".join(msg))
+            left_dups = O.duplicates(self.items) if move else []
             self.items = []
             self.table.setRowCount(min(len(rows), PREVIEW_ROWS))
             for r, (pth, why) in enumerate(rows[:PREVIEW_ROWS]):
@@ -634,6 +643,8 @@ class OrganizeDialog(QDialog):
             self._organized = True
             if move:
                 self.settings.setValue("organize/moved_before", True)
+            if move:
+                self.offer_cleanup(left_dups, ask=ask and not wait)
             import time as _time
             srcs = self.sources()
             self.settings.setValue("organize/last_done",
@@ -669,6 +680,42 @@ class OrganizeDialog(QDialog):
         d = DuplicatesDialog(self, dups)
         d.show()
         return d
+
+    def offer_cleanup(self, dups, ask=True, answer=None):
+        """After a Move: what's still in the incoming folders that isn't a frame to file - duplicate copies of
+        frames already in the library, and other files (.jpg, .csv, .txt …) - and the offer to delete them.
+        'Delete other files too' ticked: the other files go without asking. Returns what was deleted."""
+        lib = self.library()
+        roots = [p for p in self.sources() if p.is_dir()]
+        others = O.other_files(roots, lib)
+        if not dups and not others:
+            return None
+        auto = self.del_other.isChecked()
+        if auto and not dups:
+            answer = True
+        elif answer is None and ask:
+            parts = []
+            if dups:
+                parts.append(f"<b>{len(dups)} duplicate copies</b> of frames already in your library (checked byte for "
+                             "byte before each one goes)")
+            if others:
+                parts.append(f"<b>{len(others)} other file(s)</b> that aren't frames: {O.describe_files(others)}")
+            answer = QMessageBox.question(
+                self, "Clean Up the Incoming Folder?",
+                "Still in the incoming folder(s):<br>• " + "<br>• ".join(parts)
+                + "<br><br>Delete them now? (They can't be brought back with Undo.)",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
+        if not answer:
+            return None
+        gone = O.delete_other(roots, lib) if others else []
+        for g in gone:
+            _slog(f"deleted (not a frame): {g}")
+        if dups:
+            self.handle_duplicates(dups, delete=True, wait=not ask)
+        self.status.setText(self.status.text() + f"<br>Cleaned up: {len(gone)} other file(s) deleted"
+                            + (f", {len(dups)} duplicate cop{'y' if len(dups) == 1 else 'ies'} being deleted" if dups
+                               else "") + ".")
+        return {"other": gone, "dups": len(dups)}
 
     def handle_duplicates(self, dups, delete, wait=False):
         lib = self.library()

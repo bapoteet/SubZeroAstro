@@ -44,7 +44,8 @@ def load_config(settings=None) -> dict:
             "freq": s.value("auto_org/freq", "daily") or "daily", "time": s.value("auto_org/time", "11:00") or "11:00",
             "on": s.value("auto_org/on", False, type=bool),
             "jpgs": s.value("organize/delete_jpgs", True, type=bool),
-            "empty": s.value("organize/delete_empty", False, type=bool)}
+            "empty": s.value("organize/delete_empty", False, type=bool),
+            "other": s.value("organize/delete_other", False, type=bool)}
 
 
 def save_config(cfg, settings=None):
@@ -168,6 +169,11 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
             try:
                 d = json.loads(log.read_text(encoding="utf-8"))
                 rep["filed"] = len(d.get("done", []))
+                if cfg.get("other", False):                  # everything left that isn't a frame
+                    gone = O.delete_other([src], lib, min_age_s=SETTLE_MIN * 60)
+                    rep["other"] = len(gone)
+                    for g in gone:
+                        _note(f"deleted (not a frame): {g}")
                 if d.get("failed"):
                     rep["left"]["could not be copied (see the log)"] = len(d["failed"])
                     _note(f"could not be copied ({len(d['failed'])}; full list in {log}):")
@@ -310,6 +316,8 @@ def describe(rep) -> str:
     t = f"{rep['time']}: {rep['filed']} file(s) filed"
     if rep.get("asiair"):
         t += f" [ASIAIRs: {rep['asiair']}]"
+    if rep.get("other"):
+        t += f", {rep['other']} other file(s) deleted"
     if rep.get("empty"):
         t += f", {rep['empty']} empty frame(s) deleted"
     if rep.get("jpgs"):

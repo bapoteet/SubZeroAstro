@@ -4560,6 +4560,32 @@ def run(app, out_dir: Path) -> int:
         check(type(_mr_d).__name__ == "YourRigsDialog" and w.act_my_rigs.text() == "My Rigs…",
               "Settings › My Rigs… opens the rigs table straight away")
         _mr_d.close()
+        # Windows' "name (1).fits" copies: the original is kept, the copy is the duplicate; a lone "(1)" file is
+        # filed under its clean name. Then everything left that isn't a frame can be deleted
+        import shutil as _cm_sh
+        _cm_in = _au_root / "copymark" / "in"
+        _cm_in.mkdir(parents=True, exist_ok=True)
+        _cm_hdr = {"IMAGETYP": "Light Frame", "EXPTIME": 180.0, "INSTRUME": "ZWO ASI2600MM Pro", "FOCALLEN": 361.0,
+                   "OBJECT": "M 31", "FILTER": "Ha"}
+        core.write_fits(_cm_in / "M31_0001.fits", (np.random.random((32, 32)) * 4000).astype(np.uint16),
+                        dict(_cm_hdr, **{"DATE-OBS": "2026-10-02T03:00:00"}), bitpix=16)
+        _cm_sh.copy(_cm_in / "M31_0001.fits", _cm_in / "M31_0001 (1).fits")
+        core.write_fits(_cm_in / "M31_0002 (2).fits", (np.random.random((32, 32)) * 4000).astype(np.uint16),
+                        dict(_cm_hdr, **{"DATE-OBS": "2026-10-02T03:05:00"}), bitpix=16)
+        for _cm_n in ("M31_0001.jpg", "notes.txt", "Thumbs.db"):
+            (_cm_in / _cm_n).write_bytes(b"x")
+        _cm_lib = _au_root / "copymark" / "lib"
+        _cm_it = _og.plan(_og.classify(_og.scan(_cm_in), library=_cm_lib,
+                                       riglist=[{"name": "SQA60", "focals": [361]}]), _cm_lib)
+        _cm_st = {i.src.name: (i.status, i.dst.name if i.dst else "") for i in _cm_it}
+        _cm_other = _og.other_files([_cm_in], _cm_lib, min_age_s=0)
+        _og.execute(_cm_it, _cm_lib, move=True, keep=[_cm_in])
+        _cm_gone = _og.delete_other([_cm_in], _cm_lib, min_age_s=0)
+        check(_cm_st.get("M31_0001.fits", ("",))[0] == "move" and _cm_st.get("M31_0001 (1).fits", ("",))[0] == "duplicate"
+              and _cm_st.get("M31_0002 (2).fits") == ("move", "M31_0002.fits") and len(_cm_other) == 3
+              and len(_cm_gone) == 3 and sorted(p.name for p in _cm_in.iterdir()) == ["M31_0001 (1).fits"],
+              f"Organize: Windows' '(1)' copies are the duplicates, not the originals, and a lone '(2)' file is filed "
+              f"under its clean name ({_cm_st}); the other files left (.jpg, .txt, Thumbs.db) can be deleted")
         # Which Rig?: stray files that match none of your rigs can be deleted there
         import organizer_window as _ow2
         _nr_dir = _au_root / "norig" / "Stray"
