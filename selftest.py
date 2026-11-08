@@ -4297,25 +4297,27 @@ def run(app, out_dir: Path) -> int:
         _odd = _owin.open_duplicates()
         _odn = _odd.table.rowCount() if _odd else 0
         _odd.act(True, ask=False, wait=True)
+        _odsafe = _og.org_base(_od / "dump") / _og.DUP_DIR / "L1 (2).fits"
         check(_odn == 2 and not (_od / "dump" / "sub" / "L2 copy.fits").exists()
-              and (_od / "dump" / "sub" / "L1 (2).fits").exists() and (_od / "dump" / "L2.fits").exists(),
+              and not (_od / "dump" / "sub" / "L1 (2).fits").exists() and _odsafe.exists()
+              and (_od / "dump" / "L2.fits").exists() and "not the same file" in _owin.status.text(),
               f"Organize › Duplicates… lists {_odn} duplicates and deletes only the exact copy - the same capture "
-              f"with different bytes is kept for you to check ({_owin.status.text()[:90]})")
+              f"with different bytes goes to the Duplicates folder instead, undoably ({_owin.status.text()[:90]})")
         _owin.go(ask=False, wait=True)
         _oleft = (_owin.table.rowCount(), "left where they are" in _owin.status.text())
         _owin.safe_to_delete(wait=True)
         _osr = getattr(_owin, "safe_result", None) or {}
         _osafe = ([p.name for p, _ in _osr.get("keep", [])], [p.name for p, _ in _osr.get("other", [])],
                   "Not yet" in _owin.status.text())
-        check(_osafe == (["L1 (2).fits"], ["notes.txt"], True),
-              f"Safe to Delete?: after a Move, the one astro file that exists only in the old folder is flagged "
-              f"(don't delete), the notes file is listed for you to check, and the verdict says 'Not yet' ({_osafe})")
+        check(_osafe == ([], ["notes.txt"], False),
+              f"Safe to Delete?: after a Move (the not-identical duplicate already set aside), no astro file exists "
+              f"only in the old folder, and the notes file is listed for you to check ({_osafe})")
         _omoved = sorted(str(p.relative_to(_od / "dump")).replace("\\", "/") for p in (_od / "dump").rglob("*.fits"))
-        _ogone = not (_od / "dump" / "L1.fits").exists() and (_od / "dump" / "sub" / "L1 (2).fits").exists()
+        _ogone = not (_od / "dump" / "L1.fits").exists() and _odsafe.exists()
         _osteps = (_owin.b_go.text().startswith("✓"), _owin.b_rigs.text().startswith("✓"))
         _owin.undo_last(ask=False, wait=True)
         _oback = sorted(p.name for p in (_od / "dump").glob("*.fits"))
-        check(_on == 8 and all(_osteps) and _oleft == (1, True) and _ogone and len(_omoved) == 9 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "M31_final.fits", "MasterDark_180s.fits"]
+        check(_on == 8 and all(_osteps) and _oleft == (0, False) and _ogone and len(_omoved) == 9 and _oback == ["B1.fits", "D1.fits", "F1.fits", "L1.fits", "L2.fits", "L3.fits", "M31_final.fits", "MasterDark_180s.fits"]
               and not (_og.org_base(_od / "dump") / "Light Frames").exists(),
               f"(steps ticked off: {_osteps}; left behind and why: {_oleft}) "
               f"File › Organize My Astro Files… moves {_on} files into place (the duplicate stays put) and Undo "

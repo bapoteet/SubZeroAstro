@@ -726,12 +726,17 @@ class OrganizeDialog(QDialog):
 
         def done(r):
             n, kept_back, log = r
-            if not delete:
+            safe = [i for i, why in kept_back if why == O.SAFE_MOVED]
+            if not delete or safe:
                 self.last_log = log
             msg = (f"{n} duplicate(s) {'deleted' if delete else f'moved to the {O.DUP_DIR} folder (Undo Last Run puts them back)'}.")
-            if kept_back:
-                msg += f" {len(kept_back)} kept: " + "; ".join(f"{i.src.name} - {why}" for i, why in kept_back[:5]) \
-                       + (" …" if len(kept_back) > 5 else "")
+            if safe:
+                msg += (f" {len(safe)} were the same frame but not the same file (one copy was probably edited, "
+                        f"e.g. its header) - moved to the {O.DUP_DIR} folder instead (Undo Last Run puts them back).")
+            others = [(i, why) for i, why in kept_back if why != O.SAFE_MOVED]
+            if others:
+                msg += f" {len(others)} kept: " + "; ".join(f"{i.src.name} - {why}" for i, why in others[:3]) \
+                       + (" …" if len(others) > 3 else "")
             self.status.setText(msg)
             self.b_dups.setEnabled(bool(O.duplicates(self.items)))
             self._update_steps()

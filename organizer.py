@@ -743,6 +743,10 @@ def same_bytes(a, b, chunk=8 << 20) -> bool:
         return False
 
 
+SAFE_MOVED = ("the same frame but not the same file (one copy was probably edited) - moved to the Duplicates folder "
+              "instead of deleted; Undo Last Run puts it back")
+
+
 def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
     """Deal with the duplicates the user ticked. delete=False moves them into <library>/Duplicates (undo with
     Undo Last Run); delete=True deletes each one - but only when it is byte for byte the same as the copy that
@@ -752,7 +756,7 @@ def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
     logd.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y-%m-%d_%H%M%S")
     log_path = logd / f"organize_{stamp}_{'deleted' if delete else 'duplicates'}.json"
-    done, kept_back, failed = [], [], []
+    done, kept_back, failed, moved_safe = [], [], [], []
     for i, it in enumerate(dups):
         if stop and stop():
             break
@@ -764,14 +768,12 @@ def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
         if not (it.same_as and _exists(it.same_as)):
             kept_back.append((it, "the copy to keep is no longer there"))
             continue
-        # deleting: only a byte-for-byte twin goes. Moving to Duplicates (undoable): the size and the start and
-        # end of the file matching is enough - reading every byte of both over a NAS took ~10 s per frame
-        if (not same_bytes(it.src, it.same_as)) if delete else \
-                (it.src.stat().st_size != it.same_as.stat().st_size or _quick_hash(it.src) != _quick_hash(it.same_as)):
-            kept_back.append((it, "not byte for byte the same as the kept copy - check it yourself"))
-            continue
+        # deleting: only a byte-for-byte twin goes. Anything else - moving to Duplicates, or a "duplicate" that is
+        # the same frame (same capture time, target, filter) whose file differs, e.g. one copy had its header
+        # edited - goes into the Duplicates folder, where Undo Last Run can put it back
+        to_dups = not delete or not same_bytes(it.src, it.same_as)
         try:
-            if delete:
+            if not to_dups:
                 it.src.unlink()
                 done.append({"src": str(it.src), "same_as": str(it.same_as), "deleted": True})
             else:
@@ -782,18 +784,24 @@ def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
                     dst = org_base(library) / DUP_DIR / f"{it.src.stem}_{n}{it.src.suffix}"
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(it.src), str(dst))
-                done.append({"src": str(it.src), "dst": str(dst), "same_as": str(it.same_as)})
+                entry = {"src": str(it.src), "dst": str(dst), "same_as": str(it.same_as)}
+                if delete:                     # asked to delete, but not identical: kept safe instead
+                    entry["not_identical"] = True
+                    moved_safe.append(entry)
+                    kept_back.append((it, SAFE_MOVED))
+                else:
+                    done.append(entry)
             it.status = "handled"
         except OSError as e:
             failed.append({"src": str(it.src), "error": str(e)})
             kept_back.append((it, str(e)))
     log = {"app": "SubZeroAstro", "kind": "organize-duplicates", "move": True, "library": str(library),
-           "time": stamp, "done": [] if delete else done, "failed": failed}
+           "time": stamp, "done": moved_safe if delete else done, "failed": failed}
     if delete:
         log["deleted"] = done                 # deleted files can't be put back; the log says what went
     log_path.write_text(json.dumps(log, indent=1), encoding="utf-8")
-    if done:
-        _remove_empty_dirs({Path(d["src"]).parent for d in done}, stop_at=library)
+    if done or moved_safe:
+        _remove_empty_dirs({Path(d["src"]).parent for d in done + moved_safe}, stop_at=library)
     return len(done), kept_back, log_path
 
 
