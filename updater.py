@@ -402,7 +402,7 @@ class UpdateBanner(QFrame):
             self.hide()
             if manual:
                 self._info("Check for Updates",
-                           f"Couldn't reach GitHub to check for updates.\n\n({error})" if error
+                           f"Couldn't reach the update server to check for updates.\n\n({error})" if error
                            else f"You have the newest version of SubZeroAstro ({self.current}).")
             return
         self.show_release(release, force=manual)
@@ -498,7 +498,7 @@ class UpdateBanner(QFrame):
             shutil.rmtree(self.stage, ignore_errors=True)
             if "cancelled" not in error:
                 self._info("Update SubZeroAstro", f"The download failed:\n\n{error}\n\n"
-                                                  "Try again later, or download it from the GitHub page.")
+                                                  "Try again later, or download it from the SubZeroAstro download page.")
             return
         try:
             cmd = prepare_handover(Path(path), self.stage)

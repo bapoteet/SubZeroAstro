@@ -1514,7 +1514,7 @@ class MainWindow(QMainWindow):
         m.addAction(a)
         m.addSeparator()
         a = QAction("Check for Updates…", self)
-        a.setToolTip("Look on GitHub for a newer SubZeroAstro, and install it with Update Now")
+        a.setToolTip("Look for a newer SubZeroAstro, and install it with Update Now")
         a.triggered.connect(lambda: self.update_banner.start_check(manual=True))
         m.addAction(a)
         self.act_check_updates = a
