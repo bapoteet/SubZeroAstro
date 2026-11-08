@@ -4651,6 +4651,19 @@ def run(app, out_dir: Path) -> int:
               and (_rlb / "Light Frames/OldRig/M31/2026-10-01/Ha/a.fits").exists(),
               f"Change My Library's Layout: every file keeps the rig it's filed under, even one not in Your Rigs, "
               f"and Which Rig?'s delete never touches the library ({_rl_d})")
+        # By date, then target, then rig: Light Frames/<year>/<night>/<target>/<rig>/<filter>; a re-sort out of it
+        # keeps each file's rig (OldRig is not in Your Rigs)
+        _dl_it = _og.plan(_og.classify(_og.scan(_rlb), library=_rl, layout="date", root=_rlb,
+                                       riglist=[{"name": "SQA60", "focals": [361]}]), _rl)
+        _dl_d = {i.src.name: str(i.dst.relative_to(_rlb)).replace("\\", "/") if i.dst else i.status for i in _dl_it}
+        _og.execute(_dl_it, _rl, move=True)
+        _dl_back = _og.plan(_og.classify(_og.scan(_rlb), library=_rl, layout="rig", root=_rlb,
+                                         riglist=[{"name": "SQA60", "focals": [361]}]), _rl)
+        _dl_b = {i.src.name: str(i.dst.relative_to(_rlb)).replace("\\", "/") if i.dst else i.status for i in _dl_back}
+        check(_dl_d.get("a.fits") == "Light Frames/2026/2026-10-01/M31/OldRig/Ha/a.fits"
+              and _dl_d.get("b.fits") == "Light Frames/2026/2026-10-01/M31/SQA60/Ha/b.fits"
+              and _dl_b.get("a.fits", "").startswith("Light Frames/OldRig/M31/2026-10-01/"),
+              f"Layout by date, then target, then rig - and back to by rig, each file keeping its rig ({_dl_d}, {_dl_b})")
         # Which Rig?: stray files that match none of your rigs can be deleted there
         import organizer_window as _ow2
         _nr_dir = _au_root / "norig" / "Stray"

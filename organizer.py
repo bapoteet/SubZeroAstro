@@ -374,6 +374,8 @@ def _companions(p: Path) -> list:
 LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration Frames / rig / Flats, Darks, Bias",
            "target_rig": "By target, then rig: Light Frames / target / rig / night  and  Calibration Frames / rig / "
                          "Flats, Darks, Bias",
+           "date": "By date, then target, then rig: Light Frames / year / night / target / rig  and  Calibration "
+                   "Frames / rig / Flats, Darks, Bias",
            "target": "By target (classic): Targets / target / night_rig, with darks and bias libraries"}
 
 
@@ -411,7 +413,17 @@ def library_rigs(paths, library) -> dict:
         hit2 = sum(1 for n in lvl2 if _rig_folder_key(n) in known)
         lvl = 1 if (hit1, -len(lvl1)) >= (hit2, -len(lvl2)) else 2
         for a, pp in lights:
-            out[a] = pp[lvl]
+            # by date (Light Frames/year/night/target/rig/…) the rig is deeper: a folder named after one of
+            # your rigs says it directly; otherwise the level that holds the rigs in the other layouts
+            hit = [x for x in pp[1:-1] if _rig_folder_key(x) in known]
+            if hit:
+                out[a] = hit[0]
+            elif len(pp) >= 6 and re.match(r"^\d{4}$", pp[1]) and re.match(r"^\d{4}-\d{2}-\d{2}$", pp[2]):
+                out[a] = pp[4]                                     # year / night / target / rig
+            elif len(pp) >= 5 and pp[1] == "Masters":
+                out[a] = pp[3]                                     # Masters / target / rig
+            else:
+                out[a] = pp[lvl]
     return out
 
 
@@ -660,8 +672,9 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             it.key = (info.date_obs, info.exptime, flt, info.camera, it.size, typ, looks_master,
                       info.telescope, info.focal, str(it.src.parent.parent.parent.name) if not info.telescope
                       and not info.focal else "")
-        if layout in ("rig", "target_rig"):
-            _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected, target_first=layout == "target_rig")
+        if layout in ("rig", "target_rig", "date"):
+            _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected, target_first=layout == "target_rig",
+                        date_first=layout == "date")
             continue
         if typ in (None, "light") and looks_master and tgt:
             it.kind, it.dst = "master", Path("Targets") / tgt / "Masters" / name
@@ -726,17 +739,20 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     return items
 
 
-def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected, target_first=False):
+def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected, target_first=False, date_first=False):
     """Light Frames / <rig> / <target> / <night> / <filter>   and   Calibration Frames / <rig> / Flats | Dark flats | Darks |
     Bias | Masters - everything a rig (one telescope with its own camera) took, in one place. target_first: the
     lights go Light Frames / <target> / <rig> / <night> / <filter> instead (every rig's nights of one object
-    together); calibration frames stay by rig either way - they belong to a rig, not to a target."""
+    together); calibration frames stay by rig either way - they belong to a rig, not to a target. date_first:
+    Light Frames / <year> / <night> / <target> / <rig> / <filter> (what was shot each night, across every rig);
+    master lights, which belong to no one night, go Light Frames / Masters / <target> / <rig>."""
     import stacking as st
     rig = _rig(info, it.src) or "Unknown rig"
     cal = Path("Calibration Frames") / rig
-    top = (Path("Light Frames") / tgt / rig) if target_first else (Path("Light Frames") / rig / tgt)
+    top = (Path(LIGHT_DIR) / tgt / rig) if target_first else (Path(LIGHT_DIR) / rig / tgt)
     if typ in (None, "light") and looks_master and tgt:
-        it.kind, it.dst, it.why = "master", top / "Masters" / name, "master light"
+        mdir = (Path(LIGHT_DIR) / "Masters" / tgt / rig) if date_first else top / "Masters"
+        it.kind, it.dst, it.why = "master", mdir / name, "master light"
         it.companions = _companions(it.src)
     elif typ in ("dark", "flat", "darkflat", "bias") and looks_master:
         sub = Path(_cal_folder(info)) if typ in ("dark", "bias") else Path(f"Flats {night}") / flt
@@ -746,7 +762,11 @@ def _rig_layout(it, info, typ, looks_master, tgt, night, flt, name, rejected, ta
         if not tgt:
             it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "a light without a target name"
             return
-        sub = top / night / flt
+        if date_first:
+            year = night[:4] if re.match(r"^\d{4}-", night) else night
+            sub = Path(LIGHT_DIR) / year / night / tgt / rig / flt
+        else:
+            sub = top / night / flt
         if rejected:
             sub = sub / core.REJECTED_DIR
         it.kind, it.dst = "light", sub / name

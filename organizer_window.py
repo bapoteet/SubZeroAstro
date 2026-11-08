@@ -116,7 +116,8 @@ class OrganizeDialog(QDialog):
         self.layout_box.setToolTip("By rig: everything one telescope (and its camera) took, together - lights by "
                                    "target and night, its own flats, darks and bias.\nBy target, then rig: every "
                                    "rig's nights of one object together, then by rig; calibration frames stay by "
-                                   "rig.\nBy target (classic): all of one object's nights together, darks and bias "
+                                   "rig.\nBy date: each night's lights together (by year, then night), then by target and rig; "
+                                   "calibration frames stay by rig.\nBy target (classic): all of one object's nights together, darks and bias "
                                    "in libraries per rig.\nTo change the layout of a library already organized: "
                                    "Change My Library's Layout….")
         h.addWidget(self.layout_box, 1)
