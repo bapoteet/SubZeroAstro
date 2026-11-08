@@ -68,7 +68,8 @@ class AsiairDialog(QDialog):
         b.clicked.connect(self._pick_incoming)
         h.addWidget(b)
         lay.addLayout(h)
-        self.free = QCheckBox("Free space on the ASIAIR: delete each sub from it once its copy is checked")
+        self.free = QCheckBox("Free space on the ASIAIR: delete each sub and its .jpg from it once its copy is "
+                              "checked")
         self.free.setChecked(settings.value("asiair/free", False, type=bool))
         lay.addWidget(self.free)
         h = QHBoxLayout()

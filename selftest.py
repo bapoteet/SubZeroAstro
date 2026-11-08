@@ -4679,12 +4679,13 @@ def run(app, out_dir: Path) -> int:
         _as_left2 = sorted(p.name for p in _as_sh.iterdir())
         _as_d.save()
         _as_d.close()
-        check(_as_jres == (1, 0) and _as_left2 == [],
-              f"Fetch From My ASIAIRs: Delete .jpgs on This ASIAIR removes only its .jpg pictures ({_as_jres})")
+        check(_as_jres is None and _as_left2 == [],
+              f"Fetch From My ASIAIRs: freeing space took each sub's .jpg too; Delete .jpgs on This ASIAIR finds no "
+              f"more ({_as_jres})")
         check(_as_r1 and _as_r1[0]["copied"] == 2 and _as_r2 and _as_r2[0]["copied"] == 0
               and _as_files == ["RASA 11/EMMC Images/Autorun/Light/M31/Light_M31_300.0s_0001.fit",
                                 "RASA 11/EMMC Images/Autorun/Light/M31/Light_M31_300.0s_0002.fit"]
-              and _as_left == ["Light_M31_300.0s_0001.jpg"]
+              and _as_left == []
               and _as.parse_net_view("Share name  Type\n------\nEMMC Images   Disk\nUdisk Images  Disk\n")
               == ["EMMC Images", "Udisk Images"],
               f"Fetch From My ASIAIRs: the new subs copied into the rig's folder ({_as_files}), never twice "

@@ -136,11 +136,26 @@ def _mkey(root, rel, size) -> str:
     return f"{Path(root).name}/{rel}|{size}"
 
 
+def _drop_previews(sub: Path) -> int:
+    """The ASIAIR's .jpg previews of a sub just freed from it (same name, and its _thn thumbnail)."""
+    n = 0
+    for name in (sub.stem + ".jpg", sub.stem + ".jpeg", sub.stem + "_thn.jpg", sub.stem + "_thn.jpeg",
+                 sub.stem.upper() + ".JPG"):
+        q = sub.with_name(name)
+        try:
+            if q.is_file():
+                q.unlink()
+                n += 1
+        except OSError:
+            pass
+    return n
+
+
 def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, roots=None) -> dict:
     """Copy one ASIAIR's new subs into incoming/<rig>/<share>/…  unit = {name, address, rig}.
     Returns {name, copied, already, failed: [(file, why)], deleted, bytes, error}."""
     name = safe_name(unit.get("name") or unit.get("address"))
-    rep = {"name": name, "copied": 0, "already": 0, "failed": [], "deleted": 0, "bytes": 0, "error": ""}
+    rep = {"name": name, "copied": 0, "already": 0, "failed": [], "deleted": 0, "jpgs": 0, "bytes": 0, "error": ""}
     roots = shares(unit.get("address")) if roots is None else roots
     if not roots:
         rep["error"] = (f"can't reach {unit.get('address') or '(no address)'} - is the ASIAIR on and on the same "
@@ -159,6 +174,7 @@ def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, 
                 try:
                     p.unlink()
                     rep["deleted"] += 1
+                    rep["jpgs"] += _drop_previews(p)
                 except OSError:
                     pass
     for i, (p, root, rel, size, mt) in enumerate(todo):
@@ -183,6 +199,7 @@ def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, 
                 try:
                     p.unlink()
                     rep["deleted"] += 1
+                    rep["jpgs"] += _drop_previews(p)
                 except OSError as e:
                     rep["failed"].append((rel, f"copied, but couldn't delete it from the ASIAIR: {e}"))
         except Exception as e:  # noqa: BLE001
@@ -205,7 +222,7 @@ def describe(reps) -> str:
             continue
         t = f"{r['name']}: {r['copied']} new sub(s) ({r['bytes'] / 1e9:.1f} GB)"
         if r["deleted"]:
-            t += f", {r['deleted']} freed on the ASIAIR"
+            t += f", {r['deleted']} freed on the ASIAIR" + (f" (+{r['jpgs']} .jpg)" if r.get("jpgs") else "")
         if r["failed"]:
             t += f", {len(r['failed'])} failed ({r['failed'][0][1]})"
         out.append(t)
