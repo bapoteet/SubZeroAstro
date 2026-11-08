@@ -385,7 +385,7 @@ class HeaderCache:
         if self.path is not None:
             try:
                 d = json.loads(self.path.read_text(encoding="utf-8"))
-                if d.get("v") == 1:
+                if d.get("v") == 2:
                     self.data = d.get("files") or {}
             except (OSError, ValueError, AttributeError):
                 self.data = {}
@@ -401,7 +401,9 @@ class HeaderCache:
 
     @staticmethod
     def _key(p, stt) -> str:
-        return f"{Path(p).name.lower()}|{stt.st_size}|{int(stt.st_mtime)}"
+        # to the nanosecond (a move or a careful copy keeps it): a file rewritten in the same second with the
+        # same name and size is still told apart
+        return f"{Path(p).name.lower()}|{stt.st_size}|{stt.st_mtime_ns}"
 
     def get(self, p, stt):
         import stacking as st
@@ -434,7 +436,7 @@ class HeaderCache:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps({"v": 1, "files": self.data}), encoding="utf-8")
+            tmp.write_text(json.dumps({"v": 2, "files": self.data}), encoding="utf-8")
             tmp.replace(self.path)
             self.dirty = False
         except OSError:
