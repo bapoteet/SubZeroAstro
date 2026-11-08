@@ -3610,14 +3610,12 @@ class MainWindow(QMainWindow):
         QMessageBox.about(self, f"About {APP_NAME}", (
             f"<h2 style='margin-bottom:0'>{APP_NAME}</h2>"
             f"<i>{APP_TAGLINE}</i><br><br>Version {APP_VERSION}<br><br>"
-            "Cull your subframes with star-quality metrics, stack them with calibration, and prepare the "
-            "masters for PixInsight — plate solving, gradient removal and the RC-Astro XTerminators included.<br>"
-            "Rejected frames are moved to a <i>REJECTED</i> subfolder — nothing is ever deleted "
-            "and your images are never modified.<br><br>"
+            "Everything from planning a night to the finished picture, in one app: your weather and "
+            "targets, your subs brought in and filed, graded and culled, calibrated, stacked and finished - "
+            "made to work hand in hand with N.I.N.A. and the ZWO ASIAIR.<br><br>"
             "New versions install themselves: <i>Help › Check for Updates…</i> (or the blue bar on page 1).<br>"
             f"<small>Installed in: {_install_place()}</small><br><br>"
-            f"Created by {APP_AUTHOR}, built with Claude (Anthropic).<br>"
-            f"<a href='{APP_URL}'>{APP_URL}</a><br>"
+            f"© 2026 {APP_AUTHOR}. Created by {APP_AUTHOR}, built with Claude (Anthropic).<br>"
             "Free software under the MIT License. Provided as is, with no warranty.<br><br>"
             "The culling view was inspired by FITS Blaster for macOS by Tom van Peer "
             "(<a href='https://astrophoto-app.com/'>astrophoto-app.com</a>)."))
