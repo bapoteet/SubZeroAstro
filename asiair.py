@@ -61,10 +61,16 @@ def parse_net_view(text) -> list:
 def shares(address) -> list:
     """The folders to look through for an ASIAIR: its image shares for an IP address, else the folder given."""
     a = str(address or "").strip()
+    m = re.fullmatch(r"[\\/]{2}(\d{1,3}(?:\.\d{1,3}){3})[\\/]?", a)          # \\192.168.0.111 = the whole ASIAIR
+    if m:
+        a = m.group(1)
     if not a:
         return []
     if not is_ip(a):
-        return [Path(a)]
+        try:                                           # a folder: only if it's there (a typo is "can't reach")
+            return [Path(a)] if Path(a).is_dir() else []
+        except OSError:
+            return []
     host = unc(a)
     names = []
     if sys.platform.startswith("win"):
@@ -232,10 +238,17 @@ def fetch_all(units, incoming, progress=None, stop=None, free=False, together=Tr
                 progress(f"Fetching from {len(units)} ASIAIRs at once - " + ", ".join(
                     f"{k}: {a}/{b}" for k, (a, b) in state.items()), done, total)
         return p
-    with ThreadPoolExecutor(max_workers=min(8, len(units))) as pool:
-        futs = [pool.submit(fetch, u, incoming, prog_for(safe_name(u.get("name") or u.get("address"))), stop, free)
-                for u in units]
-        return [f.result() for f in futs]
+    # rows of the same ASIAIR (same name - e.g. its Plan and Autorun folders as two rows) go one after the other:
+    # they share its radio and its record of what's been fetched
+    groups = {}
+    for u in units:
+        groups.setdefault(safe_name(u.get("name") or u.get("address")), []).append(u)
+
+    def run_group(name, us):
+        return [fetch(u, incoming, prog_for(name), stop, free) for u in us]
+    with ThreadPoolExecutor(max_workers=min(8, len(groups))) as pool:
+        futs = [pool.submit(run_group, n, us) for n, us in groups.items()]
+        return [r for f in futs for r in f.result()]
 
 
 def describe(reps) -> str:
