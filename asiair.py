@@ -210,8 +210,32 @@ def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, 
     return rep
 
 
-def fetch_all(units, incoming, progress=None, stop=None, free=False) -> list:
-    return [fetch(u, incoming, progress, stop, free) for u in units if u.get("address")]
+def fetch_all(units, incoming, progress=None, stop=None, free=False, together=True) -> list:
+    """Every ASIAIR's new subs. together: all of them at the same time - each ASIAIR has its own Wi-Fi radio,
+    and that radio (not the network) is what's slow, so four ASIAIRs come over in about the time of one."""
+    units = [u for u in units if u.get("address")]
+    if not together or len(units) < 2:
+        return [fetch(u, incoming, progress, stop, free) for u in units]
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    lock = threading.Lock()
+    state = {}
+
+    def prog_for(name):
+        def p(text, i, n):
+            if progress is None:
+                return
+            with lock:
+                state[name] = (i, n)
+                done = sum(a for a, _b in state.values())
+                total = sum(b for _a, b in state.values())
+                progress(f"Fetching from {len(units)} ASIAIRs at once - " + ", ".join(
+                    f"{k}: {a}/{b}" for k, (a, b) in state.items()), done, total)
+        return p
+    with ThreadPoolExecutor(max_workers=min(8, len(units))) as pool:
+        futs = [pool.submit(fetch, u, incoming, prog_for(safe_name(u.get("name") or u.get("address"))), stop, free)
+                for u in units]
+        return [f.result() for f in futs]
 
 
 def describe(reps) -> str:
