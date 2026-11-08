@@ -4537,6 +4537,12 @@ def run(app, out_dir: Path) -> int:
         _zz.parent.mkdir(parents=True, exist_ok=True)
         _zz.write_bytes(bytes(3 * 2880 * 100))
         _zz_it = _og.classify([_zz])[0]
+        _zh = _au_root / "zeros" / "M31_0002.fits"
+        _zh.write_bytes(bytes(2880 * 30) + os.urandom(2880 * 70))       # a copy that never wrote the header
+        _zh_it = _og.classify([_zh])[0]
+        check(_zh_it.status == "error" and "start" in _zh_it.why and _og.empty_frames([_zh_it]) == [_zh_it],
+              f"Organize: a frame whose start (the header) is all zeros is named and counts as empty "
+              f"({_zh_it.why[:50]})")
         _zz_left = _au_root / "zeros" / "Autorun" / "Light" / "M31"
         _zz_left.mkdir(parents=True, exist_ok=True)
         for _zz_n in ("Light_M31_300.0s_Bin1_0001.jpg", "Light_M31_300.0s_Bin1_0001_thn.jpg", "MyPicture.jpg"):

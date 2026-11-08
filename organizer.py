@@ -371,22 +371,40 @@ READERS = 8
 
 
 def _empty_reason(p) -> str:
-    """Why a file can't be read, when it's plain: one that is all zeros (or empty) was never written - the
-    capture or a copy was cut short (a crash, the power, the network) - and holds no picture to rescue."""
+    """Why a file can't be read, when it's plain. All zeros (or 0 bytes): it was never written - the capture or a
+    copy was cut short (a crash, the power, the network). A blank start with data further in: the copy wrote
+    some pieces but never the header. Either way there is no usable frame in it."""
     try:
         size = Path(p).stat().st_size
         if size == 0:
             return "empty file (0 bytes) - the capture or a copy was cut short; nothing to rescue"
+        blk = 64 << 10
         with open(p, "rb") as f:
-            head = f.read(64 << 10)
-            f.seek(max(0, size // 2))
-            mid = f.read(64 << 10)
-        if not head.strip(b"\0") and not mid.strip(b"\0"):
-            return ("all zeros - the file was made but the picture was never written into it (the capture or a "
-                    "copy was cut short); nothing to rescue - check the copy on the imaging computer, else delete it")
+            head = f.read(blk)
+            rest = []
+            for frac in (0.25, 0.5, 0.75, 1.0):
+                f.seek(max(0, min(int(size * frac), size - blk)))
+                rest.append(f.read(blk))
+        if not head[:2880].strip(b"\0"):
+            if not head.strip(b"\0") and not any(r.strip(b"\0") for r in rest):
+                return ("all zeros - the file was made but the picture was never written into it (the capture or a "
+                        "copy was cut short); nothing to rescue - check the copy on the imaging computer, else "
+                        "delete it")
+            return ("all zeros at the start - the header was never written (a copy cut short); the frame can't be "
+                    "used - check the copy on the imaging computer or a backup, else delete it")
     except OSError:
         pass
     return ""
+
+
+def _starts_with(p) -> str:
+    """The first bytes of a file nobody can read, for the log: '53 49 4D 50' (SIMPLE) or 'PK..' tells what it is."""
+    try:
+        with open(p, "rb") as f:
+            b = f.read(16)
+        return " ".join(f"{x:02X}" for x in b) + "  " + "".join(chr(x) if 32 <= x < 127 else "." for x in b)
+    except OSError:
+        return ""
 
 
 def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs=None, layout="rig",
@@ -424,7 +442,8 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             it = Item(src=Path(p))
             it.size = size
             if err is not None:
-                it.status, it.why = "error", (_empty_reason(p) or f"could not read it ({err})")
+                it.status, it.why = "error", (_empty_reason(p) or f"could not read it ({err}) - it starts with "
+                                                                     f"{_starts_with(p)}")
                 items.append(it)
                 infos.append(None)
                 continue

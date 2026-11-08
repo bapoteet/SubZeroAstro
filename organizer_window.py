@@ -142,7 +142,9 @@ class OrganizeDialog(QDialog):
                                   "folders being organized (checked again just before). Can't be undone, but "
                                   "there is nothing in them.")
         self.del_empty.setChecked(self.settings.value("organize/delete_empty", False, type=bool))
-        self.del_empty.toggled.connect(lambda on: self.settings.setValue("organize/delete_empty", on))
+        self.del_empty.toggled.connect(lambda on: (self.settings.setValue("organize/delete_empty", on),
+                                                   self.b_go.setEnabled(self._has_work(self.items)),
+                                                   self._update_steps()))
         h.addWidget(self.del_empty)
         self.del_other = QCheckBox("Delete other files too (anything not FITS / XISF)")
         self.del_other.setToolTip("After a Move: everything left in the incoming folders that isn't a frame (.jpg, "
@@ -252,13 +254,18 @@ class OrganizeDialog(QDialog):
             self.status.setText(self.status.text() + f"<br><i>Last time: {last}</i>")
         self._update_steps()
 
+    def _has_work(self, items) -> bool:
+        """Step 3 has something to do: frames to file - or empty frames to delete, with that box ticked."""
+        return bool([i for i in items if i.status == "move"]) or (
+            self.del_empty.isChecked() and bool(O.empty_frames(items)))
+
     def _update_steps(self):
         """Where you are: steps done get a ✓ and go grey, the next one is highlighted - also after a break."""
         rigs_done = bool(self.riglist())
         scanned = bool(self.items)
         issues = O.rig_issues(self.items) if scanned else []
         dups = bool(O.duplicates(self.items)) if scanned else False
-        tomove = bool([i for i in self.items if i.status == "move"]) if scanned else False
+        tomove = self._has_work(self.items) if scanned else False
         done = {self.b_rigs: rigs_done, self.b_scan: scanned or self._organized,
                 self.b_which: scanned and not issues, self.b_dups: scanned and not dups,
                 self.b_go: self._organized}
@@ -428,7 +435,7 @@ class OrganizeDialog(QDialog):
             w.setEnabled(not on)
         if not on:
             self.dst.setEnabled(not self.same.isChecked())
-            self.b_go.setEnabled(bool([i for i in self.items if i.status == "move"]))
+            self.b_go.setEnabled(self._has_work(self.items))
             self.b_dups.setEnabled(bool(O.duplicates(self.items)))
             self.b_which.setEnabled(bool(O.rig_issues(self.items)))
         self.b_stop.setVisible(on)
@@ -532,7 +539,9 @@ class OrganizeDialog(QDialog):
                 "<br><b>Nothing new to organize here</b> - every frame in these folders is already in your library "
                 "(or listed above with the reason it stays), so Step 3 has nothing to do."
                 + (" Duplicates: <b>Step 2</b>." if sm.get("duplicate") else "")
-                + (" Empty frames: tick <b>Delete empty frames</b>." if O.empty_frames(items) else ""))
+                + ((" Empty frames: <b>Step 3</b> deletes them (Delete empty frames is ticked)."
+                    if self.del_empty.isChecked() else " Empty frames: tick <b>Delete empty frames</b>, then Step 3.")
+                   if O.empty_frames(items) else ""))
         self.status.setText((note + "<br>" if note else "") + "<br>".join(parts) + tail)
         lib = self.library()
         order = {"move": 0, "norig": 1, "duplicate": 2, "error": 3, "here": 4}
@@ -554,7 +563,7 @@ class OrganizeDialog(QDialog):
                 if c >= 2:
                     cell.setToolTip(v)                     # the full text when the column is too narrow
                 self.table.setItem(r, c, cell)
-        self.b_go.setEnabled(sm["files"] > 0)
+        self.b_go.setEnabled(self._has_work(items))
         self.b_dups.setEnabled(bool(O.duplicates(items)))
         issues = O.rig_issues(items, (getattr(self, "_plan_args", None) or (None, None, None))[2])
         self.b_which.setEnabled(bool(issues))
