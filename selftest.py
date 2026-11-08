@@ -4612,6 +4612,20 @@ def run(app, out_dir: Path) -> int:
         check(_ch_n == 3 and not _ch_kb and not list(_ch_in.rglob("*.fits")),
               f"Duplicates: copies of a frame already in the library, in several incoming folders, are all deleted "
               f"- none waits for a 'copy to keep' that was itself a duplicate ({_ch_n}, {[w for _, w in _ch_kb]})")
+        # the header cache: after one look, re-sorting the library reads no file again
+        import stacking as _hc_st
+        _og.HeaderCache._open.clear()
+        _hc_calls = [0]
+        _hc_orig = _hc_st.read_info
+        _hc_st.read_info = lambda p_: (_hc_calls.__setitem__(0, _hc_calls[0] + 1), _hc_orig(p_))[1]
+        try:
+            _hc_it = _og.plan(_og.classify(_og.scan(_og.org_base(_ch_lib)), library=_ch_lib, layout="target_rig",
+                                           riglist=_ch_r), _ch_lib)
+        finally:
+            _hc_st.read_info = _hc_orig
+        check(_hc_calls[0] == 0 and _hc_it and (_og.org_base(_ch_lib) / _og.LOG_DIR / "headers.json").exists(),
+              f"Organize keeps what each header said in the library: re-sorting it reads no file again "
+              f"({_hc_calls[0]} read, {len(_hc_it)} planned)")
         # Which Rig?: stray files that match none of your rigs can be deleted there
         import organizer_window as _ow2
         _nr_dir = _au_root / "norig" / "Stray"

@@ -370,6 +370,77 @@ LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration
 READERS = 8
 
 
+class HeaderCache:
+    """What each file's header said, kept in the library (Organized Astro Files/_SubZeroAstro_organize/
+    headers.json), so the next look - a re-sort into another layout, the next Organize - only lists the folders
+    instead of opening every file again over the network. A file is known by its name, size and modified time,
+    which a move keeps, so it's still known after Organize has filed it."""
+
+    MAX = 400_000
+    _open = {}
+
+    def __init__(self, path):
+        self.path = Path(path) if path else None
+        self.data, self.dirty = {}, False
+        if self.path is not None:
+            try:
+                d = json.loads(self.path.read_text(encoding="utf-8"))
+                if d.get("v") == 1:
+                    self.data = d.get("files") or {}
+            except (OSError, ValueError, AttributeError):
+                self.data = {}
+
+    @classmethod
+    def for_library(cls, library):
+        if library is None or str(library) in ("", "."):
+            return None
+        p = org_base(library) / LOG_DIR / "headers.json"
+        if str(p) not in cls._open:
+            cls._open[str(p)] = cls(p)
+        return cls._open[str(p)]
+
+    @staticmethod
+    def _key(p, stt) -> str:
+        return f"{Path(p).name.lower()}|{stt.st_size}|{int(stt.st_mtime)}"
+
+    def get(self, p, stt):
+        import stacking as st
+        d = self.data.get(self._key(p, stt))
+        if not d:
+            return None
+        try:
+            return st.ImgInfo(**dict(d, path=Path(p)))
+        except TypeError:                  # a field added or removed since: read the file again
+            return None
+
+    def put(self, p, stt, info):
+        import dataclasses
+        try:
+            d = dataclasses.asdict(info)
+        except TypeError:
+            return
+        d.pop("path", None)
+        self.data[self._key(p, stt)] = d
+        self.dirty = True
+
+    def save(self):
+        # only into a library that exists already (a first look at a new library leaves no trace; the first
+        # Organize saves it)
+        if not self.dirty or self.path is None or not self.path.parent.parent.is_dir():
+            return
+        if len(self.data) > self.MAX:
+            for k in list(self.data)[: len(self.data) - self.MAX]:
+                del self.data[k]
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"v": 1, "files": self.data}), encoding="utf-8")
+            tmp.replace(self.path)
+            self.dirty = False
+        except OSError:
+            pass
+
+
 def _empty_reason(p) -> str:
     """Why a file can't be read, when it's plain. All zeros (or 0 bytes): it was never written - the capture or a
     copy was cut short (a crash, the power, the network). A blank start with data further in: the copy wrote
@@ -415,12 +486,20 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     global _RIGS, _RIGLIST, _TOL
     _RIGS = rigs
     _RIGLIST, _TOL = riglist, tol
+    use_cache = read_info is None
     read_info = read_info or st.read_info
+    cache = HeaderCache.for_library(library) if use_cache else None
     items, infos = [], []
 
     def one(p):
         try:
-            return Path(p).stat().st_size, read_info(p), None
+            stt = Path(p).stat()
+            info = cache.get(p, stt) if cache is not None else None
+            if info is None:
+                info = read_info(p)
+                if cache is not None:
+                    cache.put(p, stt, info)
+            return stt.st_size, info, None
         except Exception as e:  # noqa: BLE001 - unreadable file: leave it where it is
             return 0, None, e
 
@@ -593,6 +672,8 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
             it.kind, it.dst, it.why = "unsorted", Path("Unsorted") / name, "the header doesn't say what it is"
     if progress:
         progress("Headers read", len(paths))
+    if cache is not None:
+        cache.save()
     return items
 
 
@@ -911,6 +992,9 @@ def execute(items, library, move=False, progress=None, stop=None, keep=None) -> 
                 failed.append({"src": str(src), "dst": str(dst), "error": str(e)})
         if i % 50 == 0:
             write_log()
+    hc = HeaderCache.for_library(library)
+    if hc is not None:                    # what the headers said, for the next look at this library
+        hc.save()
     meta = carry_nina_metadata(done, move)
     if meta:
         extra["meta"] = meta
