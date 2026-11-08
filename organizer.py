@@ -710,6 +710,19 @@ def plan(items, library, progress=None, stop=None) -> list:
         if it.status == "move":
             taken[str(cand).lower()] = it.size
             taken[str(cand).lower() + "#src"] = str(it.src)
+    # a chain: B is the same frame as A, but A itself turned out to be a copy of the file already in the
+    # library - so B's copy to keep is the library's (A is about to go too)
+    by_src = {os.path.normcase(str(i.src)): i for i in items}
+    for it in items:
+        k = it.same_as
+        for _ in range(5):
+            nxt = by_src.get(os.path.normcase(str(k))) if (it.status == "duplicate" and k is not None) else None
+            if nxt is None or nxt is it or nxt.status != "duplicate" or nxt.same_as is None:
+                break
+            k = nxt.same_as
+        if k is not it.same_as:
+            it.same_as = k
+            it.why = f"the same frame as the copy already in {Path(k).parent.name}"
     return items
 
 
@@ -765,6 +778,11 @@ def handle_duplicates(dups, library, delete=False, progress=None, stop=None):
         if not _exists(it.src):
             kept_back.append((it, "it is no longer there"))
             continue
+        if it.same_as and not _exists(it.same_as):        # its kept copy was itself a duplicate, handled just now
+            for d in done + moved_safe:
+                if _same_path(d["src"], it.same_as) and d.get("same_as") and _exists(d["same_as"]):
+                    it.same_as = Path(d["same_as"])
+                    break
         if not (it.same_as and _exists(it.same_as)):
             kept_back.append((it, "the copy to keep is no longer there"))
             continue

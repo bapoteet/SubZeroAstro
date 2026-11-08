@@ -4588,6 +4588,24 @@ def run(app, out_dir: Path) -> int:
               and len(_cm_gone) == 3 and sorted(p.name for p in _cm_in.iterdir()) == ["M31_0001 (1).fits"],
               f"Organize: Windows' '(1)' copies are the duplicates, not the originals, and a lone '(2)' file is filed "
               f"under its clean name ({_cm_st}); the other files left (.jpg, .txt, Thumbs.db) can be deleted")
+        # a duplicate chain: the incoming copy is already in the library AND other copies of it sit in other
+        # incoming folders - every one of them can be deleted (they used to wait for a 'copy to keep' just deleted)
+        _ch_in = _au_root / "chain" / "in"
+        (_ch_in / "a").mkdir(parents=True, exist_ok=True)
+        (_ch_in / "b").mkdir(parents=True, exist_ok=True)
+        _ch_lib = _au_root / "chain" / "lib"
+        core.write_fits(_ch_in / "X.fits", (np.random.random((32, 32)) * 4000).astype(np.uint16),
+                        dict(_cm_hdr, **{"DATE-OBS": "2026-10-03T03:00:00", "FILTER": "SII"}), bitpix=16)
+        _ch_r = [{"name": "SQA60", "focals": [361]}]
+        _og.execute(_og.plan(_og.classify(_og.scan(_ch_in), library=_ch_lib, riglist=_ch_r), _ch_lib), _ch_lib,
+                    move=False)
+        _cm_sh.copy(_ch_in / "X.fits", _ch_in / "a" / "X.fits")
+        _cm_sh.copy(_ch_in / "X.fits", _ch_in / "b" / "X.fits")
+        _ch_it = _og.plan(_og.classify(_og.scan(_ch_in), library=_ch_lib, riglist=_ch_r), _ch_lib)
+        _ch_n, _ch_kb, _ch_log = _og.handle_duplicates(_og.duplicates(_ch_it), _ch_lib, delete=True)
+        check(_ch_n == 3 and not _ch_kb and not list(_ch_in.rglob("*.fits")),
+              f"Duplicates: copies of a frame already in the library, in several incoming folders, are all deleted "
+              f"- none waits for a 'copy to keep' that was itself a duplicate ({_ch_n}, {[w for _, w in _ch_kb]})")
         # Which Rig?: stray files that match none of your rigs can be deleted there
         import organizer_window as _ow2
         _nr_dir = _au_root / "norig" / "Stray"
