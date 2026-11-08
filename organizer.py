@@ -1007,7 +1007,32 @@ def execute(items, library, move=False, progress=None, stop=None, keep=None) -> 
     def write_log():
         log_path.write_text(json.dumps(dict({"app": "SubZeroAstro", "kind": "organize", "move": move,
                                              "library": str(library), "time": stamp, "done": done,
-                                             "failed": failed}, **extra), indent=1), encoding="utf-8")
+                                             "failed": failed}, **extra)), encoding="utf-8")
+    # Over a network drive every check is a round trip, so each folder is listed once (not one look per file),
+    # each folder is made once, and the undo log is saved every 30 s instead of every 50 files (rewriting a
+    # 150,000-file log thousands of times was most of the time a big re-sort took).
+    names, devs = {}, {}
+
+    def there(d):
+        if d not in names:
+            try:
+                names[d] = {os.path.normcase(n) for n in os.listdir(d)}
+            except FileNotFoundError:
+                d.mkdir(parents=True, exist_ok=True)
+                names[d] = set()
+            except OSError:
+                d.mkdir(parents=True, exist_ok=True)
+                names[d] = None                       # cannot list it: fall back to a look per file
+        return names[d]
+
+    def dev(d):
+        if d not in devs:
+            try:
+                devs[d] = os.stat(d).st_dev
+            except OSError:
+                devs[d] = None
+        return devs[d]
+    last = time.monotonic() - 31           # first save right away, so an Undo exists even if the run is cut short
     for i, it in enumerate(todo):
         if stop and stop():
             break
@@ -1016,12 +1041,16 @@ def execute(items, library, move=False, progress=None, stop=None, keep=None) -> 
         pairs = [(it.src, it.dst)] + [(c, it.dst.parent / c.name) for c in it.companions]
         for src, dst in pairs:
             try:
-                if _exists(dst):
+                have = there(dst.parent)
+                key = os.path.normcase(dst.name)
+                if (key in have) if have is not None else _exists(dst):
                     raise OSError(f"a different file named {dst.name} is already there - left where it is")
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                if move and _same_drive(src, dst.parent):
+                sd, dd = dev(src.parent), dev(dst.parent)
+                if move and sd is not None and sd == dd:
                     os.rename(src, dst)            # same drive: just a new folder entry, instant even for 20 TB
                     done.append({"src": str(src), "dst": str(dst)})
+                    if have is not None:
+                        have.add(key)
                     continue
                 tmp = dst.with_name(dst.name + ".organizing")
                 shutil.copy2(src, tmp)
@@ -1029,6 +1058,8 @@ def execute(items, library, move=False, progress=None, stop=None, keep=None) -> 
                     tmp.unlink()
                     raise OSError("the copy came out a different size")
                 tmp.replace(dst)
+                if have is not None:
+                    have.add(key)
                 if move:
                     src.unlink()
                 done.append({"src": str(src), "dst": str(dst)})
@@ -1039,8 +1070,9 @@ def execute(items, library, move=False, progress=None, stop=None, keep=None) -> 
                     "(another Organize, on this or another computer, or a sync)" if gone else str(e))})
             except Exception as e:  # noqa: BLE001
                 failed.append({"src": str(src), "dst": str(dst), "error": str(e)})
-        if i % 50 == 0:
+        if time.monotonic() - last > 30:
             write_log()
+            last = time.monotonic()
     hc = HeaderCache.for_library(library)
     if hc is not None:                    # what the headers said, for the next look at this library
         hc.save()
