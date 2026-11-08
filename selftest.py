@@ -4711,7 +4711,8 @@ def run(app, out_dir: Path) -> int:
         _wx_lvis = _wx_lt.btn.isVisibleTo(w)
         w.settings.setValue("picker/lat", _wx_lkeep[0])
         w.settings.setValue("picker/lon", _wx_lkeep[1])
-        check(_wx_lv is not None and _wx_lv["level"] == "great" and "great" in _wx_ltext and _wx_lvis
+        check(_wx_lv is not None and _wx_lv["level"] == "great" and _wx_ltext.strip("● ") in _wxw.SAYINGS["great"]
+              and _wx_lvis
               and _wx_lt.btn.parent() is not None,
               f"Page 1's banner shows tonight's weather light beside Zip My Logs ({_wx_ltext!r})")
         _wx_7 = _wx.parse_7timer({"init": "2026110700", "dataseries": [{"timepoint": 3, "seeing": 2,

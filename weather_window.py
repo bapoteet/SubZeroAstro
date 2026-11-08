@@ -259,6 +259,29 @@ class WeatherDialog(QDialog):
 
 SHORT = {W.GREAT: "great for imaging", W.GOOD: "so-so - some clouds", W.POOR: "a processing night"}
 
+# the weather light's words: one picked per night (the same all evening), so it reads fresh without flickering
+SAYINGS = {
+    W.GREAT: ["Tonight: great for imaging", "Tonight: clear skies - go go go!", "Tonight: open the roof, it's on",
+              "Tonight: photons incoming", "Tonight: the stars are calling", "Tonight: cancel your plans",
+              "Tonight: dew heaters on, it's a keeper", "Tonight: a night worth losing sleep over"],
+    W.GOOD: ["Tonight: so-so - some clouds", "Tonight: maybe - user discretion advised",
+             "Tonight: worth a try, keep an eye up", "Tonight: hit or miss - roll the dice",
+             "Tonight: some sky, some clouds", "Tonight: partly maybe", "Tonight: short subs, high hopes",
+             "Tonight: pick a bright target"],
+    W.POOR: ["Tonight: a processing night", "Tonight: a no-go - maybe a movie instead",
+             "Tonight's going to stink - time for Cloudy Nights", "Tonight: clouds win this round",
+             "Tonight: perfect for processing", "Tonight: the scopes get a night off",
+             "Tonight: stack what you've got", "Tonight: shop for gear, it's cloudy anyway"],
+}
+
+
+def saying(level, day=None) -> str:
+    """Tonight's words for the weather light: the same all night, a different one most nights."""
+    import zlib
+    lst = SAYINGS.get(level) or [f"Tonight: {SHORT.get(level, '')}"]
+    d = (day or _dt.date.today()).isoformat()
+    return lst[zlib.crc32(f"{level}{d}".encode()) % len(lst)]
+
 
 class TonightLight:
     """The weather light on page 1's banner (beside Zip My Logs): green / yellow / red for tonight, refreshed
@@ -330,7 +353,7 @@ class TonightLight:
             return None
         v = res[0][3]
         self.level = v["level"]
-        self.btn.setText(f"●  Tonight: {SHORT[v['level']]}")
+        self.btn.setText(f"●  {saying(v['level'])}")
         loc = (lambda x: x.astimezone().strftime("%H:%M") if x else "")
         tip = v["headline"] + "\n" + "\n".join("• " + r for r in v["reasons"])
         if v.get("window"):
@@ -345,7 +368,7 @@ class TonightLight:
         if d.result:                                  # the dialog's fresh forecast updates the light too
             v = d.result[0][3]
             self.level = v["level"]
-            self.btn.setText(f"●  Tonight: {SHORT[v['level']]}")
+            self.btn.setText(f"●  {saying(v['level'])}")
             self._paint(v["level"])
         else:
             self.refresh()
