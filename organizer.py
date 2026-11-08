@@ -30,6 +30,7 @@ from pathlib import Path
 import fits_core as core
 
 LOG_DIR = "_SubZeroAstro_organize"
+LIGHT_DIR, CAL_DIR = "Light Frames", "Calibration Frames"
 ORG_ROOT = "Organized Astro Files"     # everything the organizer makes goes in here, so you can see where
 
 
@@ -116,6 +117,7 @@ _GUESS = {}           # (camera, focal) -> rig name read from your folder names,
 
 # ---------------------------------------------------------------- Your Rigs (name ↔ focal length)
 _RIGLIST = None       # [{"name", "focals": [mm], "camera": "", "folders": [paths]}] - when set, the only source
+_KEEP_RIG = {}        # re-sorting a library: file path -> the rig folder it is already filed under
 _TOL = 0.03           # a rig's focal length in the headers drifts a few % night to night (focusing, solving)
 
 
@@ -166,6 +168,10 @@ def match_rig(info, path, riglist, tol=0.03):
     """(rig name or None, reason). A folder you assigned to a rig wins; otherwise the focal length in the header
     within ±tol of one of a rig's focal lengths (and the camera, when the rig lists one). reason:
     'folder' / 'focal' / 'nofocal' / 'nomatch' / 'ambiguous: A, B'."""
+    if path is not None and _KEEP_RIG:             # already filed in the library: it keeps that rig
+        kept = _KEEP_RIG.get(os.path.normcase(os.path.abspath(str(path))))
+        if kept:
+            return kept, "filed"
     sp = str(path).replace("\\", "/").lower() if path is not None else ""
     best = None
     for r in riglist or []:
@@ -227,6 +233,10 @@ def _rig(info, path=None) -> str:
     SubZeroAstro, else the telescope in the header (not a mount driver such as EQMOD), else the focal length,
     else - for calibration frames sorted by hand - the folder above the Darks / Flats / Bias folder."""
     import stacking as st
+    if path is not None and _KEEP_RIG:             # re-sorting the library: the rig it's already filed under
+        kept = _KEEP_RIG.get(os.path.normcase(os.path.abspath(str(path))))
+        if kept:
+            return kept
     if _RIGLIST is not None:                       # Your Rigs: the list you made, nothing guessed
         name, _why = match_rig(info, path, _RIGLIST, _TOL)
         return _safe(re.sub(r"\s+", "", name))[:24] if name else ""
@@ -370,6 +380,41 @@ LAYOUTS = {"rig": "By rig: Light Frames / rig / target / night  and  Calibration
 READERS = 8
 
 
+def library_rigs(paths, library) -> dict:
+    """Files already inside the organized library keep the rig they're filed under - re-sorting (Change My
+    Library's Layout…) or organizing the library again only moves them, it never asks Which Rig? again.
+    Calibration Frames/<rig>/…; Light Frames/<rig>/<target>/… or Light Frames/<target>/<rig>/… - whichever level
+    holds fewer different names (a handful of rigs, many targets) and more of Your Rigs is the rig."""
+    if library is None or str(library) in ("", "."):
+        return {}
+    try:
+        base = os.path.normcase(os.path.abspath(str(org_base(library))))
+    except OSError:
+        return {}
+    cal, lights = {}, []
+    for p in paths:
+        ap = os.path.normcase(os.path.abspath(str(p)))
+        if not ap.startswith(base + os.sep):
+            continue
+        parts = Path(os.path.relpath(ap, base)).parts
+        if len(parts) >= 3 and parts[0] == os.path.normcase(CAL_DIR):
+            cal[ap] = Path(os.path.relpath(os.path.abspath(str(p)), str(org_base(library)))).parts[1]
+        elif len(parts) >= 4 and parts[0] == os.path.normcase(LIGHT_DIR):
+            lights.append((ap, Path(os.path.relpath(os.path.abspath(str(p)), str(org_base(library)))).parts))
+    out = dict(cal)
+    if lights:
+        known = {_rig_folder_key(r.get("name")) for r in (_RIGLIST or [])} | \
+                {_rig_folder_key(v) for v in cal.values()}
+        lvl1 = {pp[1] for _a, pp in lights}
+        lvl2 = {pp[2] for _a, pp in lights}
+        hit1 = sum(1 for n in lvl1 if _rig_folder_key(n) in known)
+        hit2 = sum(1 for n in lvl2 if _rig_folder_key(n) in known)
+        lvl = 1 if (hit1, -len(lvl1)) >= (hit2, -len(lvl2)) else 2
+        for a, pp in lights:
+            out[a] = pp[lvl]
+    return out
+
+
 class HeaderCache:
     """What each file's header said, kept in the library (Organized Astro Files/_SubZeroAstro_organize/
     headers.json), so the next look - a re-sort into another layout, the next Organize - only lists the folders
@@ -485,9 +530,11 @@ def classify(paths, read_info=None, progress=None, stop=None, library=None, rigs
     """Read each header and decide where the file belongs (relative to the library). Returns [Item].
     rigs: SubZeroAstro's saved rig names (stacking.Rigs), so a rig you named keeps its name."""
     import stacking as st
-    global _RIGS, _RIGLIST, _TOL
+    global _RIGS, _RIGLIST, _TOL, _KEEP_RIG
     _RIGS = rigs
     _RIGLIST, _TOL = riglist, tol
+    paths = list(paths)
+    _KEEP_RIG = library_rigs(paths, library)
     use_cache = read_info is None
     read_info = read_info or st.read_info
     cache = HeaderCache.for_library(library) if use_cache else None

@@ -3,6 +3,7 @@ works too), see the plan, then copy or move, with undo."""
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 import traceback
@@ -980,11 +981,17 @@ class OrganizeDialog(QDialog):
         riglist = self.riglist()
         ask = answers is None
         if ask:
-            d = WhichRigDialog(self, groups, [r["name"] for r in riglist])
+            base = O._norm(O.org_base(self._plan_args[0])) if getattr(self, "_plan_args", None) else None
+            in_lib = [bool(base) and all(O._norm(it.src).startswith(base + os.sep) for it in g["items"])
+                      for g in groups]
+            d = WhichRigDialog(self, groups, [r["name"] for r in riglist], no_delete=in_lib)
             if not d.exec():
                 return False
             answers = d.answers()
-        doomed = [it for g, name in zip(groups, answers) if name == DELETE for it in g["items"]]
+        base = O._norm(O.org_base(self._plan_args[0])) if getattr(self, "_plan_args", None) else None
+        # never anything already in your organized library - only stray files in the folders being organized
+        doomed = [it for g, name in zip(groups, answers) if name == DELETE for it in g["items"]
+                  if not (base and O._norm(it.src).startswith(base + os.sep))]
         if doomed:
             if ask and QMessageBox.question(
                     self, "Delete Files?",
@@ -1374,9 +1381,10 @@ DELETE = "__delete__"
 class WhichRigDialog(QDialog):
     """Files a focal length can't place: say which rig each folder belongs to (remembered for that folder)."""
 
-    def __init__(self, owner, groups, names):
+    def __init__(self, owner, groups, names, no_delete=None):
         super().__init__(owner)
         self.setWindowTitle("Which Rig?")
+        no_delete = no_delete or [False] * len(groups)
         lay = QVBoxLayout(self)
         lab = QLabel("These files can't be placed by focal length alone - it fits more than one of your rigs, none "
                      "of them, or the header has none. Pick the rig for each folder; SubZeroAstro remembers it for "
@@ -1396,7 +1404,8 @@ class WhichRigDialog(QDialog):
             choices = [n.strip() for n in g["names"].split(",")] if g.get("names") else names
             for n in choices + [n for n in names if n not in choices]:
                 box.addItem(n, n)
-            box.addItem("✕ Delete these files", DELETE)
+            if not no_delete[r]:
+                box.addItem("✕ Delete these files", DELETE)       # never offered for files in your library
             if g.get("names"):
                 box.setCurrentIndex(0)
             self.table.setCellWidget(r, 0, box)

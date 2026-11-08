@@ -4626,6 +4626,31 @@ def run(app, out_dir: Path) -> int:
         check(_hc_calls[0] == 0 and _hc_it and (_og.org_base(_ch_lib) / _og.LOG_DIR / "headers.json").exists(),
               f"Organize keeps what each header said in the library: re-sorting it reads no file again "
               f"({_hc_calls[0]} read, {len(_hc_it)} planned)")
+        # re-sorting the library: every file keeps the rig it's filed under (never 'Which Rig?' again), and
+        # 'Delete these files' never touches a file inside the library
+        import organizer_window as _ow2
+        _rl = _au_root / "resort_lib"
+        _rlb = _og.org_base(_rl)
+        for _rl_rel, _rl_f, _rl_k in (("Light Frames/OldRig/M31/2026-10-01/Ha/a.fits", 800.0, 1),
+                                      ("Light Frames/SQA60/M31/2026-10-01/Ha/b.fits", 361.0, 2)):
+            (_rlb / _rl_rel).parent.mkdir(parents=True, exist_ok=True)
+            core.write_fits(_rlb / _rl_rel, np.zeros((16, 16), np.uint16),
+                            dict(_cm_hdr, **{"FOCALLEN": _rl_f, "DATE-OBS": f"2026-10-02T03:{_rl_k:02d}:00"}),
+                            bitpix=16)
+        _rl_it = _og.plan(_og.classify(_og.scan(_rlb), library=_rl, layout="target_rig", root=_rlb,
+                                       riglist=[{"name": "SQA60", "focals": [361]}]), _rl)
+        _rl_d = {i.src.name: str(i.dst.relative_to(_rlb)).replace("\\", "/") if i.dst else i.status for i in _rl_it}
+        _rl_keep = (_owin.items, getattr(_owin, "_plan_args", None))
+        for _rl_i in _rl_it:
+            _rl_i.status, _rl_i.rig_issue = "norig", "nomatch"   # even then: deleting is refused in the library
+        _owin.items, _owin._plan_args = _rl_it, (_rl, "target_rig", _rlb)
+        _owin.which_rig(answers=[_ow2.DELETE] * 3)
+        _owin.items, _owin._plan_args = _rl_keep
+        check(_rl_d.get("a.fits", "").startswith("Light Frames/M31/OldRig/")
+              and _rl_d.get("b.fits", "").startswith("Light Frames/M31/SQA60/")
+              and (_rlb / "Light Frames/OldRig/M31/2026-10-01/Ha/a.fits").exists(),
+              f"Change My Library's Layout: every file keeps the rig it's filed under, even one not in Your Rigs, "
+              f"and Which Rig?'s delete never touches the library ({_rl_d})")
         # Which Rig?: stray files that match none of your rigs can be deleted there
         import organizer_window as _ow2
         _nr_dir = _au_root / "norig" / "Stray"
