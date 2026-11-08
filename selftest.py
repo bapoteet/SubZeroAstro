@@ -807,6 +807,23 @@ def run(app, out_dir: Path) -> int:
     check(_gw1 is not None and _gw1[0] > 1.0 > _gw1[2] and _gw2 is None,
           f"galaxy: a blue centre after 'Stars white' is made a warm white ({_gw1}); a warm one is left alone ({_gw2})")
 
+    # NGC 5078 (Telescope Live): a bright blue-white field star outshone the small edge-on galaxy and was taken for
+    # its centre - "warming" it pushed the whole picture red. The centre is found on the starless picture, from its
+    # brightest pixels, and the shift from the stars' balance is capped
+    _gy, _gx = np.mgrid[:600, :800]
+    _gsky = np.array([0.020, 0.021, 0.022], np.float32)[:, None, None]
+    _ggal = np.exp(-(((_gx - 300) / 30.0) ** 2 + ((_gy - 300) / 6.0) ** 2) / 2)
+    _gstar = np.exp(-((_gx - 600) ** 2 + (_gy - 200) ** 2) / (2 * 5.0 ** 2))
+    _gstarless = (_gsky + np.array([0.30, 0.26, 0.21], np.float32)[:, None, None] * _ggal).astype(np.float32)
+    _gwith = (_gstarless + np.array([0.6, 0.75, 0.95], np.float32)[:, None, None] * _gstar * 3).astype(np.float32)
+    _gbg = [0.020, 0.021, 0.022]
+    _gcs = _fnc.galaxy_core_colour(_gstarless, _gbg)
+    _gw3 = _fnc.galaxy_core_white((1.0, 1.0, 1.6), [1.0, 1.0, 1.0])
+    check(_gcs is not None and _gcs[2] / _gcs[0] < 0.8 and _fnc.galaxy_core_white(_gcs, [1.0, 1.0, 1.0]) is None
+          and _gw3 is not None and _gw3[0] <= 1.2 + 1e-6 and _gw3[2] >= 1 / 1.2 - 1e-6,
+          f"galaxy centre measured on the starless picture is the galaxy's warm light ({_gcs}), not the bright blue "
+          f"star; a very blue 'centre' moves the balance at most 20% from the stars' ({_gw3})")
+
     # a comet's nucleus clipped in green (the others still rising) showed as a purple dot in its cyan coma
     _ry, _rx = np.mgrid[:400, :400]
     _rb = np.exp(-((_ry - 60) ** 2 + (_rx - 60) ** 2) / (2 * 12.0 ** 2))

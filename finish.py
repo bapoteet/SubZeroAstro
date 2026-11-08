@@ -1428,6 +1428,32 @@ def cluster_glow_colour(rgb: np.ndarray, bgs) -> "tuple | None":
     return tuple(ex)
 
 
+def galaxy_core_colour(rgb: np.ndarray, bgs, stars_in=False) -> "tuple | None":
+    """The colour of a galaxy's bright centre above the sky: (R, G, B), or None. Measured on the starless picture
+    (with the stars in, a bright blue-white field star outshone NGC 5078's small edge-on centre and was taken for
+    it - the whole picture was then pushed red to warm it), and only on the brightest part of a small box around
+    the peak (a box's median over a small galaxy is mostly sky, whose leftover colour is not the galaxy's)."""
+    if rgb is None or rgb.shape[0] != 3:
+        return None
+    lum = _lum(rgb).astype(np.float32)
+    small, f = _small_plane(lum, 800 if stars_in else 400)
+    if stars_in:                        # no starless picture: wear the stars away first (a galaxy is wider)
+        small = _min_filter(small, 1)
+    sm = _blur(small, 3.0)
+    cy, cx = np.unravel_index(int(np.argmax(sm)), sm.shape)
+    h, w = rgb.shape[1:]
+    r = max(6, min(h, w) // 80)
+    y0, y1, x0, x1 = max(0, cy * f - r), min(h, cy * f + f + r), max(0, cx * f - r), min(w, cx * f + f + r)
+    box = lum[y0:y1, x0:x1]
+    if box.size < 16:
+        return None
+    sel = box >= np.percentile(box, 75)
+    ex = [float(np.mean(rgb[k, y0:y1, x0:x1][sel])) - float(bgs[k]) for k in range(3)]
+    if min(ex) <= 0:
+        return None
+    return tuple(ex)
+
+
 GALAXY_WARM = (1.15, 1.0, 0.86)            # R : G : B of a galaxy's bright centre: a warm white (B/R 0.75, as M83 and NGC 1097 by hand)
 
 
@@ -1442,7 +1468,15 @@ def galaxy_core_white(glow, white):
     cr, cg, cb = r * w[0], g * w[1], b * w[2]
     if cr <= 0 or (cb / cr <= 0.88 and cg / cr <= 0.98):
         return None
-    return [GALAXY_WARM[0] * g / r, 1.0, GALAXY_WARM[2] * g / b]
+    out = [GALAXY_WARM[0] * g / r, 1.0, GALAXY_WARM[2] * g / b]
+    # a galaxy's centre is only a little warmer than the field stars around it: never shift the picture's
+    # balance more than that away from the stars' (it moves every star and the sky's faint glow too)
+    out[0] = min(max(out[0], w[0] * 0.95), w[0] * GALAXY_MAX_SHIFT)
+    out[2] = max(min(out[2], w[2] * 1.05), w[2] / GALAXY_MAX_SHIFT)
+    return out
+
+
+GALAXY_MAX_SHIFT = 1.2
 
 
 class BalanceColours(Tool):
@@ -1490,7 +1524,10 @@ class BalanceColours(Tool):
             for v in out:
                 v.recommended = v.label == "Neutral sky only"
         if target_type(s) == "galaxy" and fac:
-            wh = galaxy_core_white(cluster_glow_colour(s.rgb, bgs), out[0].params.get("white"))
+            core_src = getattr(s, "_starless_rgb", None)
+            starless = core_src is not None and core_src.shape == s.rgb.shape
+            wh = galaxy_core_white(galaxy_core_colour(core_src if starless else s.rgb, bgs, stars_in=not starless),
+                                   out[0].params.get("white"))
             if wh is not None:
                 for v in out:
                     v.recommended = False
