@@ -138,8 +138,26 @@ def save_manifest(name, data):
     tmp.replace(p)
 
 
-def _mkey(root, rel, size) -> str:
+def _tail(p) -> str:
+    r"""A sub's place on its ASIAIR, the same however the row points at it (the IP, \\IP\EMMC Images or
+    \\IP\EMMC Images\Plan): 'EMMC Images/Plan/M31/x.fit'."""
+    parts = Path(p).parts
+    for i, part in enumerate(parts):
+        if part.lower().rstrip("\\/").endswith("images"):
+            return "/".join(x.strip("\\/") for x in parts[i:])
+    t = str(p).replace("\\", "/").lstrip("/")
+    return t.split("/", 1)[1] if re.match(r"^\d{1,3}(\.\d{1,3}){3}/", t) else t
+
+
+def _mkey(root, rel, size, p=None) -> str:
+    if p is not None:
+        return f"{_tail(p)}|{size}"
     return f"{Path(root).name}/{rel}|{size}"
+
+
+def _seen(seen, root, rel, size, p) -> bool:
+    """Fetched before - under today's key, or the key of an earlier version (the row's last folder + path)."""
+    return _mkey(root, rel, size, p) in seen or _mkey(root, rel, size) in seen
 
 
 def _drop_previews(sub: Path) -> int:
@@ -172,11 +190,11 @@ def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, 
     if progress:
         progress(f"{name}: looking for new subs…", 0, 0)
     subs = scan(roots, now=now, stop=stop)
-    todo = [s for s in subs if _mkey(s[1], s[2], s[3]) not in seen]
+    todo = [s for s in subs if not _seen(seen, s[1], s[2], s[3], s[0])]
     rep["already"] = len(subs) - len(todo)
     if free:                                     # fetched (and checked) on an earlier run: free them now
         for p, root, rel, size, mt in subs:
-            if _mkey(root, rel, size) in seen:
+            if _seen(seen, root, rel, size, p):
                 try:
                     p.unlink()
                     rep["deleted"] += 1
@@ -188,7 +206,7 @@ def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, 
             break
         if progress:
             progress(f"{name}: {p.name}", i, len(todo))
-        dst = dest_top / Path(root).name / rel
+        dst = dest_top / _tail(p)
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
             if not (dst.exists() and dst.stat().st_size == size):
@@ -200,7 +218,7 @@ def fetch(unit: dict, incoming, progress=None, stop=None, free=False, now=None, 
                 tmp.replace(dst)
                 rep["copied"] += 1
                 rep["bytes"] += size
-            seen[_mkey(root, rel, size)] = mt
+            seen[_mkey(root, rel, size, p)] = mt
             if free:
                 try:
                     p.unlink()

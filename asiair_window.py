@@ -199,7 +199,7 @@ class AsiairDialog(QDialog):
         finally:
             QApplication.restoreOverrideCursor()
         seen = A.load_manifest(A.safe_name(u["name"]))
-        new = sum(1 for s in subs if A._mkey(s[1], s[2], s[3]) not in seen)
+        new = sum(1 for s in subs if not A._seen(seen, s[1], s[2], s[3], s[0]))
         txt = (f"<b>{u['name']}</b>: found {', '.join(str(p) for p in roots)} - {len(subs)} sub(s), {new} not "
                "fetched yet." if roots else
                f"<b>{u['name']}</b>: can't reach {u['address'] or '(no address)'}. Is it on, on the same network, "
