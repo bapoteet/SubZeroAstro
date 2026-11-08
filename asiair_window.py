@@ -114,6 +114,8 @@ class AsiairDialog(QDialog):
         if not self.table.rowCount():
             self.add_row()
         self.job = None
+        for b in self.findChildren(QPushButton):     # no orange "default" outline on the last button clicked
+            b.setAutoDefault(False)
         self.resize(900, 520)
 
     # ---------------------------------------------------------------- rows

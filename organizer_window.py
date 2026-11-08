@@ -242,6 +242,11 @@ class OrganizeDialog(QDialog):
         self._same_toggled(self.same.isChecked())
         self._organized = False
         self._labels = {b: b.text() for b in (self.b_rigs, self.b_scan, self.b_which, self.b_dups, self.b_go)}
+        # no button looks "chosen" just because it was the last one clicked (Qt's default-button outline): only
+        # the blue ▶ marks the next step
+        for b in self.findChildren(QPushButton):
+            b.setAutoDefault(False)
+            b.setDefault(False)
         last = self.settings.value("organize/last_done", "") or ""
         if last:
             self.status.setText(self.status.text() + f"<br><i>Last time: {last}</i>")
@@ -492,10 +497,19 @@ class OrganizeDialog(QDialog):
             return O.plan(items, lib, progress=lambda t, i, n: job.note.emit(t, i, n), stop=lambda: job.stop)
         self._run(work, self._show_plan, wait)
 
-    def _show_plan(self, items):
+    def _show_plan(self, items, note=""):
         self.items = items
         self._organized = False
         sm = O.summary(items)
+        try:                                   # what Step 1 found, in the log (Zip My Logs) - counts and reasons
+            import collections
+            st = collections.Counter(i.status for i in items)
+            _slog("plan: " + ", ".join(f"{n} {k}" for k, n in st.most_common()))
+            whys = collections.Counter((i.status, (i.why or "")[:90]) for i in items if i.status != "move")
+            for (k, w), n in whys.most_common(8):
+                _slog(f"  {n} x {k}: {w}")
+        except Exception:  # noqa: BLE001
+            pass
         kinds = ", ".join(f"{n} {KIND_TEXT.get(k, k)}{'s' if n != 1 and not k.endswith('s') else ''}"
                           for k, n in sorted(sm["by_kind"].items(), key=lambda kv: -kv[1]))
         parts = [f"<b>{sm['files']} file(s) to {'move' if self.move.isChecked() else 'copy'}</b> "
@@ -513,8 +527,13 @@ class OrganizeDialog(QDialog):
         if O.SKIPPED:
             parts.append(f"{len(O.SKIPPED)} folder(s) not looked into on purpose (saved projects, PixInsight/Siril "
                          "work folders, hidden folders) - their files stay where they are")
-        self.status.setText("<br>".join(parts) + ("<br>Check the list, deal with any duplicates (<b>Step 2</b>), then press <b>Step 3 – Organize</b>."
-                                                  if sm["files"] else "<br>Nothing to do."))
+        tail = ("<br>Check the list, deal with any duplicates (<b>Step 2</b>), then press <b>Step 3 – Organize</b>."
+                if sm["files"] else
+                "<br><b>Nothing new to organize here</b> - every frame in these folders is already in your library "
+                "(or listed above with the reason it stays), so Step 3 has nothing to do."
+                + (" Duplicates: <b>Step 2</b>." if sm.get("duplicate") else "")
+                + (" Empty frames: tick <b>Delete empty frames</b>." if O.empty_frames(items) else ""))
+        self.status.setText((note + "<br>" if note else "") + "<br>".join(parts) + tail)
         lib = self.library()
         order = {"move": 0, "norig": 1, "duplicate": 2, "error": 3, "here": 4}
         rows = sorted(items, key=lambda i: (order.get(i.status, 9), str(i.dst or "")))[:PREVIEW_ROWS]
@@ -737,8 +756,12 @@ class OrganizeDialog(QDialog):
             if others:
                 msg += f" {len(others)} kept: " + "; ".join(f"{i.src.name} - {why}" for i, why in others[:3]) \
                        + (" …" if len(others) > 3 else "")
-            self.status.setText(msg)
-            self.b_dups.setEnabled(bool(O.duplicates(self.items)))
+            # the list and the summary again, without the duplicates just dealt with - what's left, and why
+            if self.items:
+                self._show_plan([i for i in self.items if i.status != "handled"], note=msg)
+            else:                              # after Step 3 (the clean-up offer): keep its summary, add this
+                self.status.setText(self.status.text() + "<br>" + msg)
+                self.b_dups.setEnabled(False)
             self._update_steps()
         self._run(work, done, wait)
 
