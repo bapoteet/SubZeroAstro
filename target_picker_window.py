@@ -255,7 +255,8 @@ class TargetPickerDialog(QDialog):
                 self.compass.sectors = [float(x) for x in str(sec).split(",")][:16]
             except ValueError:
                 pass
-        self.compass.changed.connect(self._sky_changed)
+        self.compass.changed.connect(lambda: self._sky_changed(edited=True))
+        self._hz_file = ""                    # a horizon file in use (kept in full detail, and loaded next time)
         gl.addWidget(self.compass, 0, 0, 4, 1)
         self.view = QLineEdit(settings.value("picker/view", "") or "")
         self.view.setPlaceholderText("Describe your view, e.g. open sky from NNW to SSW; trees to the east up to 30°")
@@ -401,6 +402,9 @@ class TargetPickerDialog(QDialog):
         # first time: take the most recently used N.I.N.A. profile
         if self.lat.value() == 0 and self.lon.value() == 0 and self.profiles:
             self._use_profile(1)
+        hzf = settings.value("picker/horizon_file", "") or ""
+        if not self._hz_file and hzf and Path(hzf).is_file():
+            self.load_horizon(hzf)
         self._sky_changed()
         self._fov_note()
         for w in (self.focal, self.pixel, self.wpx, self.hpx):
@@ -496,7 +500,7 @@ class TargetPickerDialog(QDialog):
     def load_horizon(self, path=None):
         if path is None:
             path, _ = QFileDialog.getOpenFileName(self, "N.I.N.A. horizon file", str(Path.home()),
-                                                  "Horizon files (*.hrz *.hzn *.txt *.csv);;All files (*)")
+                                                  "Horizon files - N.I.N.A., Telescopius (*.hrz *.hzn *.txt *.csv);;All files (*)")
             if not path:
                 return
         try:
@@ -505,6 +509,8 @@ class TargetPickerDialog(QDialog):
             QMessageBox.warning(self, "Tonight's Target Picker", f"Couldn't read that horizon file: {e}")
             return
         self.horizon = hz
+        self._hz_file = str(path)
+        self.settings.setValue("picker/horizon_file", str(path))
         self.compass.sectors = hz.sectors()
         self.compass.update()
         self.horizon_note.setText(f"Horizon from {Path(path).name}")
@@ -516,9 +522,15 @@ class TargetPickerDialog(QDialog):
             return
         self.compass.set_sectors(tp.parse_view(text))
 
-    def _sky_changed(self, *_a, from_file=False):
+    def _sky_changed(self, *_a, from_file=False, edited=False):
         self.compass.min_alt = self.min_alt.value()
         self.compass.update()
+        if edited and self._hz_file:          # you changed the compass by hand: the file's horizon is set aside
+            self._hz_file = ""
+            self.settings.setValue("picker/horizon_file", "")
+        if self._hz_file and not from_file:   # (a new lowest altitude keeps the file's horizon in full detail)
+            self.horizon_note.setText(f"Horizon from {Path(self._hz_file).name}")
+            return
         if not from_file:
             self.horizon = tp.Horizon.from_sectors(self.compass.sectors)
             if self.horizon_note.text().startswith("Horizon from"):

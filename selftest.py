@@ -807,6 +807,14 @@ def run(app, out_dir: Path) -> int:
     check(_gw1 is not None and _gw1[0] > 1.0 > _gw1[2] and _gw2 is None,
           f"galaxy: a blue centre after 'Stars white' is made a warm white ({_gw1}); a warm one is left alone ({_gw2})")
 
+    # a custom horizon as Telescopius / N.I.N.A. write it: 'az alt' per line (a header line or commas are fine)
+    import target_picker as _tph
+    _hzp = out_dir / "telescopius_horizon.hrz"
+    _hzp.write_text("Az, El\n0 10\n90, 40\n180 20\n270 5\n", encoding="utf-8")
+    _hzz = _tph.Horizon.from_file(_hzp)
+    check(abs(float(_hzz.alt[90]) - 40) < 0.01 and abs(float(_hzz.alt[45]) - 25) < 0.01 and abs(float(_hzz.alt[315]) - 7.5) < 0.01,
+          f"Telescopius horizon file read in full detail (90° {_hzz.alt[90]:.1f}, 45° {_hzz.alt[45]:.1f}, 315° {_hzz.alt[315]:.1f})")
+
     # NGC 5078 (Telescope Live): a bright blue-white field star outshone the small edge-on galaxy and was taken for
     # its centre - "warming" it pushed the whole picture red. The centre is found on the starless picture, from its
     # brightest pixels, and the shift from the stars' balance is capped
