@@ -1740,6 +1740,47 @@ def _grain_map(C: np.ndarray, k: int = 3) -> np.ndarray:
     return _box_blur(g, k)
 
 
+def holds_structure(starless: np.ndarray, boxes) -> list:
+    """For each box (fractions of the picture: fx0, fy0, fx1, fy1): does real structure - a nebula's filament -
+    run through it? A box StarXTerminator painted is smooth inside (maybe one leftover dot); refilled from its
+    surroundings, a box with a filament through it lost the filament (NGC 6888's OIII arc got a smooth teal hole
+    where it passed two bright stars). Judged by how much of the box's inner part stands out at a filament's
+    scale, against the grain of the picture around it."""
+    L = _lum(starless).astype(np.float32)
+    h, w = L.shape
+    out = []
+    for fx0, fy0, fx1, fy1 in boxes:
+        x0, x1 = int(max(0, fx0) * w), int(np.ceil(min(1, fx1) * w))
+        y0, y1 = int(max(0, fy0) * h), int(np.ceil(min(1, fy1) * h))
+        half = max(x1 - x0, y1 - y0) / 2
+        if half < 3:
+            out.append(False)
+            continue
+        m = int(half * 1.5) + 4
+        X0, X1, Y0, Y1 = max(0, x0 - m), min(w, x1 + m), max(0, y0 - m), min(h, y1 + m)
+        A = L[Y0:Y1, X0:X1]
+        yy, xx = np.mgrid[Y0:Y1, X0:X1]
+        gx, gy = 0.45 * (x1 - x0), 0.45 * (y1 - y0)
+        ring = ~((yy >= y0 - gy) & (yy < y1 + gy) & (xx >= x0 - gx) & (xx < x1 + gx))
+        ix, iy = 0.15 * (x1 - x0), 0.15 * (y1 - y0)
+        inner = (yy >= y0 + iy) & (yy < y1 - iy) & (xx >= x0 + ix) & (xx < x1 - ix)
+        if ring.sum() < 50 or inner.sum() < 16:
+            out.append(False)
+            continue
+        grain = SpotFix._grain(A, ring) + 1e-12
+        # measured inside only: the box's own edge (a painted plate brighter than the sky) is not structure
+        A2 = np.where(inner, A, np.float32(np.median(A[inner])))
+        mid = _blur(A2, 1.5) - _blur(A2, max(6.0, half / 3))
+        hit = (mid > 4 * grain) & inner        # brighter than its surroundings, as a filament is
+        frac = float(hit.sum()) / float(inner.sum())
+        # a filament runs across the box; a leftover star core is one small spot in it (cleaned, as before)
+        hy, hx = np.nonzero(hit)
+        span = max(float(np.ptp(hy)) / max(1.0, 0.7 * (y1 - y0)), float(np.ptp(hx)) / max(1.0, 0.7 * (x1 - x0))) \
+            if len(hy) else 0.0
+        out.append(frac > 0.06 and span > 0.6)
+    return out
+
+
 def on_bright_glow(starless: np.ndarray, boxes) -> list:
     """For each box (fractions of the picture: fx0, fy0, fx1, fy1): does it sit on an extended bright glow - a
     galaxy's body - rather than on the sky? Judged by the picture just around the box, compared with the sky."""
@@ -2187,8 +2228,8 @@ class CleanStarLeftovers(Tool):
            "edges, and sometimes with a leftover dot where a close double star was. This finds the painted squares "
            "by their missing grain and patches each with the surroundings' own texture; the square glow and "
            "bars around it are taken away (keeping the nebula's own detail), with a choice of how much round "
-           "glow to leave. Squares inside bright, structured nebula are "
-           "left alone (patching would smooth the nebula) - use Spot "
+           "glow to leave. Squares inside bright, structured nebula, with a filament running through them, or on a "
+           "galaxy's bright centre are left alone (patching would smooth them away) - use Spot "
            "Fix on those if they show. Small leftover star cores (dots) are removed too, also inside nebula. "
            "(PixInsight: CloneStamp)")
     pick = True
@@ -2225,6 +2266,13 @@ class CleanStarLeftovers(Tool):
                 dots = find_leftover_cores(s.rgb, s.stars, skip, rings=target_type(s) == "nebula")
             except Exception:  # noqa: BLE001
                 dots = []
+            try:                         # a filament through a box would be wiped out by the box's refill
+                # (a leftover dot's small repair keeps the nebula's texture around it: dots stay as they were)
+                st_ = holds_structure(s.rgb, [tuple(b) for b in boxes])
+                busy += sum(st_)
+                boxes = [b for b, o in zip(boxes, st_) if not o]
+            except Exception:  # noqa: BLE001
+                pass
             if target_type(s) == "galaxy":
                 # a galaxy's centre is bright and smooth - no grain, just like a painted square - and star removal
                 # often takes its nucleus for a star: "cleaned", NGC 5078's centre got a black notch. Nothing

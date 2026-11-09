@@ -817,6 +817,26 @@ def run(app, out_dir: Path) -> int:
                                                       (650 / 800, 100 / 600, 670 / 800, 120 / 600)])
     check(_obr == [True, False], f"Clean Bright-Star Leftovers leaves a galaxy's centre alone, still cleans the sky ({_obr})")
 
+    # NGC 6888: a patch on the OIII arc beside a bright star was refilled smooth - the filament through it was
+    # wiped out (a teal hole). A box with a filament running through it is left alone; a plain painted box, one
+    # with a leftover dot, and one with a round glow are still cleaned
+    _hsr = np.random.default_rng(1)
+    _hsy, _hsx = np.mgrid[:800, :1000]
+    _hsi = 0.02 + _hsr.normal(0, 0.003, (800, 1000))
+    _hsi[170:230, 170:230] = 0.05
+    _hsi[170:172, 170:230] += 0.03
+    _hsi[120:180, 820:880] = 0.05
+    _hsi[148:152, 848:852] += 0.2
+    _hsi[370:430, 170:230] = 0.05 + 0.05 * np.exp(-((_hsx[370:430, 170:230] - 200) ** 2
+                                                    + (_hsy[370:430, 170:230] - 400) ** 2) / (2 * 15.0 ** 2))
+    _hsi = (_hsi + 0.08 * np.exp(-((_hsx - 600 - 0.3 * (_hsy - 500)) / 6.0) ** 2 / 2)
+            * _hsr.normal(1, 0.03, (800, 1000))).astype(np.float32)
+    _hsb = [((cx - 30) / 1000, (cy - 30) / 800, (cx + 30) / 1000, (cy + 30) / 800)
+            for cx, cy in ((200, 200), (850, 150), (200, 400), (600, 500))]
+    _hsr2 = _fnc.holds_structure(np.stack([_hsi] * 3), _hsb)
+    check(_hsr2 == [False, False, False, True],
+          f"Clean Bright-Star Leftovers leaves a patch with a nebula filament through it alone ({_hsr2})")
+
     # a custom horizon as Telescopius / N.I.N.A. write it: 'az alt' per line (a header line or commas are fine)
     import target_picker as _tph
     _hzp = out_dir / "telescopius_horizon.hrz"
