@@ -444,7 +444,7 @@ class CalItem:
     kind: str
     infos: list                         # ImgInfo of each subframe, or the one master
     master: bool                        # True = an existing master file
-    origin: str = "added"               # "library" or "added"
+    origin: str = "added"               # "added", "library" (your calibration folder) or "organized"
     rig: str | None = None              # from the library folder, if known
     data: np.ndarray | None = None      # built / loaded master (raw ADU; flats not yet normalised)
     saved: list = field(default_factory=list)
@@ -487,7 +487,7 @@ class CalItem:
             bits.append(self.night)
         what = (f"master{' of ' + str(self.count) if self.count else ''}" if self.master
                 else f"{len(self.infos)} subframes")
-        src = "library" if self.origin == "library" else "added"
+        src = {"library": "library", "organized": "organized library"}.get(self.origin, "added")
         return f"{' · '.join(bits)}  ({what}, {src}: {self.ref.path.name if self.master else self.ref.path.parent.name})"
 
 
@@ -731,6 +731,153 @@ def crop_to(cal_data: np.ndarray, cal: ImgInfo | CalItem, light: ImgInfo) -> np.
     return cal_data[..., oy:oy + light.h, ox:ox + light.w]
 
 
+def _orank(c) -> int:
+    """Which calibration wins a tie: frames you added, then your calibration folder, then the organized library."""
+    return {"added": 0, "library": 1, "organized": 2}.get(getattr(c, "origin", "added"), 1)
+
+
+# ---------------------------------------------------------------- calibration from the organized library
+CAL_EXTS = (".fits", ".fit", ".fts", ".xisf")
+
+
+def organized_cal_dirs(libraries) -> list:
+    """The 'Calibration Frames' folder of each organized library given (Organize's library), if it exists."""
+    import organizer as O
+    out, seen = [], set()
+    for lib in libraries or []:
+        if not lib:
+            continue
+        try:
+            d = O.org_base(Path(lib)) / O.CAL_DIR
+        except Exception:  # noqa: BLE001
+            continue
+        k = os.path.normcase(str(d))
+        if k not in seen and _is_dir(d):
+            seen.add(k)
+            out.append(d)
+    return out
+
+
+def organized_needs(g: "LightGroup") -> set:
+    """What this group's plan still lacks that the organized library might have: 'dark', 'bias', 'flat'
+    (no flat, only a SkyFlat, or a flat from another night than the lights')."""
+    p = g.plan
+    if p is None or p.precal or g.ref.smart or g.ref.planes > 1:
+        return set()
+    need = set()
+    if p.dark is None:
+        need.add("dark")
+    if p.bias is None:
+        need.add("bias")
+    if p.flat is None or p.flat.sky or (p.flat.night and p.flat.night not in g.nights and not p.night_flats):
+        need.add("flat")
+    elif p.flat is not None and not p.flat.master and p.flat_bias is None and p.flat_dark is None:
+        need.add("bias")
+    return need
+
+
+def _cal_files(d: Path, keep_dir=None) -> list:
+    out = []
+    for dp, dns, fns in os.walk(d):
+        dns[:] = [n for n in dns if not n.startswith((".", "#", "@"))]
+        if keep_dir is not None and not keep_dir(Path(dp)):
+            continue
+        out += [Path(dp) / f for f in fns if f.lower().endswith(CAL_EXTS) and not f.startswith(".")]
+    return out
+
+
+def organized_rig_dirs(cal_dir: Path, g: "LightGroup", riglist=None) -> list:
+    """The rig folder(s) under Calibration Frames for this group: a folder named like one in the lights' own
+    paths (lights from the organized library), like the stacking rig name, or the rig Your Rigs gives their
+    focal length."""
+    rigs = {os.path.normcase(p.name): p for p in _safe_listdir(cal_dir) if _is_dir(p)}
+    hits = []
+    for f in g.frames[:200]:
+        for part in Path(f.info.path).parts:
+            k = os.path.normcase(part)
+            if k in rigs and rigs[k] not in hits:
+                hits.append(rigs[k])
+    k = os.path.normcase(g.rig or "")
+    if k in rigs and rigs[k] not in hits:
+        hits.append(rigs[k])
+    if not hits and riglist:
+        try:
+            import organizer as O
+            name, _why = O.match_rig(g.ref, None, riglist)
+            if name and os.path.normcase(name) in rigs:
+                hits.append(rigs[os.path.normcase(name)])
+        except Exception:  # noqa: BLE001
+            pass
+    return hits
+
+
+def organized_calibration(cal_dirs, g: "LightGroup", need: set, riglist=None, progress=None) -> list:
+    """Calibration frames for this group from the organized library (Calibration Frames / <rig> / Flats,
+    Dark flats, Darks, Bias, Masters), as CalItems with origin 'organized'. Darks and bias belong to the camera,
+    so every rig folder's are looked at (only this camera's); flats only from this group's rig, from nights
+    within two months of the lights."""
+    from datetime import date
+    L = g.ref
+    cam = short_camera(L.camera).lower()
+    files = []
+    nights = []
+    for n in g.nights:
+        try:
+            nights.append(date.fromisoformat(n))
+        except ValueError:
+            pass
+
+    def near(d: Path):
+        for part in d.parts:
+            try:
+                n = date.fromisoformat(part)
+            except ValueError:
+                continue
+            return not nights or min(abs((n - x).days) for x in nights) <= 60
+        return True
+
+    def this_cam(d: Path, base: Path):
+        try:
+            rel = d.relative_to(base).parts
+        except ValueError:
+            return True
+        return not rel or rel[0].lower().startswith(cam) or not cam
+    for cal_dir in cal_dirs:
+        mine = organized_rig_dirs(cal_dir, g, riglist)
+        if "flat" in need:
+            for r in mine:
+                for sub in ("Flats", "Dark flats"):
+                    b = r / sub
+                    if _is_dir(b):
+                        files += _cal_files(b, lambda d, b=b: this_cam(d, b) and near(d))
+        for r in mine:
+            if _is_dir(r / "Masters"):
+                files += _cal_files(r / "Masters")
+        if need & {"dark", "bias"} or ("flat" in need):
+            exp = f"{L.exptime:g}s" if L.exptime is not None else None
+            for r in [p for p in _safe_listdir(cal_dir) if _is_dir(p)]:
+                b = r / "Darks"
+                if "dark" in need and _is_dir(b):
+                    for cf in _safe_listdir(b):
+                        if _is_dir(cf) and cf.name.lower().startswith(cam):
+                            ex = [e for e in _safe_listdir(cf) if _is_dir(e) and exp and e.name == exp]
+                            for e in (ex or [cf]):
+                                files += _cal_files(e)
+                b = r / "Bias"
+                if _is_dir(b):
+                    for cf in _safe_listdir(b):
+                        if _is_dir(cf) and cf.name.lower().startswith(cam):
+                            files += _cal_files(cf)
+    if not files:
+        return []
+    files = list(dict.fromkeys(files))
+    infos, _ = scan_paths(files, progress)
+    items = group_calibration(infos)
+    for it in items:
+        it.origin = "organized"
+    return items
+
+
 def _rig_ok(item: CalItem, rig: str):
     return item.rig is None or item.rig.lower() == rig.lower()
 
@@ -773,7 +920,7 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
 
     # bias for the lights
     biases = [c for c in cam_items if c.kind == "bias" and _eq(c.gain, L.gain) and _eq(c.offset, L.offset)]
-    p.bias = pick(biases, lambda c: (unknown(c), 0 if c.origin == "added" else 1, -c.count))
+    p.bias = pick(biases, lambda c: (unknown(c), _orank(c), -c.count))
 
     # darks
     darks = [c for c in cam_items if c.kind == "dark" and _eq(c.gain, L.gain) and _eq(c.offset, L.offset)
@@ -782,7 +929,7 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
              and abs(c.exptime - L.exptime) <= 0.02 * L.exptime]
     if exact:
         p.dark = pick(exact, lambda c: (unknown(c), abs((c.temp or 0) - (L.temp or 0)),
-                                        0 if c.origin == "added" else 1, -c.count))
+                                        _orank(c), -c.count))
         p.dark_mode = "exact"
     elif darks and p.bias is not None:
         p.dark = pick(darks, lambda c: (abs((c.exptime or 0) - (L.exptime or 0)), -c.count))
@@ -822,7 +969,7 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
             from datetime import date
             d = date.fromisoformat(c.night)
             return min(abs((d - date.fromisoformat(n)).days) for n in nights)
-        p.flat = pick(flats, lambda c: (dist(c), 0 if c.origin == "added" else 1, -c.count))
+        p.flat = pick(flats, lambda c: (dist(c), _orank(c), -c.count))
         dd = dist(p.flat)
         from datetime import date as _date
         future = bool(p.flat.night) and p.flat.night > _date.today().isoformat()     # a smart scope's unset clock
@@ -852,7 +999,7 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
             for n in nights:
                 same = [c for c in flats if c.night == n]
                 if same:
-                    f_ = pick(same, lambda c: (0 if c.origin == "added" else 1, -c.count))
+                    f_ = pick(same, lambda c: (_orank(c), -c.count))
                     per[n] = (f_,) + helpers(f_)
             if len(per) >= 2:
                 p.night_flats = per

@@ -837,6 +837,45 @@ def run(app, out_dir: Path) -> int:
     check(_hsr2 == [False, False, False, True],
           f"Clean Bright-Star Leftovers leaves a patch with a nebula filament through it alone ({_hsr2})")
 
+    # calibration from the organized library: what the stack can't find in your calibration folder (darks, bias,
+    # flats of the lights' own nights) comes from Calibration Frames/<rig>/… - flats only from this rig and from
+    # within two months, darks of this camera at this exposure from any rig folder
+    import stacking as _ocs
+    import organizer as _oco
+    _ocb = _oco.org_base(out_dir / "orgcal_lib")
+
+    def _ocmk(p, typ, **kw):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        h = {"IMAGETYP": typ, "INSTRUME": "ZWO ASI2600MM Pro", "GAIN": 100, "OFFSET": 50, "CCD-TEMP": -2.0,
+             "XBINNING": 1}
+        h.update(kw)
+        core.write_fits(p, np.full((32, 48), 1000, np.uint16), h, bitpix=16)
+    for _ock in range(3):
+        _ocmk(_ocb / f"Light Frames/2026/2026-07-05/NGC6888/C11/OIII/l{_ock}.fits", "Light Frame", EXPTIME=180.0,
+              FILTER="OIII", OBJECT="NGC 6888", FOCALLEN=1960.0, **{"DATE-OBS": f"2026-07-06T03:0{_ock}:00"})
+        _ocmk(_ocb / f"Calibration Frames/C11/Flats/ASI2600MM/2026-07-05/OIII/f{_ock}.fits", "Flat Frame",
+              EXPTIME=2.0, FILTER="OIII", **{"DATE-OBS": f"2026-07-06T10:0{_ock}:00"})
+        _ocmk(_ocb / f"Calibration Frames/C11/Flats/ASI2600MM/2026-01-05/OIII/o{_ock}.fits", "Flat Frame",
+              EXPTIME=2.0, FILTER="OIII", **{"DATE-OBS": f"2026-01-06T10:0{_ock}:00"})
+        _ocmk(_ocb / f"Calibration Frames/RASA11/Darks/ASI2600MM_G100_O50_-2C/180s/d{_ock}.fits", "Dark Frame",
+              EXPTIME=180.0)
+        _ocmk(_ocb / f"Calibration Frames/RASA11/Darks/ASI2600MM_G100_O50_-2C/300s/x{_ock}.fits", "Dark Frame",
+              EXPTIME=300.0)
+        _ocmk(_ocb / f"Calibration Frames/C11/Bias/ASI2600MM_G100_O50_-2C/b{_ock}.fits", "Bias Frame",
+              EXPTIME=0.001)
+    _ocl, _ = _ocs.scan_paths([_ocb / "Light Frames"])
+    _ocg = _ocs.LightGroup("NGC6888", "OIII", _ocl[0].camera, "Celestron C11", [_ocs.LightFrame(i) for i in _ocl])
+    _ocg.plan = _ocs.plan_group(_ocg, [], sky_pool=None)
+    _ocn = _ocs.organized_needs(_ocg)
+    _ocx = _ocs.organized_calibration(_ocs.organized_cal_dirs([out_dir / "orgcal_lib"]), _ocg, _ocn)
+    _ocp = _ocs.plan_group(_ocg, _ocx, sky_pool=None)
+    _ocf = sorted(len(c.infos) for c in _ocx if c.kind == "flat")
+    check(_ocn == {"dark", "bias", "flat"} and _ocp.dark is not None and _ocp.dark.exptime == 180.0
+          and _ocp.bias is not None and _ocp.flat is not None and _ocp.flat.night == "2026-07-05"
+          and _ocf == [3] and not _ocp.warnings and _ocp.dark.origin == "organized",
+          f"Stacking finds what's missing in the organized library: July flats of this rig (not January's), the "
+          f"camera's 180 s darks from another rig's folder, bias ({[c.label() for c in _ocx]}, {_ocp.warnings})")
+
     # a custom horizon as Telescopius / N.I.N.A. write it: 'az alt' per line (a header line or commas are fine)
     import target_picker as _tph
     _hzp = out_dir / "telescopius_horizon.hrz"

@@ -641,6 +641,7 @@ class StackWindow(QMainWindow):
             for g in self.groups:
                 try:
                     g.plan = st.plan_group(g, self.items, sky_pool=pool)
+                    self._fill_from_organized(g, pool)
                 except Exception as e:  # noqa: BLE001 - one odd group must not leave the others without a plan
                     import traceback
                     self.log(f"{g.label()}: calibration could not be matched ({e}) - stacked without calibration")
@@ -655,6 +656,59 @@ class StackWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
         self.fill_table()
         self.fill_cal_list()
+
+    def _organized_libraries(self) -> list:
+        """Organize's library folders (the one Organize files into, and Auto-Organize's)."""
+        s = self.settings
+        libs = [s.value("organize/dst", "") or "", s.value("auto_org/dst", "") or ""]
+        if s.value("organize/same", False, type=bool):
+            src = [p for p in (s.value("organize/src", "") or "").split(";") if p.strip()]
+            if len(src) == 1:
+                libs.append(src[0].strip())
+        return [x for x in libs if x]
+
+    def _fill_from_organized(self, g, pool):
+        """Your calibration folder (and frames you added) come first; what a group still lacks - darks, bias,
+        flats from the lights' own nights - is looked for in the organized library's Calibration Frames."""
+        need = st.organized_needs(g)
+        if not need:
+            return
+        if not hasattr(self, "_org_cal_cache"):
+            self._org_cal_cache = {}
+        dirs = st.organized_cal_dirs(self._organized_libraries())
+        if not dirs:
+            return
+        key = (tuple(str(d) for d in dirs), g.label(), tuple(sorted(need)), tuple(g.nights))
+        if key not in self._org_cal_cache:
+            try:
+                import json as _json
+                riglist = _json.loads(self.settings.value("organize/riglist", "[]") or "[]")
+            except (ValueError, TypeError):
+                riglist = []
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                self.log(f"{g.label()}: looking for {', '.join(sorted(need))} in your organized library "
+                         f"({', '.join(str(d) for d in dirs)})")
+                self._org_cal_cache[key] = st.organized_calibration(dirs, g, need, riglist)
+            except Exception as e:  # noqa: BLE001 - the organized library is a help, never a blocker
+                self.log(f"Could not read calibration frames in your organized library ({e})")
+                self._org_cal_cache[key] = []
+            finally:
+                QApplication.restoreOverrideCursor()
+        extra = self._org_cal_cache[key]
+        if not extra:
+            return
+        plan = st.plan_group(g, self.items + extra, sky_pool=pool)
+        used = [c for c in (plan.bias, plan.dark, plan.flat, plan.flat_bias, plan.flat_dark)
+                if c is not None and getattr(c, "origin", "") == "organized"]
+        used += [c for v in (plan.night_flats or {}).values() for c in v
+                 if c is not None and getattr(c, "origin", "") == "organized"]
+        if used:
+            plan.notes.append("From your organized library (nothing better in your calibration folder): "
+                              + "; ".join(dict.fromkeys(c.label() for c in used)))
+            g.plan = plan
+            known = {id(c) for c in self.items}
+            self.items += [c for c in used if id(c) not in known]
 
     def fill_cal_list(self):
         self.cal_list.clear()
