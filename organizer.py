@@ -317,9 +317,22 @@ def _is_project_dir(d: Path) -> bool:
 SKIPPED = []          # [(folder, why)] - folders the last scan() did not look into (shown after a run)
 
 
+# a NAS's own folders: its recycle bin (Synology #recycle, QNAP @Recycle), snapshots and thumbnail caches
+# (@eaDir), a Mac's network trash. Files deleted on a NAS go to its recycle bin - looked through, every frame
+# deleted or set aside before came back as a duplicate (or a stray rig) on the next run
+NAS_DIRS = {"#recycle", "#snapshot", "@recycle", "@recently-snapshot", "@eadir", "@tmp", "@sharebin",
+            "network trash folder", "temporary items", "system volume information", "recycler", ".trashes"}
+
+
+def _nas_dir(n: str) -> bool:
+    return n.lower() in NAS_DIRS or n.startswith(("#", "@"))
+
+
 def _why_skipped(p: Path, n: str) -> str:
     if n == LOG_DIR:
         return ""
+    if _nas_dir(n):
+        return "the NAS's recycle bin / system folder (deleted files wait there)"
     if n.startswith((".", "$")):
         return "hidden / system folder"
     if n.endswith((".szproj", ".saving")) or _is_project_dir(p):
@@ -346,7 +359,7 @@ def scan(root, progress=None, stop=None) -> list:
                 # offered as a duplicate again on every re-sort (2,000 of them, every time)
                 SKIPPED.append((p, "frames set aside as duplicates - kept apart, not organized again"))
                 continue
-            if (n.startswith((".", "$")) or n == LOG_DIR or n.endswith((".szproj", ".saving"))
+            if (n.startswith((".", "$")) or _nas_dir(n) or n == LOG_DIR or n.endswith((".szproj", ".saving"))
                     or n.lower() in WORK_DIRS or _is_project_dir(p)):
                 why = _why_skipped(p, n)
                 if why and n != ORG_ROOT:
@@ -1635,7 +1648,7 @@ def check_leftovers(sources, library, progress=None, stop=None) -> dict:
             if _same_path(d, base) or d.name == LOG_DIR:
                 dns[:] = []
                 continue
-            dns[:] = [n for n in dns if not _same_path(d / n, base) and n != LOG_DIR]
+            dns[:] = [n for n in dns if not _same_path(d / n, base) and n != LOG_DIR and not _nas_dir(n)]
             out["folders"] += 1
             if not fns and not dns:
                 out["empty_folders"] += 1
