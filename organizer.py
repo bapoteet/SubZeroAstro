@@ -341,6 +341,11 @@ def scan(root, progress=None, stop=None) -> list:
         keep = []
         for n in sorted(dirnames, key=core.natural_key):
             p = d / n
+            if n == DUP_DIR and d.name == ORG_ROOT:
+                # the frames set aside as duplicates stay set aside: looked through again, each one was
+                # offered as a duplicate again on every re-sort (2,000 of them, every time)
+                SKIPPED.append((p, "frames set aside as duplicates - kept apart, not organized again"))
+                continue
             if (n.startswith((".", "$")) or n == LOG_DIR or n.endswith((".szproj", ".saving"))
                     or n.lower() in WORK_DIRS or _is_project_dir(p)):
                 why = _why_skipped(p, n)
@@ -819,6 +824,11 @@ def plan(items, library, progress=None, stop=None) -> list:
     library = Path(library)
     taken = {}
     listing = _Listing()
+    # re-sorting the library itself (every file already inside it): only moves, never a duplicates step - the
+    # library was checked for duplicates when its files came in; two files headed for one name both stay
+    # (the second numbered)
+    base_ = os.path.normcase(str(org_base(library))) + os.sep
+    resort = bool(items) and all(os.path.normcase(str(i.src)).startswith(base_) for i in items)
     # the same frame twice (a copy under another name): the one already in the library - or else the
     # first one found - is kept, the others are left where they are and reported
     seen = {}
@@ -828,7 +838,7 @@ def plan(items, library, progress=None, stop=None) -> list:
         # 4-digit frame number like _0042 is not a copy mark)
         copyish = bool(re.search(r"(?:\s\(\d+\)|[ _-]+copy(?:\s*\(\d+\))?|(?<!\d)_\d{1,2})$", x.src.stem, re.I))
         return (0 if in_place else 1, 1 if copyish else 0, core.natural_key(str(x.src)))
-    for it in sorted(items, key=keep_first):
+    for it in ([] if resort else sorted(items, key=keep_first)):
         if it.key is None or it.status == "error":
             continue
         if it.key in seen:
@@ -859,13 +869,13 @@ def plan(items, library, progress=None, stop=None) -> list:
         while True:
             key = str(cand).lower()
             if key in taken:
-                if taken[key] == it.size and _quick_hash(it.src) == _quick_hash(Path(taken[key + "#src"])):
+                if not resort and taken[key] == it.size and _quick_hash(it.src) == _quick_hash(Path(taken[key + "#src"])):
                     it.status, it.same_as = "duplicate", Path(taken[key + "#src"])
                     it.why = f"the same file as {it.same_as.name}"
                     break
             elif listing.exists(cand):
                 try:
-                    if cand.stat().st_size == it.size and _quick_hash(cand) == _quick_hash(it.src):
+                    if not resort and cand.stat().st_size == it.size and _quick_hash(cand) == _quick_hash(it.src):
                         it.status, it.same_as = "duplicate", cand
                         it.why = f"the same file as the one already in {cand.parent.name}"
                         break

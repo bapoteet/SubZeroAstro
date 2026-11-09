@@ -4719,6 +4719,30 @@ def run(app, out_dir: Path) -> int:
               and _dl_d.get("b.fits") == "Light Frames/2026/2026-10-01/M31/SQA60/Ha/b.fits"
               and _dl_b.get("a.fits", "").startswith("Light Frames/OldRig/M31/2026-10-01/"),
               f"Layout by date, then target, then rig - and back to by rig, each file keeping its rig ({_dl_d}, {_dl_b})")
+        # a re-sort never offers duplicates: the Duplicates folder (frames set aside before) is not looked through
+        # again - it was, and offered its 2,000 frames as duplicates on every re-sort - and two files of the
+        # library headed for one name both stay
+        _drl = out_dir / "resort_nodups"
+        _drb = _og.org_base(_drl)
+        for _drr, _drk, _drv in (("Light Frames/SQA60/M31/2026-10-01/Ha/a.fits", 1, 0),
+                                 ("Light Frames/SQA60/M31/2026-10-01/Ha/b.fits", 2, 0),
+                                 ("Duplicates/a.fits", 1, 5), ("Light Frames/SQA60/M31/old/Ha/b.fits", 2, 0)):
+            (_drb / _drr).parent.mkdir(parents=True, exist_ok=True)
+            core.write_fits(_drb / _drr, np.full((16, 16), _drv, np.uint16),
+                            {"IMAGETYP": "Light Frame", "EXPTIME": 60.0, "OBJECT": "M 31", "FILTER": "Ha",
+                             "INSTRUME": "ZWO ASI2600MM Pro", "FOCALLEN": 361.0,
+                             "DATE-OBS": f"2026-10-02T03:{_drk:02d}:00"}, bitpix=16)
+        _drd = []
+        for _drlay in ("date", "rig"):
+            _dri = _og.plan(_og.classify(_og.scan(_drb), library=_drl, layout=_drlay, root=_drb,
+                                         riglist=[{"name": "SQA60", "focals": [361]}]), _drl)
+            _drd.append(len(_og.duplicates(_dri)) + sum(1 for i in _dri if "Duplicates" in i.src.parts))
+            _og.execute(_dri, _drl, move=True)
+        _drleft = sorted(p.name for p in _drb.rglob("*.fits"))
+        check(_drd == [0, 0] and _drleft == ["a.fits", "a.fits", "b.fits", "b_2.fits"]
+              and (_drb / "Duplicates" / "a.fits").exists(),
+              f"Change My Library's Layout never offers duplicates (offered {_drd}), leaves the Duplicates folder "
+              f"alone and keeps every file ({_drleft})")
         # Which Rig?: stray files that match none of your rigs can be deleted there
         import organizer_window as _ow2
         _nr_dir = _au_root / "norig" / "Stray"
