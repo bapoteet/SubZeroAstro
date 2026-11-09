@@ -858,7 +858,11 @@ def run(app, out_dir: Path) -> int:
         _ocmk(_ocb / f"Calibration Frames/C11/Flats/ASI2600MM/2026-01-05/OIII/o{_ock}.fits", "Flat Frame",
               EXPTIME=2.0, FILTER="OIII", **{"DATE-OBS": f"2026-01-06T10:0{_ock}:00"})
         _ocmk(_ocb / f"Calibration Frames/RASA11/Darks/ASI2600MM_G100_O50_-2C/180s/d{_ock}.fits", "Dark Frame",
-              EXPTIME=180.0)
+              EXPTIME=180.0, **{"DATE-OBS": f"2026-07-10T12:0{_ock}:00"})
+    for _ock in range(5):              # an older (poorer) batch, more frames: the one nearer the lights still wins
+        _ocmk(_ocb / f"Calibration Frames/C11/Darks/ASI2600MM_G100_O50_-2C/180s/old{_ock}.fits", "Dark Frame",
+              EXPTIME=180.0, **{"DATE-OBS": f"2025-01-10T12:0{_ock}:00"})
+    for _ock in range(3):
         _ocmk(_ocb / f"Calibration Frames/RASA11/Darks/ASI2600MM_G100_O50_-2C/300s/x{_ock}.fits", "Dark Frame",
               EXPTIME=300.0)
         _ocmk(_ocb / f"Calibration Frames/C11/Bias/ASI2600MM_G100_O50_-2C/b{_ock}.fits", "Bias Frame",
@@ -872,7 +876,8 @@ def run(app, out_dir: Path) -> int:
     _ocf = sorted(len(c.infos) for c in _ocx if c.kind == "flat")
     check(_ocn == {"dark", "bias", "flat"} and _ocp.dark is not None and _ocp.dark.exptime == 180.0
           and _ocp.bias is not None and _ocp.flat is not None and _ocp.flat.night == "2026-07-05"
-          and _ocf == [3] and not _ocp.warnings and _ocp.dark.origin == "organized",
+          and _ocf == [3] and not _ocp.warnings and _ocp.dark.origin == "organized"
+          and _ocp.dark.night == "2026-07-10" and len(_ocp.dark.infos) == 3,
           f"Stacking finds what's missing in the organized library: July flats of this rig (not January's), the "
           f"camera's 180 s darks from another rig's folder, bias ({[c.label() for c in _ocx]}, {_ocp.warnings})")
 

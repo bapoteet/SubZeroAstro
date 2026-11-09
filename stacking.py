@@ -510,7 +510,10 @@ def group_calibration(infos) -> list[CalItem]:
                _temp_bucket(i.temp) if i.type in ("dark", "darkflat", "bias") else None,
                i.filter if i.type == "flat" else None,
                i.w, i.h, i.x0, i.y0, i.binning,
-               i.night if i.type == "flat" else None)
+               i.night if i.type == "flat" else None,
+               # darks / bias taken months apart are separate batches (an old, poorer set must not be mixed into a
+               # fresh one): kept apart by month, so the set nearest the lights can be picked
+               (i.night or "")[:7] if i.type in ("dark", "darkflat", "bias") else None)
         sets.setdefault(key, []).append(i)
     for key, lst in sets.items():
         lst.sort(key=lambda x: core.natural_key(x.path.name))
@@ -918,9 +921,19 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
     def unknown(c):
         return sum(v is None for v in (c.camera, c.gain, c.offset))
 
+    def age(c):
+        """Days between a calibration set and the lights' nights (unknown dates last): of several matching sets
+        of darks or bias, the one taken closest to the lights wins - an old batch never beats a fresh one."""
+        from datetime import date
+        try:
+            d = date.fromisoformat(c.night)
+            return min(abs((d - date.fromisoformat(n)).days) for n in g.nights)
+        except (TypeError, ValueError):
+            return 99999
+
     # bias for the lights
     biases = [c for c in cam_items if c.kind == "bias" and _eq(c.gain, L.gain) and _eq(c.offset, L.offset)]
-    p.bias = pick(biases, lambda c: (unknown(c), _orank(c), -c.count))
+    p.bias = pick(biases, lambda c: (unknown(c), _orank(c), age(c), -c.count))
 
     # darks
     darks = [c for c in cam_items if c.kind == "dark" and _eq(c.gain, L.gain) and _eq(c.offset, L.offset)
@@ -929,7 +942,7 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
              and abs(c.exptime - L.exptime) <= 0.02 * L.exptime]
     if exact:
         p.dark = pick(exact, lambda c: (unknown(c), abs((c.temp or 0) - (L.temp or 0)),
-                                        _orank(c), -c.count))
+                                        _orank(c), age(c), -c.count))
         p.dark_mode = "exact"
     elif darks and p.bias is not None:
         p.dark = pick(darks, lambda c: (abs((c.exptime or 0) - (L.exptime or 0)), -c.count))
