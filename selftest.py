@@ -2043,6 +2043,20 @@ def run(app, out_dir: Path) -> int:
         check(bool(_netb) and _fdl.share_root(r"\\DS1522\Astro\Targets") == r"\\DS1522\Astro",
               f"the folder window has a 'Network / NAS Folder…' button (Qt's own window can't browse the network) "
               f"and remembers the share ({_fdl.share_root(r'\\DS1522\Astro\Targets')})")
+        # a "Captured" column: when the frames inside were taken (night folders, or DATE-OBS), not the folder's date
+        _cpx = _pk.proxyModel()
+        _cph = _cpx.headerData(_cpx.columnCount() - 1, Qt.Horizontal) if _cpx is not None else None
+        _cpr = out_dir / "captured_test"
+        for _cpn in ("2026-07-05", "2026-07-09", "2026-07-22"):
+            (_cpr / "NGC6888" / _cpn / "OIII").mkdir(parents=True, exist_ok=True)
+        (_cpr / "M31").mkdir(parents=True, exist_ok=True)
+        (_cpr / "M31" / "a.fits").write_bytes(b"SIMPLE  =                    T" + b" " * 50
+                                              + b"DATE-OBS= '2025-10-02T03:01:00'".ljust(80) + b"END".ljust(80))
+        _cpa = _fdl.captured_range(_cpr / "NGC6888")
+        _cpb = _fdl.captured_range(_cpr / "M31")
+        check(_cph == "Captured" and _cpa == "2026-07-05 → 07-22  (3 nights)" and _cpb == "2025-10-02",
+              f"Add Folders… has a 'Captured' column - when the frames were taken, from night folders or the "
+              f"frames' headers ({_cph}: {_cpa!r}, {_cpb!r})")
         _pk.selectFile(f'"{session.name}" "{second.name}"')
         _pk.show()
         shot("7b_folder_picker.png", _pk)

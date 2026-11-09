@@ -355,6 +355,7 @@ steps([
   "If your capture software does not record the filter (e.g. ASIAIR with a manual filter drawer), choose it under **Filter used**.",
   "Press **Start Processing**. Frames appear at once and are measured in the background.",
 ]);
+p("**When were these taken?** The Add Folders… window has a **Captured** column beside *Date Modified*: the nights the frames inside each folder were taken - from the night folders under it (an organized library has them), or from the first and last frame's own capture time (DATE-OBS). *Date Modified* is only when the folder last changed on this computer - after a re-sort of your library, that's the re-sort's date for every folder.");
 img("7_load_data_window.png", "The Load Light Frame Data window", 480);
 tip("Load Light Frame Data is for **light frames only**. To turn bias, darks and flats into masters, use **Stack › Build Calibration Masters…** instead (7.6) - no light frames needed.", "Calibration frames?");
 tip("If the file names mention the filter (e.g. `…_SQA55Lult_0001.fit`), SubZeroAstro notices after the first few frames and offers to use it for the whole set. Duplicate files are skipped and reported.");
