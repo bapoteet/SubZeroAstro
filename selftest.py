@@ -807,6 +807,16 @@ def run(app, out_dir: Path) -> int:
     check(_gw1 is not None and _gw1[0] > 1.0 > _gw1[2] and _gw2 is None,
           f"galaxy: a blue centre after 'Stars white' is made a warm white ({_gw1}); a warm one is left alone ({_gw2})")
 
+    # NGC 5078: star removal took the galaxy's nucleus for a star, and Clean Bright-Star Leftovers took its smooth,
+    # grain-free centre for a painted square - "cleaned", the centre got a black notch. A box on the galaxy's own
+    # glow is left alone; one on the open sky is still cleaned
+    _oby, _obx = np.mgrid[:600, :800]
+    _obg = (0.02 + 0.3 * np.exp(-(((_obx - 400) / 60.0) ** 2 + ((_oby - 300) / 20.0) ** 2) / 2)
+            + np.random.default_rng(3).normal(0, 0.002, (600, 800))).astype(np.float32)
+    _obr = _fnc.on_bright_glow(np.stack([_obg] * 3), [(390 / 800, 295 / 600, 410 / 800, 305 / 600),
+                                                      (650 / 800, 100 / 600, 670 / 800, 120 / 600)])
+    check(_obr == [True, False], f"Clean Bright-Star Leftovers leaves a galaxy's centre alone, still cleans the sky ({_obr})")
+
     # a custom horizon as Telescopius / N.I.N.A. write it: 'az alt' per line (a header line or commas are fine)
     import target_picker as _tph
     _hzp = out_dir / "telescopius_horizon.hrz"

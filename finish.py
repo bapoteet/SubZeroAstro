@@ -1740,6 +1740,31 @@ def _grain_map(C: np.ndarray, k: int = 3) -> np.ndarray:
     return _box_blur(g, k)
 
 
+def on_bright_glow(starless: np.ndarray, boxes) -> list:
+    """For each box (fractions of the picture: fx0, fy0, fx1, fy1): does it sit on an extended bright glow - a
+    galaxy's body - rather than on the sky? Judged by the picture just around the box, compared with the sky."""
+    L = _lum(starless).astype(np.float32)
+    h, w = L.shape
+    small, f = _small_plane(L, 600)
+    sky = float(np.median(small))
+    noise = float(np.median(np.abs(small - sky))) * 1.4826 + 1e-12
+    out = []
+    for fx0, fy0, fx1, fy1 in boxes:
+        x0, x1 = int(max(0, fx0) * w / f), int(np.ceil(min(1, fx1) * w / f))
+        y0, y1 = int(max(0, fy0) * h / f), int(np.ceil(min(1, fy1) * h / f))
+        m = max(2, int(0.6 * max(x1 - x0, y1 - y0)))
+        X0, X1 = max(0, x0 - m), min(small.shape[1], x1 + m)
+        Y0, Y1 = max(0, y0 - m), min(small.shape[0], y1 + m)
+        A = small[Y0:Y1, X0:X1]
+        yy, xx = np.mgrid[Y0:Y1, X0:X1]
+        ring = ~((yy >= y0) & (yy < y1) & (xx >= x0) & (xx < x1))
+        if ring.sum() < 8:
+            out.append(False)
+            continue
+        out.append(float(np.median(A[ring])) - sky > 6 * noise)
+    return out
+
+
 def find_star_leftovers(starless: np.ndarray, stars: np.ndarray, max_stars: int = 30) -> tuple:
     """The boxes star removal painted over the brightest stars. StarXTerminator replaces a big star with a smooth,
     grain-free square patch; once the stars and the nebula are brightened differently its edges show as a square,
@@ -2200,6 +2225,19 @@ class CleanStarLeftovers(Tool):
                 dots = find_leftover_cores(s.rgb, s.stars, skip, rings=target_type(s) == "nebula")
             except Exception:  # noqa: BLE001
                 dots = []
+            if target_type(s) == "galaxy":
+                # a galaxy's centre is bright and smooth - no grain, just like a painted square - and star removal
+                # often takes its nucleus for a star: "cleaned", NGC 5078's centre got a black notch. Nothing
+                # sitting on the target's own bright glow is touched
+                try:
+                    on = on_bright_glow(s.rgb, [tuple(b) for b in boxes] +
+                                        [(fx - fr, fy - fr * w / h, fx + fr, fy + fr * w / h) for fx, fy, fr in dots])
+                    nb = len(boxes)
+                    busy += sum(on[:nb])
+                    boxes = [b for b, o in zip(boxes, on[:nb]) if not o]
+                    dots = [d for d, o in zip(dots, on[nb:]) if not o]
+                except Exception:  # noqa: BLE001
+                    pass
             self._cache = (boxes, busy, dots)
             self._cache_key = key
         return self._cache
