@@ -3146,6 +3146,27 @@ def run(app, out_dir: Path) -> int:
               f"Tame Bright Core leaves no hard white dot at a burnt-out nucleus (centre {_pf[0]:.2f} vs {_ar:.2f} "
               f"around, edge {float(np.max(-np.diff(_pf))):.3f}/px)")
 
+        # a big galaxy core with a bright nucleus (M31): Tame Bright Core lowers it smoothly - brightness falls
+        # steadily from the nucleus outwards, no dark ring around the nucleus and no flat plateau with a rim
+        _gy, _gx = np.mgrid[:700, :1000].astype(np.float32)
+        _gr = np.hypot((_gx - 500) * 0.85 + (_gy - 350) * 0.5, (-(_gx - 500) * 0.5 + (_gy - 350) * 0.85) / 0.6)
+        _gl = (0.02 + 0.02 * np.exp(-7.67 * ((_gr / 80) ** 0.25 - 1))
+               + 0.003 * np.exp(-_gr / 170)).astype(np.float32)
+        _gs = F.State(rgb=np.stack([_gl * 1.05, _gl, _gl * 0.85]), target="M31", kind="osc", stars_out=True)
+        _gst = F.TOOLS["stretch"]
+        _gs = _gst.apply(_gs, next(v for v in _gst.variants(_gs) if v.label.startswith("Gentle")).params)
+        _gpre = F._lum(_gs.rgb)
+        _gco = F.TOOLS["core"]
+        _gs2 = _gco.apply(_gs, next(v for v in _gco.variants(_gs) if v.recommended).params)
+        _gL = F._lum(_gs2.rgb)
+        _gt = np.arange(0, 300)
+        _gp = _gL[(350 + _gt * 0.5).astype(int), (500 + _gt * 0.85).astype(int)]
+        _gp = np.convolve(np.pad(_gp, 2, mode="edge"), np.ones(5) / 5, "valid")
+        _grise = float(np.max(np.diff(_gp[:250])))
+        check(_grise < 0.004 and float(_gp[0]) < float(_gpre[350, 500]) - 0.05,
+              f"Tame Bright Core on a galaxy: the core fades smoothly from the nucleus outwards - no dark ring, no "
+              f"rim (largest rise outwards {_grise:.4f}); centre {_gpre[350, 500]:.2f} -> {_gp[0]:.2f}")
+
         # dual-band colour masters (red = Ha, blue = OIII look different), one of them shifted: every colour is
         # lined up with the same colour of the deepest master - no colour may go missing (Mac report: crash)
         _yy, _xx = np.mgrid[:360, :480]

@@ -4864,25 +4864,46 @@ class TameCore(Tool):
             wgt = np.clip(_blur(flat_top.astype(np.float32), sig) * 2.0, 0, 1)
             src = (src * (1 - wgt) + _blur(src.astype(np.float32), sig) * wgt).astype(np.float32)
         e = float(np.median(src[edge])) if edge.any() else float(np.percentile(src[inside], 5))
-        # the core's glow: a blur on the scale of the core itself
+        # the core's glow: on the scale of the core itself, with small bright features (the nucleus, knots)
+        # taken out first - a plain blur spread the nucleus, so the structure 'src - glow' dipped below zero
+        # all round it: a bright dot in a dark ring (M31)
         rc = float(np.sqrt(inside.sum() / np.pi))
         small, f = _small_plane(src, 700)
-        glow = _resize(_blur(small, max(1.0, rc / self.GLOW_DIV / f)), *y.shape)
+        r_s = max(1.0, rc / self.GLOW_DIV / f)
+        g0 = _blur(small, r_s)
+        # a lone, much brighter compact spot (well above any structure) is left out of the glow, and the glow
+        # worked out again - twice, as the first glow is raised by the spot itself
+        clean = small
+        for _ in range(2):
+            hot = (small - g0) > 2 * self.DETAIL_CAP
+            if not hot.any():
+                break
+            hot = _blur(hot.astype(np.float32), 1.0) > 0.05
+            clean = np.where(hot, g0, small).astype(np.float32)
+            g0 = _blur(clean, r_s)
+        glow = _resize(g0, *y.shape)
         detail = src - glow
-        # keep this much of the glow above the edge: at most 15%, and less when the brightest part
-        # would still end up near white (a strongly brightened or re-made core)
-        g_top = float(glow[inside].max())                      # the true peak (a small nucleus is a tiny share)
-        room = (0.97 - e) * self.PEAK_ROOM                      # the glow peak lands this share of the way to white
-        keep = 1 - self.CORE_FLATTEN
-        if g_top > e:
-            keep = min(keep, max(room, 0.0) / (g_top - e))
-        flat = np.where(glow > e, e + (glow - e) * keep, glow)
-        # structure re-made at a bigger scale is brought down with the glow, but never below 30%
-        d_scale = float(np.clip(keep / (1 - self.CORE_FLATTEN), 0.3, 1.0))
-        gain = (1.0 + 0.5 * min(1.0, c / 60.0)) * d_scale      # the Detail slider lifts the structure too
-        # the structure on top of the lowered glow - but a lone very bright spot (the centre, often
-        # burnt out in the masters too) is squeezed smoothly, so no bright dot with hard edges is left
+        # the glow is lowered with a soft knee - full slope at the edge's brightness, flattening smoothly
+        # towards the top - instead of a kink at the edge (that left a flat plateau with a visible rim)
+        g_top = float(glow[inside].max())
+        room = max((0.97 - e) * self.PEAK_ROOM, 1e-3)          # the glow peak lands about this far above the edge
+        d = np.maximum(glow - e, 0)
+        A = room
+        if g_top - e > 1e-6:
+            # the knee's size so the peak lands at e + room (when the core rises well above that)
+            lo, hi = room * 0.2, room * 4.0
+            for _ in range(30):
+                mid = 0.5 * (lo + hi)
+                if mid * (1 - np.exp(-(g_top - e) / mid)) > min(room, g_top - e) * 0.8:
+                    hi = mid
+                else:
+                    lo = mid
+            A = hi
+        knee = np.exp(-d / A)
+        flat = np.where(glow > e, e + A * (1 - knee), glow)
+        gain = 1.0 + 0.5 * min(1.0, c / 60.0)                  # the Detail slider lifts the structure
         dl = detail * gain
+        # a lone very bright spot (the nucleus) is squeezed smoothly: a soft peak, no dot with hard edges
         dl = np.where(dl > 0, self.DETAIL_CAP * np.tanh(dl / self.DETAIL_CAP), dl)   # dark detail (dust lanes) untouched
         v = flat + dl
         # a soft shoulder instead of a hard clip: the brightest structure rolls off gently below white
