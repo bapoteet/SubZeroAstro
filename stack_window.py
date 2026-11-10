@@ -291,7 +291,7 @@ class StackWindow(QMainWindow):
         self.setWindowTitle("SubZeroAstro — Calibrate and Stack")
         self.settings = settings
         self.worker = None
-        self.rigs = st.Rigs(self._load_json("stack/rigs", []))
+        self.rigs = st.Rigs(self._load_json("stack/rigs", []), self._load_json("organize/riglist", []))
         self.added_infos: list = []          # calibration frames the user added
         self.items: list = []                # all calibration items (library + added)
         self.lights, skipped = lights_from_session(frames)

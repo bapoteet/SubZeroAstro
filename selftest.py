@@ -881,6 +881,17 @@ def run(app, out_dir: Path) -> int:
           f"Stacking finds what's missing in the organized library: July flats of this rig (not January's), the "
           f"camera's 180 s darks from another rig's folder, bias ({[c.label() for c in _ocx]}, {_ocp.warnings})")
 
+    # the stacking page names a rig as My Rigs does ('SQA60Pro', not '278mm scope'); a name given on page 2 wins;
+    # flats saved under the old made-up name still count for it
+    _mr1 = _ocs.Rigs([], [{"name": "C11", "focals": [1960]}]).name_for(_ocl[0])
+    _mr2 = _ocs.Rigs([{"camera": _ocl[0].camera, "focal": 1960.0, "name": "Mine"}],
+                     [{"name": "C11", "focals": [1960]}]).name_for(_ocl[0])
+    _mr3 = _ocs.Rigs().name_for(_ocl[0])
+    _mrf = _ocs.CalItem("flat", [_ocl[0]], True, origin="library", rig=_mr3)
+    check(_mr1 == "C11" and _mr2 == "Mine" and _mr3 != "C11" and _ocs._rig_ok(_mrf, "C11", (_mr3,))
+          and not _ocs._rig_ok(_mrf, "C11"),
+          f"stacking uses My Rigs' names ({_mr1}; page-2 name {_mr2}; made-up {_mr3!r} still matches old flats)")
+
     # a calibration file added on page 2 whose header is then edited (master flat: No filter -> L-eXtreme) is read
     # again - page 2 kept showing 'No filter'
     import types as _rrt

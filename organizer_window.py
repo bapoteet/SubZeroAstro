@@ -885,7 +885,7 @@ class OrganizeDialog(QDialog):
             self.settings.setValue("organize/rig_tol_v3", True)
         # the same names in Calibrate and Stack (by camera + focal length)
         try:
-            rigs = _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
+            rigs = _st.Rigs.from_settings(self.settings)
             for r in riglist:
                 if r.get("camera"):
                     for f in r.get("focals") or []:

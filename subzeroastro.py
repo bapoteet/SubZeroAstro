@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.269 beta"
+APP_VERSION = "0.9.270 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -2967,7 +2967,7 @@ class MainWindow(QMainWindow):
         import cal_builder_window
         import stacking as _st
         try:
-            rigs = _st.Rigs(_json.loads(self.settings.value("stack/rigs", "[]") or "[]"))
+            rigs = _st.Rigs.from_settings(self.settings)
         except (ValueError, TypeError):
             rigs = _st.Rigs()
         fmts = tuple(f for f, k, d in (("fits", "stack/fits", True), ("xisf", "stack/xisf", False))

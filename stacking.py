@@ -379,8 +379,35 @@ def target_name(t: str | None, filt: str | None = None) -> str:
 class Rigs:
     """Telescope (rig) names, remembered per camera + focal length."""
 
-    def __init__(self, entries=None):
+    def __init__(self, entries=None, my_rigs=None):
         self.entries = list(entries or [])     # [{"camera":..., "focal":..., "name":...}]
+        self.my_rigs = list(my_rigs or [])     # Organize's My Rigs ([{"name", "focals", ...}])
+
+    @classmethod
+    def from_settings(cls, settings):
+        """The stacking page's remembered names, plus My Rigs (so a scope Organize files as 'SQA60Pro' is
+        called that here too, not '278mm scope')."""
+        import json as _json
+
+        def js(key):
+            try:
+                v = _json.loads(settings.value(key, "[]") or "[]")
+                return v if isinstance(v, list) else []
+            except (ValueError, TypeError):
+                return []
+        return cls(js("stack/rigs"), js("organize/riglist"))
+
+    def my_rig(self, info) -> "str | None":
+        """The My Rigs name for this frame: the rig folder it is filed under in the library, or its focal length
+        (and camera) matching one rig."""
+        if not self.my_rigs:
+            return None
+        try:
+            import organizer as O
+            name, why = O.match_rig(info, getattr(info, "path", None), self.my_rigs)
+        except Exception:  # noqa: BLE001
+            return None
+        return name or None
 
     @staticmethod
     def cam_model(c):
@@ -428,7 +455,8 @@ class Rigs:
         return f"{info.focal:g}mm scope" if info.focal else "My scope"
 
     def name_for(self, info: ImgInfo) -> str:
-        return self.lookup(info.camera, info.focal) or self.suggestion(info)
+        # a name you gave on this page wins, then My Rigs, then one made from the header (e.g. '278mm scope')
+        return self.lookup(info.camera, info.focal) or self.my_rig(info) or self.suggestion(info)
 
 
 # ==========================================================================
@@ -881,8 +909,10 @@ def organized_calibration(cal_dirs, g: "LightGroup", need: set, riglist=None, pr
     return items
 
 
-def _rig_ok(item: CalItem, rig: str):
-    return item.rig is None or item.rig.lower() == rig.lower()
+def _rig_ok(item: CalItem, rig: str, also=()):
+    """A flat belongs to its rig. also: other names this rig went by (masters saved before My Rigs named it -
+    under the name made from the header, e.g. '278mm scope' - still count)."""
+    return item.rig is None or item.rig.lower() in {rig.lower(), *(a.lower() for a in also if a)}
 
 
 SKY_FLAT_MIN = 12                       # light frames needed for a sky flat
@@ -965,7 +995,8 @@ def plan_group(g: LightGroup, items: list[CalItem], sky_pool=None) -> CalPlan:
                                    "flat correction will be inaccurate." if True else ""))
 
     # flats
-    flats = [c for c in cam_items if c.kind == "flat" and c.filter == L.filter and _rig_ok(c, g.rig)
+    flats = [c for c in cam_items if c.kind == "flat" and c.filter == L.filter
+             and _rig_ok(c, g.rig, (Rigs.suggestion(L),))
              and (not L.bayer or not c.bayer or c.bayer == L.bayer)]
     if not flats and L.smart:
         # a smart telescope's own flats record no filter (the DWARF's CALI_FRAME/flat): they are its only flats
