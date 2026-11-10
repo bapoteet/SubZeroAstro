@@ -259,17 +259,27 @@ def add_captured_column(dlg: QFileDialog):
 
         def data(self, idx, role=Qt.DisplayRole):
             if idx.isValid() and idx.column() == COL and role in (Qt.DisplayRole, Qt.ToolTipRole):
-                txt = self.captured(self.mapToSource(idx).siblingAtColumn(0))
+                try:
+                    txt = self.captured(self.mapToSource(idx).siblingAtColumn(0))
+                except Exception:  # noqa: BLE001
+                    txt = ""
                 return "…" if txt is None else txt
             return super().data(idx, role)
 
         def lessThan(self, left, right):
+            try:
+                return self._less(left, right)
+            except Exception:  # noqa: BLE001 - a sort must never fail
+                return False
+
+        def _less(self, left, right):
             fs = self._fs()
             if fs is None:
-                return super().lessThan(left, right)
+                return False
             col = left.column()
             if col == COL:
-                a, b = self.captured(left.siblingAtColumn(0)), self.captured(right.siblingAtColumn(0))
+                a = self.captured(left.siblingAtColumn(0)) or ""
+                b = self.captured(right.siblingAtColumn(0)) or ""
                 # folders without a date (or still being read) always go to the bottom
                 ka = (0, a) if a else (1, "")
                 kb = (0, b) if b else (1, "")
