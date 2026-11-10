@@ -2160,6 +2160,9 @@ def run(app, out_dir: Path) -> int:
         w.settings.setValue("stack/xisf", True)
         cal.mkdir()
         # frames still flagged (not rejected) when you go on to stacking: you're asked whether to reject them first
+        _sff = [f for f in w.frames.values() if not f.rejected and not f.error and not f.flagged][:2]
+        for f in _sff:                   # two frames flagged (not rejected) when going on to stacking
+            f.flagged = True
         _sfl = sum(1 for f in w.frames.values() if f.flagged and not f.rejected and not f.error)
         _kvc = w.show_combo.currentText()
         w.show_combo.setCurrentText("Kept")
@@ -2189,10 +2192,11 @@ def run(app, out_dir: Path) -> int:
         if _sfl:
             QTimer.singleShot(200, _stack_too)
         w.open_stacking()
-        if _sfl:
-            check("still flagged" in _sfa.get("text", ""),
-                  f"going on to stacking with {_sfl} frames still flagged asks whether to reject them first "
-                  f"({_sfa.get('text', 'not asked')!r})")
+        check(_sfl >= 2 and "still flagged" in _sfa.get("text", ""),
+              f"going on to stacking with {_sfl} frames still flagged asks whether to reject them first "
+              f"({_sfa.get('text', 'not asked')!r})")
+        for f in _sff:
+            f.flagged = False
         win = w.stack_win
         state["win"] = win
         check(len(win.groups) == 2, f"stacking window groups lights by filter ({[g.label() for g in win.groups]})")
