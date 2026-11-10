@@ -2045,7 +2045,7 @@ def run(app, out_dir: Path) -> int:
               f"and remembers the share ({_fdl.share_root(r'\\DS1522\Astro\Targets')})")
         # a "Captured" column: when the frames inside were taken (night folders, or DATE-OBS), not the folder's date
         _cpx = _pk.proxyModel()
-        _cph = _cpx.headerData(_cpx.columnCount() - 1, Qt.Horizontal) if _cpx is not None else None
+        _cph = _cpx.headerData(2, Qt.Horizontal) if _cpx is not None else None
         _cpr = out_dir / "captured_test"
         for _cpn in ("2026-07-05", "2026-07-09", "2026-07-22"):
             (_cpr / "NGC6888" / _cpn / "OIII").mkdir(parents=True, exist_ok=True)
@@ -2057,6 +2057,34 @@ def run(app, out_dir: Path) -> int:
         check(_cph == "Captured" and _cpa == "2026-07-05 → 07-22  (3 nights)" and _cpb == "2025-10-02",
               f"Add Folders… has a 'Captured' column - when the frames were taken, from night folders or the "
               f"frames' headers ({_cph}: {_cpa!r}, {_cpb!r})")
+        # ... and clicking its header sorts by it (folders without a date at the bottom, either way)
+        (_cpr / "Empty").mkdir(exist_ok=True)
+        _pk2 = fb.folder_picker(dlg, "sort test", _cpr)
+        _pk2.show()
+        _px2 = _pk2.proxyModel()
+        _tv2 = ([v for v in _pk2.findChildren(_QTV) if v.model() is _px2]
+                or [v for v in _pk2.findChildren(_QTV) if v.objectName() == "treeView"])
+
+        def _cprows():
+            if not _tv2:
+                return []
+            root = _tv2[0].rootIndex()
+            return [(_px2.index(r, 0, root).data(), _px2.index(r, 2, root).data())
+                    for r in range(_px2.rowCount(root))]
+        _cpend = time.time() + 10
+        while time.time() < _cpend and (len(_cprows()) < 3 or any(c == "…" for _n, c in _cprows())):
+            QApplication.processEvents()
+            time.sleep(0.05)
+        _cpo = {}
+        for _cpord in (Qt.AscendingOrder, Qt.DescendingOrder):
+            _tv2[0].sortByColumn(2, _cpord) if _tv2 else None
+            for _ in range(20):
+                QApplication.processEvents()
+                time.sleep(0.03)
+            _cpo[_cpord == Qt.AscendingOrder] = [n for n, _c in _cprows()]
+        _pk2.close()
+        check(_cpo.get(True) == ["M31", "NGC6888", "Empty"] and _cpo.get(False) == ["NGC6888", "M31", "Empty"],
+              f"clicking 'Captured' sorts oldest/newest first, undated folders last ({_cpo}, {_cprows()})")
         _pk.selectFile(f'"{session.name}" "{second.name}"')
         _pk.show()
         shot("7b_folder_picker.png", _pk)

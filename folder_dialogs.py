@@ -178,107 +178,47 @@ def captured_range(folder) -> str:
 
 
 def add_captured_column(dlg: QFileDialog):
-    """Add a 'Captured' column (when the frames inside were taken) to a Qt folder window's detail view."""
-    from PySide6.QtCore import QIdentityProxyModel, QModelIndex, QObject, QPersistentModelIndex, Qt, Signal
-    from PySide6.QtWidgets import QFileSystemModel, QTreeView
+    """Show 'Captured' (when the frames inside were taken) in a Qt folder window's detail view, sortable. It takes
+    the Kind column's place - in a folder window every row is a 'Folder' - so Date Modified stays."""
+    from PySide6.QtCore import QObject, QSortFilterProxyModel, Qt, QTimer, Signal
+    from PySide6.QtWidgets import QFileSystemModel
+
+    COL = 2                                         # Name, Size, Kind -> Captured, Date Modified
 
     class _Relay(QObject):
         done = Signal(str)
 
-    class CapturedProxy(QIdentityProxyModel):
+    class CapturedProxy(QSortFilterProxyModel):
         def __init__(self, parent=None):
             super().__init__(parent)
-            self._map = {}
             self._cache = {}
             self._pending = set()
             self._lock = _threading.Lock()
             self._relay = _Relay()
             self._relay.done.connect(self._ready)
+            self._resort = QTimer(self)
+            self._resort.setSingleShot(True)
+            self._resort.setInterval(400)
+            self._resort.timeout.connect(self._sort_again)
+            self.setSortCaseSensitivity(Qt.CaseInsensitive)
 
-        def _extra(self):
-            src = self.sourceModel()
-            return src.columnCount(QModelIndex()) if src is not None else 4
+        def _fs(self):
+            m = self.sourceModel()
+            return m if isinstance(m, QFileSystemModel) else None
 
-        def columnCount(self, parent=QModelIndex()):
-            return self._extra() + 1
-
-        def index(self, row, column, parent=QModelIndex()):
-            if column != self._extra():
-                return super().index(row, column, parent)
-            base = super().index(row, 0, parent)
-            if not base.isValid():
-                return QModelIndex()
-            src = super().mapToSource(base)
-            key = src.internalId()
-            self._map[key] = QPersistentModelIndex(src)
-            return self.createIndex(row, column, key)
-
-        def mapToSource(self, proxy):
-            if proxy.isValid() and proxy.column() == self._extra():
-                p = self._map.get(proxy.internalId())
-                if p is None or not p.isValid():
-                    return QModelIndex()
-                return self.sourceModel().index(p.row(), 0, p.parent())
-            return super().mapToSource(proxy)
-
-        def mapFromSource(self, src):
-            return super().mapFromSource(src)
-
-        def parent(self, child=None):
-            if child is None:
-                return super().parent()
-            if child.isValid() and child.column() == self._extra():
-                src = self.mapToSource(child)
-                return super().mapFromSource(src.parent()) if src.isValid() else QModelIndex()
-            return super().parent(child)
-
-        def sibling(self, row, column, idx):
-            if idx.isValid() and (column == self._extra() or idx.column() == self._extra()):
-                return self.index(row, column, self.parent(idx))
-            return super().sibling(row, column, idx)
-
-        def hasChildren(self, parent=QModelIndex()):
-            if parent.isValid() and parent.column() == self._extra():
-                return False
-            return super().hasChildren(parent)
-
-        def rowCount(self, parent=QModelIndex()):
-            if parent.isValid() and parent.column() == self._extra():
-                return 0
-            return super().rowCount(parent)
-
-        def flags(self, idx):
-            if idx.isValid() and idx.column() == self._extra():
-                return Qt.ItemIsEnabled | Qt.ItemIsSelectable
-            return super().flags(idx)
-
-        def headerData(self, section, orientation, role=Qt.DisplayRole):
-            if orientation == Qt.Horizontal and section == self._extra():
-                if role == Qt.DisplayRole:
-                    return "Captured"
-                if role == Qt.ToolTipRole:
-                    return ("When the frames inside were taken (from the night folders, or the frames' own "
-                            "DATE-OBS) - not when the folder was made or changed on this computer")
-                return None
-            return super().headerData(section, orientation, role)
-
-        def data(self, idx, role=Qt.DisplayRole):
-            if idx.isValid() and idx.column() == self._extra():
-                if role not in (Qt.DisplayRole, Qt.ToolTipRole):
-                    return None
-                src = self.mapToSource(idx)
-                model = self.sourceModel()
-                if not src.isValid() or not isinstance(model, QFileSystemModel) or not model.isDir(src):
-                    return None
-                path = model.filePath(src)
-                with self._lock:
-                    if path in self._cache:
-                        return self._cache[path]
-                    if path not in self._pending:
-                        self._pending.add(path)
-                        _threading.Thread(target=self._work, args=(path,), daemon=True).start()
-                return "…"
-            return super().data(idx, role)
+        def captured(self, src) -> "str | None":
+            """The text for a source row (None while it is being worked out)."""
+            fs = self._fs()
+            if fs is None or not src.isValid() or not fs.isDir(src):
+                return ""
+            path = fs.filePath(src)
+            with self._lock:
+                if path in self._cache:
+                    return self._cache[path]
+                if path not in self._pending:
+                    self._pending.add(path)
+                    _threading.Thread(target=self._work, args=(path,), daemon=True).start()
+            return None
 
         def _work(self, path):
             try:
@@ -292,25 +232,58 @@ def add_captured_column(dlg: QFileDialog):
             self._relay.done.emit(path)
 
         def _ready(self, path):
-            model = self.sourceModel()
-            if model is None:
+            fs = self._fs()
+            if fs is None:
                 return
-            try:
-                src = model.index(path)
-            except Exception:  # noqa: BLE001
-                return
-            if not src.isValid():
-                return
-            col0 = super().mapFromSource(src)
-            if col0.isValid():
-                cell = self.index(col0.row(), self._extra(), col0.parent())
-                self.dataChanged.emit(cell, cell)
+            src = fs.index(path)
+            if src.isValid():
+                cell = self.mapFromSource(src.siblingAtColumn(COL))
+                if cell.isValid():
+                    self.dataChanged.emit(cell, cell)
+            if self.sortColumn() == COL:
+                self._resort.start()                 # dates still coming in: put the rows in order again
+
+        def _sort_again(self):
+            if self.sortColumn() == COL:
+                self.sort(COL, self.sortOrder())
+
+        def headerData(self, section, orientation, role=Qt.DisplayRole):
+            if orientation == Qt.Horizontal and section == COL:
+                if role == Qt.DisplayRole:
+                    return "Captured"
+                if role == Qt.ToolTipRole:
+                    return ("When the frames inside were taken (from the night folders, or the frames' own "
+                            "DATE-OBS) - not when the folder was made or changed on this computer. "
+                            "Click to sort by it.")
+            return super().headerData(section, orientation, role)
+
+        def data(self, idx, role=Qt.DisplayRole):
+            if idx.isValid() and idx.column() == COL and role in (Qt.DisplayRole, Qt.ToolTipRole):
+                txt = self.captured(self.mapToSource(idx).siblingAtColumn(0))
+                return "…" if txt is None else txt
+            return super().data(idx, role)
+
+        def lessThan(self, left, right):
+            fs = self._fs()
+            if fs is None:
+                return super().lessThan(left, right)
+            col = left.column()
+            if col == COL:
+                a, b = self.captured(left.siblingAtColumn(0)), self.captured(right.siblingAtColumn(0))
+                # folders without a date (or still being read) always go to the bottom
+                ka = (0, a) if a else (1, "")
+                kb = (0, b) if b else (1, "")
+                if ka[0] != kb[0]:
+                    return (ka[0] < kb[0]) == (self.sortOrder() == Qt.AscendingOrder)
+                if a != b:
+                    return a < b
+                return fs.fileName(left).lower() < fs.fileName(right).lower()
+            if col == 1:
+                return fs.size(left) < fs.size(right)
+            if col == 3:
+                return fs.lastModified(left) < fs.lastModified(right)
+            return fs.fileName(left).lower() < fs.fileName(right).lower()
 
     proxy = CapturedProxy(dlg)
     dlg.setProxyModel(proxy)
-    for v in dlg.findChildren(QTreeView):
-        try:
-            v.header().resizeSection(proxy._extra(), 230)
-        except Exception:  # noqa: BLE001
-            pass
     return proxy
