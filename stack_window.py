@@ -615,6 +615,31 @@ class StackWindow(QMainWindow):
         return names
 
     # ------------------------------------------------------------ data
+    def _reread_changed_added(self):
+        """Calibration files you added are read once; one whose file changed since (its header edited on page 1 -
+        a master flat's FILTER from No filter to L-eXtreme) is read again, so its new values count."""
+        stamps = getattr(self, "_added_stamps", {})
+        fresh, changed = [], []
+        for i in self.added_infos:
+            try:
+                m = os.stat(i.path).st_mtime_ns
+            except OSError:
+                fresh.append(i)
+                continue
+            k = str(i.path)
+            if k in stamps and stamps[k] != m:
+                changed.append(i.path)
+            else:
+                fresh.append(i)
+            stamps[k] = m
+        self._added_stamps = stamps
+        if changed:
+            infos, _ = st.scan_paths(changed)
+            fresh += infos
+            self.added_infos = fresh
+            self.log(f"Read again (changed since you added them): " + ", ".join(Path(p).name for p in changed[:5])
+                     + (f" and {len(changed) - 5} more" if len(changed) > 5 else ""))
+
     def refresh_all(self):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
@@ -623,6 +648,7 @@ class StackWindow(QMainWindow):
             except Exception as e:  # noqa: BLE001 - the library is a help; added frames must still work
                 lib = []
                 self.log(f"Could not read the calibration masters folder ({e}) - using the added files only")
+            self._reread_changed_added()
             added = st.group_calibration(self.added_infos)
             self.items = lib + added
             # a group the user unticked stays unticked when the list is rebuilt (e.g. after adding calibration)

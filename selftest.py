@@ -881,6 +881,26 @@ def run(app, out_dir: Path) -> int:
           f"Stacking finds what's missing in the organized library: July flats of this rig (not January's), the "
           f"camera's 180 s darks from another rig's folder, bias ({[c.label() for c in _ocx]}, {_ocp.warnings})")
 
+    # a calibration file added on page 2 whose header is then edited (master flat: No filter -> L-eXtreme) is read
+    # again - page 2 kept showing 'No filter'
+    import types as _rrt
+    import stack_window as _rrsw
+    import fits_edit as _rrfe
+    _rrp = out_dir / "reread_flat" / "MasterFlat_No filter.fits"
+    _rrp.parent.mkdir(parents=True, exist_ok=True)
+    core.write_fits(_rrp, np.full((16, 16), 1000, np.uint16),
+                    {"IMAGETYP": "Flat Frame", "INSTRUME": "ZWO ASI2600MC Duo", "EXPTIME": 2.0, "FILTER": "No filter",
+                     "DATE-OBS": "2026-11-02T10:00:00"}, bitpix=16)
+    _rri, _ = _ocs.scan_paths([_rrp])
+    _rrw = _rrt.SimpleNamespace(added_infos=list(_rri), log=lambda t: None)
+    _rrsw.StackWindow._reread_changed_added(_rrw)
+    time.sleep(0.05)
+    _rrfe.edit_many([_rrp], {"FILTER": "LExt"})
+    os.utime(_rrp, None)
+    _rrsw.StackWindow._reread_changed_added(_rrw)
+    _rrf = [i.filter for i in _rrw.added_infos]
+    check(_rrf == ["L-eXtreme"], f"an added calibration file whose header was edited is read again ({_rrf})")
+
     # a custom horizon as Telescopius / N.I.N.A. write it: 'az alt' per line (a header line or commas are fine)
     import target_picker as _tph
     _hzp = out_dir / "telescopius_horizon.hrz"

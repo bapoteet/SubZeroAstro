@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.267 beta"
+APP_VERSION = "0.9.268 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -3317,6 +3317,13 @@ class MainWindow(QMainWindow):
         prog.close()
         self._reread_headers(frames)
         msg = f"Changed {len(done)} file(s)" + (f"; {len(failed)} could not be changed" if failed else "")
+        try:
+            import session_log as _slog
+            _slog.write("headers", ", ".join(f"{k}={v!r}" for k, v in changes.items()) + f" - {msg}: "
+                + ", ".join(Path(f.path).name for f in frames[:5]) + (" …" if len(frames) > 5 else "")
+                + "".join(f"\n   could not change {Path(p).name}: {e}" for p, e in failed[:8]))
+        except Exception:  # noqa: BLE001
+            pass
         self.statusBar().showMessage(msg, 8000)
         if failed:
             QMessageBox.warning(self, "Edit FITS Headers", msg + ":\n\n" + "\n".join(
