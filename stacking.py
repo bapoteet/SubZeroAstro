@@ -1691,6 +1691,35 @@ def calibration_check(light: ImgInfo, cal: "Calibrator") -> list:
     return out
 
 
+def unusable_dark(light: ImgInfo, plan: "CalPlan") -> str:
+    """Why the planned dark must not be used, or "". A dark brighter than the lights themselves, or one with a
+    picture in it far above the bias (light leaked in, or not a dark at all), only adds its own pattern: M31's Ha,
+    OIII and SII came out as bright red squares with a 180 s 'dark' at 8186 ADU over lights at 530 ADU. Such a
+    dark is left out and the bias alone is subtracted."""
+    if plan.dark is None or plan.dark.data is None:
+        return ""
+    raw = ImageSource(light.path).read()
+    raw = (raw[0] if raw.ndim == 3 else raw)[::8, ::8].astype(np.float32)
+    dark = crop_to(plan.dark.data, plan.dark, light)
+    d8 = dark[::8, ::8].astype(np.float32)
+    if d8.shape != raw.shape:
+        return ""
+    raw_med, d_med = float(np.median(raw)), float(np.median(d8))
+    noise = _pixel_noise(raw)
+    if raw_med > 100 and d_med > raw_med + max(5.0, 0.5 * noise):
+        return (f"the dark master is BRIGHTER than the lights ({d_med:.0f} vs {raw_med:.0f} ADU) - a real dark never "
+                "is")
+    bias = (crop_to(plan.bias.data, plan.bias, light) if plan.bias is not None and plan.bias.data is not None
+            else None)
+    if bias is not None:
+        b_med = float(np.median(bias[::8, ::8]))
+        spread, mnoise = master_unevenness(dark)
+        if d_med - b_med > 2000 and spread > max(30.0, 6 * mnoise):
+            return (f"the dark master is {d_med - b_med:.0f} ADU above the bias and uneven like a picture (varies by "
+                    f"{spread:.0f} ADU) - light got in while it was taken, or it is not a dark")
+    return ""
+
+
 def fix_pixels(img, ys, xs, step=1):
     """Replace pixels with the mean of their same-colour neighbours."""
     h, w = img.shape
@@ -2800,6 +2829,17 @@ def stack_group(g: LightGroup, opts: StackOptions, multi_camera=False, progress=
     bayer = ref_info.bayer
     rgb_in = ref_info.planes == 3 and not bayer      # already-debayered colour stacks
     channels = ["R", "G", "B"] if (bayer or rgb_in) else ["L"]
+    try:
+        why_not = "" if rgb_in else unusable_dark(ref_info, plan)
+    except Exception:  # noqa: BLE001 - a check must never stop stacking
+        why_not = ""
+    if why_not:
+        log.append(f"WARNING: {why_not}. It is LEFT OUT: these frames are calibrated with "
+                   + ("the bias and flat only" if plan.bias is not None else "the flat only")
+                   + f" ({plan.dark.label()}). Take new darks with the scope fully covered, or remove this one from "
+                   "your calibration library.")
+        plan = _dc_replace(plan, dark=None)
+        g.plan = plan                          # what was really used (the header, the list of calibration files)
     cal = Calibrator(ref_info, plan)
     night_cals = {}
     if plan.night_flats:

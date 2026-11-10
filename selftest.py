@@ -1608,6 +1608,16 @@ def run(app, out_dir: Path) -> int:
     check(_g and "Calibration check" in _g[0] and not any("WARNING" in x for x in _g)
           and any("WARNING" in x and "practically zero" in x for x in _b),
           f"page 2 checks the dark subtraction and warns when a master is on the wrong scale ({_b[-1][:60]}…)")
+    # ... and a dark that cannot be right (brighter than the lights; far above the bias with a picture in it) is
+    # left out of the stack - the bias is used instead (M31's narrowband came out as red squares)
+    _ud_bias = _stk.CalItem("bias", [_li], True, data=np.full((120, 160), 500.0, np.float32))
+    _ud_dark = _stk.CalItem("dark", [_li], True, data=(8000 + 4000 * np.exp(-((_xl - 80) ** 2 + (_yl - 60) ** 2)
+                                                                               / (2 * 50 ** 2))).astype(np.float32))
+    _ud_ok = _stk.CalItem("dark", [_li], True, data=np.full((120, 160), 512.0, np.float32))
+    _ud1 = _stk.unusable_dark(_li, _stk.CalPlan(bias=_ud_bias, dark=_ud_dark, dark_mode="exact"))
+    _ud2 = _stk.unusable_dark(_li, _stk.CalPlan(bias=_ud_bias, dark=_ud_ok, dark_mode="exact"))
+    check("BRIGHTER" in _ud1 and _ud2 == "",
+          f"a dark brighter than the lights is left out of the stack ('{_ud1[:50]}…'); a normal dark is used")
     import xisf as _xs
     _xp = session.parent / "float_dark_nobounds.xisf"
     _xs.write_xisf(_xp, np.full((40, 50), 510.0 / 65535, np.float32), image_type="Master Dark")
