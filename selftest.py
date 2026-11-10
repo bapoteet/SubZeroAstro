@@ -888,9 +888,19 @@ def run(app, out_dir: Path) -> int:
                      [{"name": "C11", "focals": [1960]}]).name_for(_ocl[0])
     _mr3 = _ocs.Rigs().name_for(_ocl[0])
     _mrf = _ocs.CalItem("flat", [_ocl[0]], True, origin="library", rig=_mr3)
+    import copy as _mrcopy
+    _mrx = _mrcopy.copy(_ocl[0])
+    _mrx.path = Path("/elsewhere/NGC6888/l1.fits")              # not filed in a rig folder
+    _mr2 = _ocs.Rigs([{"camera": _ocl[0].camera, "focal": 1960.0, "name": "Mine"}],
+                     [{"name": "C11", "focals": [1960]}]).name_for(_mrx)
+    # filed in the library under C11: that rig, even though its focal length matches another rig and page 2
+    # once named it otherwise (M31 filed under Sightron75 was called '300Newt')
+    _mr4 = _ocs.Rigs([{"camera": _ocl[0].camera, "focal": 1960.0, "name": "300Newt"}],
+                     [{"name": "300Newt", "focals": [1960]}, {"name": "C11", "focals": [2800]}]).name_for(_ocl[0])
     check(_mr1 == "C11" and _mr2 == "Mine" and _mr3 != "C11" and _ocs._rig_ok(_mrf, "C11", (_mr3,))
-          and not _ocs._rig_ok(_mrf, "C11"),
-          f"stacking uses My Rigs' names ({_mr1}; page-2 name {_mr2}; made-up {_mr3!r} still matches old flats)")
+          and not _ocs._rig_ok(_mrf, "C11") and _mr4 == "C11",
+          f"stacking uses My Rigs' names ({_mr1}; page-2 name {_mr2}; made-up {_mr3!r} still matches old flats); "
+          f"the rig folder a frame is filed in wins over its focal length ({_mr4})")
 
     # a calibration file added on page 2 whose header is then edited (master flat: No filter -> L-eXtreme) is read
     # again - page 2 kept showing 'No filter'

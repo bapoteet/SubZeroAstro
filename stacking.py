@@ -454,9 +454,30 @@ class Rigs:
             return safe_name(t)
         return f"{info.focal:g}mm scope" if info.focal else "My scope"
 
+    def filed_rig(self, info) -> "str | None":
+        """The My Rigs rig whose folder this frame is filed in ('Light Frames/Sightron75/M31/…'): where you (or
+        Organize) put it says which rig took it, whatever the header's focal length says - frames filed under
+        Sightron75 were called '300Newt' because their focal length matched that rig."""
+        if not self.my_rigs:
+            return None
+        try:
+            import organizer as O
+            keys = {O._rig_folder_key(r.get("name")): r.get("name") for r in self.my_rigs if r.get("name")}
+            keys.pop("", None)
+            parts = re.split(r"[\\/]", str(getattr(info, "path", "") or ""))[:-1]
+        except Exception:  # noqa: BLE001
+            return None
+        for part in reversed(parts):                     # the deepest folder named after a rig
+            k = O._rig_folder_key(part)
+            if k in keys:
+                return keys[k]
+        return None
+
     def name_for(self, info: ImgInfo) -> str:
-        # a name you gave on this page wins, then My Rigs, then one made from the header (e.g. '278mm scope')
-        return self.lookup(info.camera, info.focal) or self.my_rig(info) or self.suggestion(info)
+        # the rig folder the frame is filed in wins, then a name you gave on this page, then My Rigs (focal length),
+        # then one made from the header (e.g. '278mm scope')
+        return (self.filed_rig(info) or self.lookup(info.camera, info.focal) or self.my_rig(info)
+                or self.suggestion(info))
 
 
 # ==========================================================================
