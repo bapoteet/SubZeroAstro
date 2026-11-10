@@ -2219,6 +2219,24 @@ def run(app, out_dir: Path) -> int:
             f.flagged = False
         win = w.stack_win
         state["win"] = win
+        # the calibration list shows what these lights could use - masters of other cameras are counted, not listed
+        # ('Show all' lists them); its flat isn't flagged just because it came from the organized library
+        import copy as _cpy
+        if win.items:
+            _cli = _cpy.copy(win.items[0])
+            _cli.infos = [_cpy.copy(win.items[0].infos[0])]
+            _cli.infos[0].camera = "Some Other Camera 9000"
+            _cli.origin = "library"
+            win.items.append(_cli)
+            win.fill_cal_list()
+            _clt = [win.cal_list.item(i).text() for i in range(win.cal_list.count())]
+            win.cal_show_all.setChecked(True)
+            _cla = win.cal_list.count()
+            win.cal_show_all.setChecked(False)
+            win.items.remove(_cli)
+            win.fill_cal_list()
+            check(any("more for other cameras" in t for t in _clt) and _cla == len(win.items) + 1,
+                  f"the calibration list hides other cameras' masters until 'Show all' ({_clt[-1:]}, {_cla})")
         # page 2 comes back as you left it only with the same frames AND the same filters: a filter set on page 1
         # after a first visit (No filter -> L-eXtreme) kept showing No filter
         _pkk = w.kept_lights()

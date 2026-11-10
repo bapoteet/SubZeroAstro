@@ -443,6 +443,11 @@ class StackWindow(QMainWindow):
         for b in (b1, b2, b3, b5):
             crow.addWidget(b)
         crow.addStretch(1)
+        self.cal_show_all = QCheckBox("Show all")
+        self.cal_show_all.setToolTip("Every master in your calibration folder, for every camera - not only what "
+                                     "the light frames on this page could use")
+        self.cal_show_all.toggled.connect(lambda _on: self.fill_cal_list())
+        crow.addWidget(self.cal_show_all)
         crow.addWidget(b4)
         cl.addLayout(crow)
         self.cal_list = QListWidget()
@@ -748,7 +753,16 @@ class StackWindow(QMainWindow):
         for g in self.groups:
             for c in g.plan.all_items():
                 used.add(id(c))
+        # only what these lights could use (their cameras) - the folder can hold masters of every camera you own;
+        # "Show all" lists everything. In use (●) and frames you added are always listed.
+        cams = {g.camera for g in self.groups}
+        show_all = getattr(self, "cal_show_all", None) is not None and self.cal_show_all.isChecked()
+        hidden = 0
         for c in self.items:
+            if not (show_all or id(c) in used or c.origin == "added"
+                    or any(st._same_cam(c.camera, cam) for cam in cams)):
+                hidden += 1
+                continue
             mark = "●" if id(c) in used else "○"
             it = QListWidgetItem(f"{mark}  {c.label()}")
             it.setData(Qt.UserRole, id(c))
@@ -757,6 +771,11 @@ class StackWindow(QMainWindow):
                           + ("Used by a group below" if id(c) in used else "Not needed by any group"))
             if id(c) not in used:
                 it.setForeground(QColor(140, 140, 150))
+            self.cal_list.addItem(it)
+        if hidden:
+            it = QListWidgetItem(f"… and {hidden} more for other cameras (tick 'Show all' to list them)")
+            it.setFlags(Qt.NoItemFlags)
+            it.setForeground(QColor(140, 140, 150))
             self.cal_list.addItem(it)
 
     def status_cell(self, plan: st.CalPlan, kind):
@@ -775,7 +794,8 @@ class StackWindow(QMainWindow):
             return (WARN if plan.bias else BAD), next((w for k, w in plan.warnings if k == "dark"), "missing")
         if plan.flat:
             fb = next((w for k, w in plan.warnings if k == "flatbias"), None)
-            return (WARN if fb or plan.notes else OK), plan.flat.label() + (f"\n{fb}" if fb else "") + \
+            warn_notes = [n for n in plan.notes if not n.startswith("From your organized library")]
+            return (WARN if fb or warn_notes else OK), plan.flat.label() + (f"\n{fb}" if fb else "") + \
                 ("\n" + "\n".join(plan.notes) if plan.notes else "")
         return BAD, next((w for k, w in plan.warnings if k == "flat"), "missing")
 
@@ -993,8 +1013,10 @@ class StackWindow(QMainWindow):
             if id(c) in ids and c.origin == "added":
                 drop |= {str(i.path) for i in c.infos}
         if not drop:
-            QMessageBox.information(self, "Stacking", "Only calibration frames you added can be removed here — "
-                                    "masters in your calibration folder are always available.")
+            QMessageBox.information(self, "Stacking", "Only calibration frames you added can be removed here.\n\n"
+                                    "The others are the masters saved in your calibration folder: they are listed "
+                                    "as choices, and only the ones marked ● are used. Nothing else from that "
+                                    "folder goes into the stack.")
             return
         self.added_infos = [i for i in self.added_infos if str(i.path) not in drop]
         self.refresh_all()
