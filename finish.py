@@ -4894,7 +4894,7 @@ class TameCore(Tool):
             lo, hi = room * 0.2, room * 4.0
             for _ in range(30):
                 mid = 0.5 * (lo + hi)
-                if mid * (1 - np.exp(-(g_top - e) / mid)) > min(room, g_top - e) * 0.8:
+                if mid * (1 - np.exp(-(g_top - e) / mid)) > min(room, g_top - e) * 0.7:
                     hi = mid
                 else:
                     lo = mid
