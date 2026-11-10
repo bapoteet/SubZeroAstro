@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.266 beta"
+APP_VERSION = "0.9.267 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -2949,7 +2949,17 @@ class MainWindow(QMainWindow):
             kept = [f for f in kept if f.loaded]
         import stack_window
         self.ready_bar.hide()
-        ui_header.open_page(self, "stack_win", tuple(sorted(str(f.path) for f in kept)), lambda: stack_window.StackWindow(self, kept, self.settings))
+        # the page comes back as you left it only if the same frames come with the same filter, target and
+        # exposure: a filter set on page 1 after a first visit (No filter -> L-eXtreme) kept showing No filter
+        ui_header.open_page(self, "stack_win", self.stack_page_key(kept),
+                            lambda: stack_window.StackWindow(self, kept, self.settings))
+
+    @staticmethod
+    def stack_page_key(kept) -> tuple:
+        """What page 2 was made from: the same frames with the same filter, target and exposure bring it back as
+        you left it; anything else makes it fresh."""
+        return tuple(sorted((str(f.path), str(getattr(f, "filter_override", None) or (f.info or {}).get("filter")),
+                             str((f.info or {}).get("object")), str((f.info or {}).get("exptime"))) for f in kept))
 
     def open_cal_builder(self, folder=None, modal=True):
         """Build Calibration Masters straight from page 1 - no light frames needed."""

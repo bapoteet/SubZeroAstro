@@ -2199,6 +2199,17 @@ def run(app, out_dir: Path) -> int:
             f.flagged = False
         win = w.stack_win
         state["win"] = win
+        # page 2 comes back as you left it only with the same frames AND the same filters: a filter set on page 1
+        # after a first visit (No filter -> L-eXtreme) kept showing No filter
+        _pkk = w.kept_lights()
+        _pk_a = w.stack_page_key(_pkk)
+        _pk_f = _pkk[0]
+        _pk_old = getattr(_pk_f, "filter_override", None)
+        _pk_f.filter_override = "L-eXtreme"
+        _pk_b = w.stack_page_key(_pkk)
+        _pk_f.filter_override = _pk_old
+        check(_pk_a != _pk_b and w.stack_page_key(_pkk) == _pk_a and getattr(win, "_page_key", None) == _pk_a,
+              "a filter changed on page 1 makes page 2 fresh (same frames and filters bring it back as you left it)")
         check(len(win.groups) == 2, f"stacking window groups lights by filter ({[g.label() for g in win.groups]})")
         check(all(len(g.frames) == 16 for g in win.groups), "each group has its 16 kept frames")
         import stacking as _stb

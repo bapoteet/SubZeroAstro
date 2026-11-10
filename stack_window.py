@@ -787,10 +787,17 @@ class StackWindow(QMainWindow):
             fchoices = sorted({c.filter for c in self.items if c.kind == "flat" and c.filter} | {g.filter})
             for name in fchoices:
                 fcombo.addItem(name)
+            # the usual filter names too (with only 'No filter' flats the list offered nothing else)
+            common = ["L-Ultimate", "L-eXtreme", "L-eNhance", "L-Synergy", "Askar D1", "Askar D2", "L-Pro", "ALP-T",
+                      "NBZ", "UV/IR cut", "L", "R", "G", "B", "Ha", "OIII", "SII", "No filter"]
+            extra = [n for n in common if n not in fchoices]
+            if extra:
+                fcombo.insertSeparator(fcombo.count())
+                fcombo.addItems(extra)
             fcombo.setCurrentText(g.filter)
             fcombo.setToolTip("The filter these lights were taken with. If the camera didn't record it (or got it "
-                              "wrong), pick the filter of your flats here and they will be used. Your files are "
-                              "not changed.")
+                              "wrong), pick it here - or type it - and the flats of that filter are used. The "
+                              "filters your flats have are listed first. Your files are not changed.")
             fcombo.activated.connect(lambda _i, g=g, cbx=fcombo: self.set_group_filter(g, cbx.currentText()))
             fcombo.lineEdit().editingFinished.connect(lambda g=g, cbx=fcombo: self.set_group_filter(g, cbx.currentText()))
             self.table.setCellWidget(r, 2, fcombo)
