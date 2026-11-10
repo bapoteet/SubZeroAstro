@@ -1729,6 +1729,15 @@ class TakeStarsOut(Tool):
             if _ng:
                 s.step_note += (f"; {_ng} small background galaxies or faint stars moved to the stars image, "
                                 "so they keep star colours")
+        if (s.stars is not None and s.rgb is not None and s.stars.shape[1:] == s.rgb.shape[1:]
+                and s.stars_linear == s.linear and target_type(s) == "galaxy"):
+            try:
+                s.rgb, s.stars, _nn = galaxy_nuclei_back(s.rgb, s.stars)
+                if _nn:
+                    s.step_note = (f"put the galaxy's nucleus back into the picture ({_nn} found) - star removal had "
+                                   "taken it for a star; now it is brightened and tamed with its core")
+            except Exception:  # noqa: BLE001 - never stop over this
+                pass
         s.done.append(self.key)
         return s
 
@@ -2500,6 +2509,73 @@ def small_objects_to_stars(rgb: np.ndarray, stars: np.ndarray):
         rgb[i] -= moved
         stars[min(i, stars.shape[0] - 1)] += moved
     return rgb.astype(np.float32), stars.astype(np.float32), int(keep.sum())
+
+
+def galaxy_nuclei_back(rgb: np.ndarray, stars: np.ndarray, max_n: int = 4):
+    """Star removal takes a galaxy's bright, star-like nucleus for a star (M31's, and M32's): in the stars image
+    no galaxy step reaches it - the core was stretched without it into a flat white disc, and Brighten Stars and
+    Put Stars Back then set a hard white dot in its middle. Whatever the stars image holds right at the peak of
+    the galaxy's own glow goes back into the picture, so the nucleus is brightened and tamed with its core.
+    Stars elsewhere on the galaxy stay stars. Returns (rgb, stars, nuclei moved)."""
+    L = _lum(rgb).astype(np.float32)
+    h, w = L.shape
+    S, f = _small_plane(L, 600)
+    sky = float(np.median(S))
+    noise = float(np.median(np.abs(S - sky))) * 1.4826 + 1e-12
+    B = _blur(S, 2.0)
+    peak = (B >= SpotFix._minmax(B, 11, np.max)) & (B > sky + 30 * noise)
+    if not peak.any():
+        return rgb, stars, 0
+    lab = _components(peak)
+    ids = [int(i) for i in np.unique(lab[lab > 0])]
+    sh, sw = S.shape
+    gy, gx = np.mgrid[:sh, :sw]
+    cands = []
+    for i in ids:
+        ys, xs = np.nonzero(lab == i)
+        cy, cx = float(ys.mean()), float(xs.mean())
+        d = np.hypot(gy - cy, gx - cx)
+        ring = (d >= 6) & (d <= 9)
+        # the glow of a galaxy reaches well out: a star's leftover halo does not
+        if ring.sum() < 20 or float(np.median(B[ring])) < sky + 10 * noise:
+            continue
+        cands.append((float(B[int(round(cy)), int(round(cx))]), cy, cx))
+    cands.sort(reverse=True)
+    Ls = _lum(stars).astype(np.float32)
+    nf = noise * f                                   # the noise of one full-size pixel, roughly
+    rgb, stars = rgb.copy(), stars.copy()
+    n = 0
+    for _v, cy, cx in cands[:max_n]:
+        Cy, Cx = int(cy * f + f / 2), int(cx * f + f / 2)
+        Rw = int(3 * f + 12)
+        y0, y1, x0, x1 = max(0, Cy - Rw), min(h, Cy + Rw + 1), max(0, Cx - Rw), min(w, Cx + Rw + 1)
+        win = Ls[y0:y1, x0:x1]
+        yy, xx = np.mgrid[y0:y1, x0:x1]
+        near = np.hypot(yy - Cy, xx - Cx) <= 2 * f + 4
+        if not near.any():
+            continue
+        j = int(np.argmax(np.where(near, win, -np.inf)))
+        top = float(win.flat[j])
+        if top < 5 * nf:
+            continue                                 # nothing of the nucleus in the stars image
+        py, px = int(yy.flat[j]), int(xx.flat[j])
+        dist = np.hypot(yy - py, xx - px)
+        ri = dist.astype(int)
+        prof = np.bincount(ri.ravel(), win.ravel()) / np.maximum(np.bincount(ri.ravel()), 1)
+        low = np.nonzero(prof < max(0.01 * top, 2 * nf))[0]
+        reach = int(low[0]) if low.size else Rw
+        rad = float(min(Rw, reach * 1.4 + 3))
+        wgt = np.clip((rad - dist) / max(0.3 * rad, 1.0), 0, 1).astype(np.float32)
+        wgt = wgt * wgt * (3 - 2 * wgt)
+        for k in range(stars.shape[0]):
+            mv = stars[k, y0:y1, x0:x1] * wgt
+            stars[k, y0:y1, x0:x1] -= mv
+            if stars.shape[0] == rgb.shape[0]:
+                rgb[k, y0:y1, x0:x1] += mv
+            else:
+                rgb[:, y0:y1, x0:x1] += mv[None] / stars.shape[0]
+        n += 1
+    return rgb.astype(np.float32), stars.astype(np.float32), n
 
 
 def rescue_object(rgb: np.ndarray, stars: np.ndarray):

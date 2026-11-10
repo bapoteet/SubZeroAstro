@@ -3196,6 +3196,29 @@ def run(app, out_dir: Path) -> int:
               f"planetary nebula: the part of it star removal took for a star goes back to the nebula (stars image "
               f"{_stk[0][_rgm].mean():.3f} -> {_st2[0][_rgm].mean():.3f}), bright stars stay; the ring is tamed after Curves")
 
+        # a galaxy's nucleus taken for a star goes back to the galaxy (M31: a white dot on a flat core);
+        # a star on the galaxy's disc and the field stars stay stars
+        _nrg = np.random.default_rng(7)
+        _nh, _nw = 900, 1300
+        _ny, _nx = np.mgrid[:_nh, :_nw].astype(np.float32)
+        _nu = (_nx - 650) * 0.8 + (_ny - 450) * 0.6
+        _nv = (-(_nx - 650) * 0.6 + (_ny - 450) * 0.8) / 0.35
+        _ngal = 0.01 * np.exp(-7.67 * ((np.hypot(_nu, _nv) / 160) ** 0.25 - 1))
+        _nsl = (0.02 + _ngal + _nrg.normal(0, 0.001, (_nh, _nw))).astype(np.float32)
+        _nst = np.zeros((_nh, _nw), np.float32)
+        for _cy, _cx, _a, _sg in [(450, 650, 0.6, 2.4), (420, 720, 0.3, 1.6)] + [
+                (_nrg.uniform(15, _nh - 15), _nrg.uniform(15, _nw - 15), _nrg.uniform(0.01, 0.4), 1.6) for _ in range(200)]:
+            _gy, _gx = np.mgrid[int(_cy) - 12:int(_cy) + 13, int(_cx) - 12:int(_cx) + 13]
+            _nst[_gy, _gx] += (_a * np.exp(-((_gy - _cy) ** 2 + (_gx - _cx) ** 2) / (2 * _sg * _sg))).astype(np.float32)
+        _nr, _ns, _nn = F.galaxy_nuclei_back(np.stack([_nsl] * 3), np.stack([_nst] * 3))
+        _nr0, _ns0, _nn0 = F.galaxy_nuclei_back(np.stack([np.full_like(_nsl, 0.02)] * 3), np.stack([_nst] * 3))
+        check(_nn >= 1 and float(_ns[0, 445:456, 645:656].max()) < 0.01 and float(_nr[0, 450, 650]) > 0.5
+              and abs(float(_ns[0, 420, 720]) - float(_nst[420, 720])) < 0.01 and _nn0 == 0
+              and float(_ns.sum()) > 0.97 * 3 * float(_nst.sum()),
+              f"galaxy: the nucleus star removal took for a star goes back into the galaxy ({_nn} found, stars image "
+              f"at the centre {_nst[450, 650]:.2f} -> {_ns[0, 450, 650]:.3f}); a star on the disc stays a star; "
+              f"no galaxy, nothing moved ({_nn0})")
+
         # ... and the part moved back is round and follows the object's light - no square (NGC 7662 report)
         _qy, _qx = np.mgrid[:508, :664].astype(np.float32)
         _qr = np.hypot(_qx - 332, _qy - 254)
