@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.264 beta"
+APP_VERSION = "0.9.265 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -2394,8 +2394,8 @@ class MainWindow(QMainWindow):
     # -------------------------------------------------------------- list
     def frame_visible(self, f: core.Frame) -> bool:
         show = self.show_combo.currentText()
-        if show == "Kept" and f.rejected:
-            return False
+        if show == "Kept" and (f.rejected or f.flagged):    # only what will be stacked; flagged ones wait under
+            return False                                       # "Flagged" for your decision
         if show == "Rejected" and not f.rejected:
             return False
         if show == "Flagged" and not f.flagged:
@@ -2732,13 +2732,13 @@ class MainWindow(QMainWindow):
         if reject and len(uids) == 1 and self.act_advance.isChecked() and self.show_combo.currentText() == "All frames":
             self.step(1)
 
-    def reject_flagged(self):
+    def reject_flagged(self, *_a, ask=True):         # (*_a: a menu action passes its "checked" here)
         uids = [u for u, f in self.frames.items() if f.flagged and not f.rejected]
         if not uids:
             QMessageBox.information(self, APP_NAME, "No frames are flagged.\n\n"
                                     "Flag frames with F, by dragging across the chart, or with Auto-Flag.")
             return
-        if QMessageBox.question(self, APP_NAME, f"Move {len(uids)} flagged frames to REJECTED?\n\n"
+        if ask and QMessageBox.question(self, APP_NAME, f"Move {len(uids)} flagged frames to REJECTED?\n\n"
                                 "(You can undo this with Ctrl+Z.)") != QMessageBox.StandardButton.Yes:
             return
         flags = self.flag_snapshot()
@@ -2818,7 +2818,7 @@ class MainWindow(QMainWindow):
             f = self.frames[u]
             f.flagged = u in snap
             f.flag_note = snap.get(u, "")
-        if self.show_combo.currentText() == "Flagged":
+        if self.show_combo.currentText() in ("Flagged", "Kept"):
             self.rebuild_list()
         else:
             for u in changed:
@@ -2841,7 +2841,7 @@ class MainWindow(QMainWindow):
             self.frames[u].flagged = state
             if not state:
                 self.frames[u].flag_note = ""
-        if self.show_combo.currentText() == "Flagged":
+        if self.show_combo.currentText() in ("Flagged", "Kept"):
             self.rebuild_list()
         else:
             for u in uids:
@@ -2920,6 +2920,27 @@ class MainWindow(QMainWindow):
             if box.clickedButton() is b_cal:
                 self.open_cal_builder()
             return
+        flagged = [f for f in kept if f.flagged]
+        if flagged:
+            box = QMessageBox(self)
+            box.setWindowTitle(APP_NAME)
+            box.setIcon(QMessageBox.Question)
+            box.setText(f"{len(flagged)} of the {len(kept)} kept frames are still flagged (marked to reject, but not "
+                        "rejected yet).")
+            box.setInformativeText("Reject them now, before stacking? Flagged frames that aren't rejected go into "
+                                   "the stack.")
+            b_rej = box.addButton(f"Reject the {len(flagged)} Flagged, Then Stack", QMessageBox.AcceptRole)
+            b_keep = box.addButton("Stack Them Too", QMessageBox.DestructiveRole)
+            box.addButton(QMessageBox.Cancel)
+            box.setDefaultButton(b_rej)
+            box.exec()
+            if box.clickedButton() is b_rej:
+                self.reject_flagged(ask=False)
+                kept = self.kept_lights()
+                if not kept:
+                    return
+            elif box.clickedButton() is not b_keep:
+                return
         if self.loaded_count < len(self.frames):
             if QMessageBox.question(self, APP_NAME, f"{len(self.frames) - self.loaded_count} frames are still "
                                     "being measured. Open the Stacking window with the frames measured so far?") \

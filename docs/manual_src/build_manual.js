@@ -378,6 +378,8 @@ steps([
   "Review the flagged frames (switch the list to *Flagged*); the measurements panel says why each was picked. Press **F** to un-flag one you want to keep.",
   "Press **Reject Flagged** (Shift+X). Rejected frames are moved into a `REJECTED` subfolder - nothing is deleted, and **Ctrl+Z** brings them back.",
 ]);
+p("**The list's views:** *Kept* shows only the frames that will go into the stack - not rejected and not flagged - so you can scroll through them and reject any outlier by hand. *Flagged* shows the frames waiting for your decision, *Rejected* the ones moved out, *All frames* everything. The coloured dot on each thumbnail is only its quality grade (green good, yellow marginal, red poor), not a decision; flagged frames have the yellow corner, rejected ones are darkened with a red border.");
+p("Going on to **Calibrate and Stack** while frames are still flagged asks first: reject them, or stack them too (a flagged frame that isn't rejected goes into the stack).");
 img("6_semi_aggressive_flagged.png", "After Semi-aggressive: suspect frames are flagged for review (example data)");
 p("**Auto-Flag** (Ctrl+F) lets you set your own limits. **X** rejects or restores the selected frame(s), **F** flags them, **D** clears all flags.");
 sec("6.4", "Filters, FITS headers and the viewer", ["Set Filter Name", "FITS header", "Edit FITS Headers", "Undo Last Header Change", "FITS viewer", "XISF viewer", "Default viewer", "Hide image"]);

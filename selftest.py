@@ -2159,7 +2159,40 @@ def run(app, out_dir: Path) -> int:
         w.settings.setValue("stack/masters_root", str(masters))
         w.settings.setValue("stack/xisf", True)
         cal.mkdir()
+        # frames still flagged (not rejected) when you go on to stacking: you're asked whether to reject them first
+        _sfl = sum(1 for f in w.frames.values() if f.flagged and not f.rejected and not f.error)
+        _kvc = w.show_combo.currentText()
+        w.show_combo.setCurrentText("Kept")
+        QApplication.processEvents()
+        _kvn = sum(1 for f in w.frames.values() if w.frame_visible(f))
+        _kvw = sum(1 for f in w.frames.values() if not f.rejected and not f.flagged
+                   and ((f.info.get("filter") or "No filter") == w.filter_combo.currentText()
+                        or w.filter_combo.currentIndex() == 0))
+        check(_kvn == _kvw and not any(w.frame_visible(f) for f in w.frames.values() if f.flagged),
+              f"'Kept' lists only frames that will be stacked - not rejected, not flagged ({_kvn} of "
+              f"{len(w.frames)}, {_sfl} flagged)")
+        w.show_combo.setCurrentText(_kvc)
+        QApplication.processEvents()
+        _sfa = {}
+
+        def _stack_too():
+            from PySide6.QtWidgets import QMessageBox as _QMB
+            box = QApplication.activeModalWidget()
+            if isinstance(box, _QMB):
+                _sfa["text"] = box.text()
+                for b in box.buttons():
+                    if b.text() == "Stack Them Too":
+                        b.click()
+                        return
+            if time.time() < _sfa.setdefault("until", time.time() + 5):
+                QTimer.singleShot(200, _stack_too)
+        if _sfl:
+            QTimer.singleShot(200, _stack_too)
         w.open_stacking()
+        if _sfl:
+            check("still flagged" in _sfa.get("text", ""),
+                  f"going on to stacking with {_sfl} frames still flagged asks whether to reject them first "
+                  f"({_sfa.get('text', 'not asked')!r})")
         win = w.stack_win
         state["win"] = win
         check(len(win.groups) == 2, f"stacking window groups lights by filter ({[g.label() for g in win.groups]})")
