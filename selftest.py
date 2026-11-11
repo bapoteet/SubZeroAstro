@@ -4491,6 +4491,10 @@ def run(app, out_dir: Path) -> int:
                   "EXPTIME": 180.0, "FOCALLEN": 360}
             _h.update(hd)
             core.write_fits(_p, (_orng.random((10, 12)) * 1000).astype(np.uint16), _h, bitpix=16)
+            # two files here share a name and size: written in the same clock tick (Windows), they would also share
+            # a modified time - the header cache's key - which no two real captures do
+            _gfits.n = getattr(_gfits, "n", 0) + 1
+            os.utime(_p, (1.79e9 + _gfits.n * 60, 1.79e9 + _gfits.n * 60))
         _gfits("SQA60Pro/Veil/2026-09-01/Light_001.fits", {"IMAGETYP": "Light", "OBJECT": "Veil Nebula",
                                                            "DATE-OBS": "2026-09-02T03:00:00"})
         _gfits("SQA60Pro/Veil/2026-09-01/FLAT/Flat_001.fits", {"IMAGETYP": "Flat", "DATE-OBS": "2026-09-02T10:00:00",
