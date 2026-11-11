@@ -236,6 +236,13 @@ class StackWorker(QThread):
             except Exception as e:  # noqa: BLE001
                 res = st.StackResult(g, error=str(e))
                 self.log.emit(f"FAILED: {e}")
+                if isinstance(e, PermissionError):
+                    _where = getattr(e, "filename", None) or "the save folder"
+                    self.log.emit(f"   SubZeroAstro is not allowed to write into {_where}. If it is on your NAS, "
+                                  "check that the share is mounted and that your user may write to it (open the "
+                                  "share in Finder or Explorer and try making a folder there). On a Mac, also check "
+                                  "System Settings › Privacy & Security › Files and Folders (Network Volumes) for "
+                                  "SubZeroAstro. Or pick another Master lights folder with Browse… and stack again.")
             self.results.append(res)
             self.group_done.emit(res)
         self.completed = True
