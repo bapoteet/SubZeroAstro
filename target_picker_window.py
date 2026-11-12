@@ -1,5 +1,6 @@
 """File › Tonight's Target Picker… - what to shoot tonight from where the rig is, with your trees and house
-taken into account. All computed here (target_picker.py); nothing is sent anywhere."""
+taken into account. All computed here (target_picker.py); only the picture of the clicked target is fetched (its
+position, from the CDS sky survey service - sky_image.py)."""
 from __future__ import annotations
 
 import datetime as _dt
@@ -181,6 +182,117 @@ class _Item(QTreeWidgetItem):
         return self.text(col) < other.text(col)
 
 
+class SkyPreview(QWidget):
+    """A colour picture of the clicked target (DSS2 survey, from CDS), with your camera's frame drawn on it as a
+    rectangle - how big the target is in your frame, at a glance. Fetched in the background and kept on disk."""
+    opener = None                       # the self-test stands in for the network here
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(230, 230)
+        self.pix = None
+        self.text = "Click a target to see it"
+        self.name = ""
+        self.fov_deg = 1.0
+        self.frame = None               # (width, height) of your frame, arc-minutes
+        self._token = 0
+        self._jobs = []
+        self.setToolTip("The sky around the target (DSS2 colour survey, from CDS). The yellow box is your camera's "
+                        "frame, from 'Your rig' above. North is up.")
+
+    def show_target(self, target, frame_arcmin=None, wait=False):
+        import sky_image as si
+        from PySide6.QtCore import QThread, Signal as _Sig
+        self._token += 1
+        tok = self._token
+        if target is None:
+            self.pix, self.text, self.name = None, "Click a target to see it", ""
+            self.update()
+            return
+        self.name = target.name + (f" ({target.common})" if target.common else "")
+        self.frame = tuple(frame_arcmin) if frame_arcmin else None
+        self.fov_deg = si.field_deg(target.size, self.frame)
+        self.pix, self.text = None, "Loading the picture…"
+        self.update()
+        ra, dec, fov, opener = target.ra, target.dec, self.fov_deg, type(self).opener
+
+        class _Get(QThread):
+            done = _Sig(object)
+
+            def run(self):
+                self.done.emit(si.fetch(ra, dec, fov, opener=opener))
+
+        job = _Get(self)
+        self._jobs.append(job)
+
+        def got(r, job=job):
+            if job in self._jobs:
+                self._jobs.remove(job)
+            if tok != self._token:
+                return                  # another target was clicked meanwhile
+            data, why = r
+            if data:
+                from PySide6.QtGui import QPixmap
+                pm = QPixmap()
+                if pm.loadFromData(data, "JPG") and not pm.isNull():
+                    self.pix, self.text = pm, ""
+                else:
+                    self.text = "The picture could not be read"
+            else:
+                self.text = "No picture (no internet connection?)"
+                self.setToolTip(f"Couldn't fetch the picture: {why}")
+            self.update()
+        job.done.connect(got)
+        job.start()
+        if wait:                         # the self-test waits for it
+            while job.isRunning():
+                QApplication.processEvents()
+                job.wait(20)
+            for _ in range(5):
+                QApplication.processEvents()
+
+    def frame_rect(self) -> "QRectF | None":
+        """Where your frame falls on the picture as drawn (None when the rig isn't filled in)."""
+        if not self.frame or not self.fov_deg:
+            return None
+        side = min(self.width(), self.height() - 34)
+        x0, y0 = (self.width() - side) / 2, 4
+        ppd = side / self.fov_deg                    # pixels per degree
+        fw, fh = max(self.frame) / 60 * ppd, min(self.frame) / 60 * ppd
+        cx, cy = x0 + side / 2, y0 + side / 2
+        return QRectF(cx - fw / 2, cy - fh / 2, fw, fh)
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.fillRect(self.rect(), QColor(8, 10, 16))
+        side = min(self.width(), self.height() - 34)
+        x0, y0 = (self.width() - side) / 2, 4
+        target = QRectF(x0, y0, side, side)
+        if self.pix is not None:
+            p.drawPixmap(target, self.pix, QRectF(self.pix.rect()))
+            fr = self.frame_rect()
+            if fr is not None:
+                p.setPen(QPen(QColor(255, 214, 64), 2))
+                p.drawRect(fr.intersected(target.adjusted(1, 1, -1, -1)))
+        else:
+            p.setPen(QColor(170, 175, 185))
+            p.drawText(target, Qt.AlignCenter | Qt.TextWordWrap, self.text)
+        p.setPen(QColor(220, 222, 228))
+        f = QFont(self.font())
+        p.setFont(f)
+        cap = self.name
+        if self.pix is not None:
+            cap += f"  ·  {self.fov_deg * 60:.0f}′ across" if self.fov_deg < 1 else f"  ·  {self.fov_deg:.1f}° across"
+        p.drawText(QRectF(4, y0 + side + 2, self.width() - 8, 16), Qt.AlignLeft | Qt.AlignVCenter, cap)
+        f.setPointSizeF(max(6.5, f.pointSizeF() - 2))
+        p.setFont(f)
+        p.setPen(QColor(140, 145, 155))
+        import sky_image as si
+        p.drawText(QRectF(4, y0 + side + 17, self.width() - 8, 14), Qt.AlignLeft | Qt.AlignVCenter,
+                   ("Yellow box: your frame  ·  " if self.frame and self.pix is not None else "") + si.CREDIT)
+
+
 COLS = ["Target", "Name", "Type", "Size", "In your frame", "Mag", "Hours", "Window", "Highest", "Moon", "Best"]
 
 
@@ -300,12 +412,22 @@ class TargetPickerDialog(QDialog):
                 w.setValue(type(w.value())(float(settings.value(f"picker/{key}", 0) or 0)))
             except (TypeError, ValueError):
                 pass
+        self.rig_box = QComboBox()
+        self.rig_box.setToolTip("One of My Rigs (Settings › My Rigs…): fills in its focal length, and the camera's "
+                                "pixel size and sensor when SubZeroAstro knows the camera. Whatever you type below "
+                                "is remembered for that rig.")
+        self._rig_fill = False
+        self._fill_rig_box()
+        self.rig_box.activated.connect(lambda i: self.use_rig(self.rig_box.itemData(i)))
+        gl.addWidget(QLabel("My rig"), 0, 0)
+        gl.addWidget(self.rig_box, 0, 1)
         for r, (lab, w) in enumerate((("Focal length", self.focal), ("Pixel size", self.pixel),
-                                      ("Sensor width (pixels)", self.wpx), ("Sensor height (pixels)", self.hpx))):
+                                      ("Sensor width (pixels)", self.wpx), ("Sensor height (pixels)", self.hpx)),
+                                     start=1):
             gl.addWidget(QLabel(lab), r, 0)
             gl.addWidget(w, r, 1)
         self.fov_note = QLabel("")
-        gl.addWidget(self.fov_note, 4, 0, 1, 2)
+        gl.addWidget(self.fov_note, 5, 0, 1, 2)
         top.addWidget(g)
 
         # ---- filters
@@ -366,8 +488,14 @@ class TargetPickerDialog(QDialog):
         self.tree.itemDoubleClicked.connect(lambda *_: self.about())
         split.addWidget(self.tree)
         self.chart = AltitudeChart()
-        split.addWidget(self.chart)
-        split.setSizes([420, 170])
+        bottom = QSplitter(Qt.Horizontal)
+        bottom.addWidget(self.chart)
+        self.preview = SkyPreview()
+        bottom.addWidget(self.preview)
+        bottom.setStretchFactor(0, 3)
+        bottom.setStretchFactor(1, 1)
+        split.addWidget(bottom)
+        split.setSizes([380, 270])
         lay.addWidget(split, 1)
 
         h = QHBoxLayout()
@@ -409,12 +537,19 @@ class TargetPickerDialog(QDialog):
         self._fov_note()
         for w in (self.focal, self.pixel, self.wpx, self.hpx):
             w.valueChanged.connect(lambda *_: self._fov_note())
+            w.valueChanged.connect(lambda *_: self._remember_rig())
+        last = settings.value("picker/rig", "") or ""
+        i = self.rig_box.findData(last) if last else -1
+        if i > 0:
+            self.rig_box.setCurrentIndex(i)
 
     # ---------------------------------------------------------------- inputs
     def _use_profile(self, idx):
         if idx <= 0 or idx > len(self.profiles):
             return
         d = self.profiles[idx - 1]
+        if getattr(self, "rig_box", None) is not None:      # the profile's numbers are not one of My Rigs'
+            self.rig_box.setCurrentIndex(0)
         self.lat.setValue(d["lat"])
         self.lon.setValue(d["lon"])
         if d.get("focal"):
@@ -426,6 +561,8 @@ class TargetPickerDialog(QDialog):
         self.prof.setCurrentIndex(idx)
 
     def from_picture(self, path=None):
+        if getattr(self, "rig_box", None) is not None:
+            self.rig_box.setCurrentIndex(0)
         if path is None:
             path, _ = QFileDialog.getOpenFileName(self, "A picture shot with this rig",
                                                   str(self.settings.value("picker/pic_dir", Path.home())),
@@ -540,6 +677,73 @@ class TargetPickerDialog(QDialog):
             self.horizon_note.setText(f"Open down to {self.min_alt.value()}°: "
                                       + (", ".join(open_dirs) if open_dirs else "nowhere - click the compass"))
 
+    # ---------------------------------------------------------------- My Rigs
+    def my_rigs(self) -> list:
+        import json as _json
+        try:
+            v = _json.loads(self.settings.value("organize/riglist", "[]") or "[]")
+            return [r for r in v if isinstance(r, dict) and r.get("name")]
+        except (ValueError, TypeError):
+            return []
+
+    def _fill_rig_box(self):
+        self.rig_box.clear()
+        rigs = self.my_rigs()
+        self.rig_box.addItem("Type it in below" if rigs else "(no rigs yet - Settings › My Rigs…)", "")
+        for r in rigs:
+            f = next((x for x in r.get("focals") or [] if x), None)
+            self.rig_box.addItem(r["name"] + (f"  ·  {float(f):g} mm" if f else ""), r["name"])
+        self.rig_box.setEnabled(bool(rigs))
+
+    def use_rig(self, name):
+        """Fill in focal length, pixel size and sensor for one of My Rigs: what you typed for it before, else its
+        focal length from My Rigs and its camera's sensor from SubZeroAstro's list of cameras."""
+        self.settings.setValue("picker/rig", name or "")
+        if not name:
+            return None
+        rig = next((r for r in self.my_rigs() if r.get("name") == name), None)
+        if rig is None:
+            return None
+        import json as _json
+        try:
+            mem = _json.loads(self.settings.value(f"picker/rigspec/{name}", "{}") or "{}")
+        except (ValueError, TypeError):
+            mem = {}
+        focal = mem.get("focal") or next((float(x) for x in rig.get("focals") or [] if x), 0.0)
+        cam = tp.camera_spec(rig.get("camera"))
+        pixel = mem.get("pixel") or (cam[0] if cam else 0.0)
+        wpx = mem.get("wpx") or (cam[1] if cam else 0)
+        hpx = mem.get("hpx") or (cam[2] if cam else 0)
+        self._rig_fill = True
+        try:
+            self.focal.setValue(float(focal or 0))
+            if pixel:
+                self.pixel.setValue(float(pixel))
+            if wpx and hpx:
+                self.wpx.setValue(int(wpx))
+                self.hpx.setValue(int(hpx))
+        finally:
+            self._rig_fill = False
+        self._fov_note()
+        if not (pixel and wpx and hpx):
+            self.fov_note.setText(f"{name}: focal length filled in - type its camera's pixel size and sensor once; "
+                                  "they're remembered for this rig")
+        if self.plans:
+            self.compute()                       # 'In your frame' for this rig
+        return (self.focal.value(), self.pixel.value(), self.wpx.value(), self.hpx.value())
+
+    def _remember_rig(self):
+        """What you type for the chosen rig is kept, so it comes back next time you pick it."""
+        if self._rig_fill or not getattr(self, "rig_box", None):
+            return
+        name = self.rig_box.currentData()
+        if not name:
+            return
+        import json as _json
+        self.settings.setValue(f"picker/rigspec/{name}", _json.dumps(
+            {"focal": self.focal.value(), "pixel": self.pixel.value(), "wpx": self.wpx.value(),
+             "hpx": self.hpx.value()}))
+
     def fov(self):
         return tp.fov_arcmin(self.focal.value(), self.pixel.value(), self.wpx.value(), self.hpx.value())
 
@@ -547,6 +751,8 @@ class TargetPickerDialog(QDialog):
         f = self.fov()
         self.fov_note.setText(f"Field of view {f[0] / 60:.2f}° × {f[1] / 60:.2f}°" if f else
                               "Fill these in to see how big each target is in your frame")
+        if getattr(self, "preview", None) is not None and self.preview.name and getattr(self, "tree", None):
+            self._chart(self.tree.currentItem())          # the yellow frame follows the rig
 
     # ---------------------------------------------------------------- compute and show
     def compute(self):
@@ -702,6 +908,10 @@ class TargetPickerDialog(QDialog):
     def _chart(self, cur, _prev=None):
         p = cur.data(0, Qt.UserRole + 1) if cur is not None else None
         self.chart.show_plan(self.nt, p, self.horizon, float(self.min_alt.value()))
+        try:
+            self.preview.show_target(p.target if p is not None else None, self.fov())
+        except Exception:  # noqa: BLE001 - the picture is a nicety; never stop the picker over it
+            pass
 
     # ---------------------------------------------------------------- actions
     def copy_coords(self):

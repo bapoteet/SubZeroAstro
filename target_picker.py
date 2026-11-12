@@ -734,3 +734,32 @@ def locate_ip(timeout=10):
             why = str(e)
     weather._log(f"Use My Location: couldn't find it from the internet connection ({why})")
     return None, why or "no answer"
+
+
+# ---------------------------------------------------------------- cameras: pixel size and sensor (for 'In your frame')
+# (brand, model number) -> (pixel size µm, width px, height px) at bin 1 - the cameras people image with
+CAMERAS = {
+    ("zwo", "2600"): (3.76, 6248, 4176), ("zwo", "6200"): (3.76, 9576, 6388), ("zwo", "533"): (3.76, 3008, 3008),
+    ("zwo", "294"): (4.63, 4144, 2822), ("zwo", "183"): (2.4, 5496, 3672), ("zwo", "071"): (4.78, 4944, 3284),
+    ("zwo", "1600"): (3.8, 4656, 3520), ("zwo", "585"): (2.9, 3840, 2160), ("zwo", "678"): (2.0, 3840, 2160),
+    ("zwo", "2400"): (5.94, 6072, 4042), ("zwo", "174"): (5.86, 1936, 1216), ("zwo", "120"): (3.75, 1280, 960),
+    ("zwo", "462"): (2.9, 1936, 1096), ("zwo", "662"): (2.9, 1920, 1080), ("zwo", "715"): (1.45, 3840, 2160),
+    ("qhy", "600"): (3.76, 9576, 6388), ("qhy", "268"): (3.76, 6280, 4210), ("qhy", "294"): (4.63, 4164, 2796),
+    ("qhy", "183"): (2.4, 5544, 3684), ("qhy", "533"): (3.76, 3008, 3008), ("qhy", "163"): (3.8, 4656, 3522),
+    ("po", "poseidon"): (3.76, 6252, 4176), ("po", "ares"): (3.76, 3008, 3008), ("po", "uranus"): (2.9, 3856, 2180),
+}
+
+
+def camera_spec(name):
+    """(pixel size µm, width px, height px) for a camera name as it is written anywhere ('ZWO ASI2600MC Pro',
+    'ASI2600MM', '2600MC Duo', 'QHY600M', 'Poseidon-C Pro'), or None when it isn't known."""
+    import re as _re
+    s = _re.sub(r"[\W_]", "", str(name or "")).lower()
+    if not s:
+        return None
+    for key in ("poseidon", "ares", "uranus"):
+        if key in s:
+            return CAMERAS.get(("po", key))
+    brand = "qhy" if "qhy" in s else "zwo"
+    m = _re.search(r"(\d{3,4})", s)
+    return CAMERAS.get((brand, m.group(1))) if m else None

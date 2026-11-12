@@ -5182,6 +5182,22 @@ def run(app, out_dir: Path) -> int:
               f"{_pp.hours if _pp else 0:.1f} h of the {_pnt.dark_hours:.1f} dark hours, peaking at "
               f"{_pp.peak_alt if _pp else 0:.0f}°; 'open sky from NNW to SSW' opens the west and blocks the east")
         from PySide6.QtCore import QDate as _QDate0
+        import target_picker_window as _tpw
+        import sky_image as _ski
+        from PySide6.QtCore import QBuffer as _QBuf, QByteArray as _QBA
+        from PySide6.QtGui import QImage as _QImg
+        _skimg = _QImg(64, 64, _QImg.Format_RGB32)
+        _skimg.fill(0x203050)
+        _skba = _QBA()
+        _skbuf = _QBuf(_skba)
+        _skbuf.open(_QBuf.WriteOnly)
+        _skimg.save(_skbuf, "JPG")
+        _skurls = []
+
+        def _skopen(u, timeout, _d=bytes(_skba)):
+            _skurls.append(u)
+            return _d
+        _tpw.SkyPreview.opener = staticmethod(_skopen)          # no network in the self-test
         _pwin = w.open_target_picker()
         _ph_ok = _pwin.use_my_location((29.7604, -95.3698, "test"))
         _ph = (_pwin.lat.value(), _pwin.lon.value(), _pwin.date.date() == _QDate0.currentDate())
@@ -5232,6 +5248,23 @@ def run(app, out_dir: Path) -> int:
         _pwin.tree.clearSelection()
         _pwin.find.setText("M 31")
         _pwin.tree.setCurrentItem(_pwin._first_plan_item())
+        # the clicked target's picture, with your frame drawn on it (360 mm, ASI2600: 3.7° x 2.5°)
+        _pwin.preview.resize(400, 434)
+        _pwin.preview.show_target(_pm.target, _pwin.fov(), wait=True)
+        _skr = _pwin.preview.frame_rect()
+        _skside = min(_pwin.preview.width(), _pwin.preview.height() - 34)
+        _skwant = max(_pwin.fov()) / 60 / _pwin.preview.fov_deg
+        _skok = (_pwin.preview.pix is not None and _skr is not None and abs(_skr.width() / _skside - _skwant) < 0.02
+                 and _skr.width() > _skr.height() and bool(_skurls) and "DSS2" in _skurls[-1] and "ra=10.6" in _skurls[-1])
+        _tpw.SkyPreview.opener = staticmethod(lambda u, t: (_ for _ in ()).throw(OSError("offline")))
+        _pwin.preview.show_target(_pm.target, None, wait=True)
+        _skoff = _pwin.preview.pix is None and "No picture" in _pwin.preview.text
+        _tpw.SkyPreview.opener = staticmethod(_skopen)
+        check(_skok and _skoff and abs(_ski.field_deg(190, (224, 150)) - 190 * 1.6 / 60) < 0.01
+              and abs(_ski.field_deg(3, None) - 0.2) < 0.001,
+              f"Tonight's Target Picker shows the clicked target's picture (M 31, {_pwin.preview.fov_deg:.1f}° across) "
+              f"with your frame drawn on it ({_skr.width() / _skside if _skr else 0:.2f} of the width, expected "
+              f"{_skwant:.2f}); offline it says so")
         _pw2 = _pwin.send_to_nina(folder=_pnf, ask=False) or []
         _pd2 = _pj.loads(_pw2[0].read_text(encoding="utf-8")) if _pw2 else {}
         _pc = _pd2.get("Items", {}).get("$values", [{}])[-1].get("Coordinates", {})
@@ -5243,6 +5276,29 @@ def run(app, out_dir: Path) -> int:
               f"with one of your own as the template keeps its steps and moves every coordinate to the new target "
               f"({_pw2[0].name if _pw2 else '-'})")
         _pwin.find.setText("")
+        # My Rigs in the picker: a rig fills in its focal length and its camera's sensor; what you type is kept
+        _prl0 = _pwin.settings.value("organize/riglist", "[]")
+        _pwin.settings.setValue("organize/riglist", _pj.dumps([{"name": "SQA60Pro", "focals": [278],
+                                                                "camera": "ZWO ASI2600MC Duo"},
+                                                               {"name": "C11", "focals": [1960]}]))
+        _pwin.settings.remove("picker/rigspec/C11")
+        _pwin._fill_rig_box()
+        _pr1 = _pwin.use_rig("SQA60Pro")
+        _pwin.rig_box.setCurrentIndex(_pwin.rig_box.findData("C11"))
+        _pr2 = _pwin.use_rig("C11")
+        _pwin.pixel.setValue(4.63)
+        _pwin.wpx.setValue(4144)
+        _pwin.hpx.setValue(2822)
+        _pwin.rig_box.setCurrentIndex(_pwin.rig_box.findData("SQA60Pro"))
+        _pwin.use_rig("SQA60Pro")
+        _pwin.rig_box.setCurrentIndex(_pwin.rig_box.findData("C11"))
+        _pr3 = _pwin.use_rig("C11")
+        _pwin.settings.setValue("organize/riglist", _prl0)
+        check(_pwin.rig_box.count() == 3 and _pr1 == (278.0, 3.76, 6248, 4176) and _pr2[0] == 1960.0
+              and _pr3 == (1960.0, 4.63, 4144, 2822) and _tp.camera_spec("QHY600M") == (3.76, 9576, 6388)
+              and _tp.camera_spec("Canon 6D") is None,
+              f"Tonight's Target Picker › My rig: SQA60Pro fills in 278 mm and the ASI2600's sensor ({_pr1}); the "
+              f"C11's camera typed in once comes back next time ({_pr3})")
         _pwin.close()
         # a calibration subframe that vanished after it was added is left out (not a failed stack); mount
         # drivers in TELESCOP don't become the telescope's name
