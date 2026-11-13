@@ -414,6 +414,8 @@ class OrganizeDialog(QDialog):
             t = "<i>Automatic organizing is off</i>"
         if last:
             t += f"<br><i>Last automatic run: {last}</i>"
+        if cfg["on"]:                                # green for go: it's on, at a glance
+            t = f"<span style='color:#46c85f'>{t}</span>"
         self.auto_note.setText(t)
 
     def open_auto(self, cfg=None, run_now=False):

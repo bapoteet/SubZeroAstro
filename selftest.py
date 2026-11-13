@@ -4613,6 +4613,11 @@ def run(app, out_dir: Path) -> int:
               f"Organize: masters without gain or temperature in the header get a folder Windows accepts "
               f"(no '?'), exposure read from the name ({_pmd[0] if _pmd else '-'})")
         _owin = w.open_organizer()
+        import organizer_auto as _oauto
+        _owin._show_auto_note()
+        _oag = "#46c85f" in _owin.auto_note.text()
+        check(_oag == bool(_oauto.load_config(_owin.settings)["on"]),
+              f"Organize: the Organize Automatically note is green when it is on ({_oag})")
         _owin.edit_rigs(rows=[{"name": "SQA60", "focals": [360]}, {"name": "RASA8", "focals": [400]}], tol_pct=5)
         _owin.layout_box.setCurrentIndex(_owin.layout_box.findData("rig"))
         _owin.same.setChecked(True)
