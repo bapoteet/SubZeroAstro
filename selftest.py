@@ -5175,6 +5175,18 @@ def run(app, out_dir: Path) -> int:
         _nc_dirgone = not (_nc_share / "2026-11-01").exists() and _nc_share.is_dir()
         _nc_last = _ncw.table.item(0, 3).text()
         _nc_default = _ncw.table.cellWidget(_ncw.add_row(), 2).value()
+        # Delete Old Frames on This Computer…: two warnings; No on the second deletes nothing, Yes on both deletes
+        # every old frame, filed or not (and the second warning counted the one not in the library)
+        _ncw.delete_old(row=0, answers=(1, True, False), wait=True)
+        _nc_after_no = sorted(p.name for p in _nc_share.rglob("*.fits"))
+        _nc_unf = _nc.old_frames({"name": "E", "folder": str(_nc_share)}, 1,
+                                 idx=_nc.library_index(str(_nc_lib)))["unfiled"]
+        _ncw.delete_old(row=0, answers=(1, True, True), wait=True)
+        _nc_after_yes = sorted(p.name for p in _nc_share.rglob("*.fits"))
+        check(_nc_after_no == ["M31_2.fits", "M31_3.fits"] and _nc_unf == 1 and _nc_after_yes == []
+              and getattr(_ncw, "old_result", {}).get("deleted") == 2,
+              f"Clean Up › Delete Old Frames on This Computer: nothing goes unless both warnings are answered Yes "
+              f"({_nc_after_no}); the last warning counts the frames not in the library ({_nc_unf}); then all go")
         _ncw.reject()
         w.settings.setValue("auto_org/dst", _nc_saved[0])
         w.settings.setValue("nina_clean/list", _nc_saved[1])

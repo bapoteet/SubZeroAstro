@@ -41,7 +41,8 @@ class NinaCleanupDialog(QDialog):
         lay.addWidget(self.table, 1)
         h = QHBoxLayout()
         for text, fn in (("Add Computer", lambda: self.add_row()), ("Remove", self.remove_row),
-                         ("Browse for Folder…", self.browse_row)):
+                         ("Browse for Folder…", self.browse_row),
+                         ("Delete Old Frames on This Computer…", lambda: self.delete_old())):
             b = QPushButton(text)
             b.clicked.connect(fn)
             h.addWidget(b)
@@ -245,6 +246,90 @@ class NinaCleanupDialog(QDialog):
             try:
                 import session_log as _sl
                 _sl.write("nina clean-up", "deleted: " + text.replace("\n", "; "))
+            except Exception:  # noqa: BLE001
+                pass
+        self.job.ok.connect(done)
+        self.job.failed.connect(lambda e: (self._busy(False), self.status.setText("Stopped: " + e.split("\n")[0])))
+        self._busy(True)
+        self.job.start()
+        if wait:
+            self._wait()
+        return self.job
+
+    # ---------------------------------------------------------------- delete old frames (no library check)
+    def delete_old(self, row=None, days=None, answers=None, wait=False, now=None):
+        """Delete Old Frames on This Computer…: every frame older than N days on the selected computer, filed in
+        your library or not. Two warnings first, each defaulting to No; the second says how many of them are NOT
+        in your organized library. answers = (days, yes1, yes2) stands in for the questions in the self-test."""
+        comps = self.computers()
+        r = self.table.currentRow() if row is None else row
+        if not comps:
+            QMessageBox.information(self, self.windowTitle(), "Add a N.I.N.A. computer's shared image folder first.")
+            return None
+        comp = comps[r if 0 <= r < len(comps) else 0]
+        if days is None and answers is None:
+            from PySide6.QtWidgets import QInputDialog
+            d, ok = QInputDialog.getInt(self, "Delete old frames", f"Delete every frame on <b>{comp['name']}</b> "
+                                        "older than how many days?", int(comp.get("keep_days") or NC.DEFAULT_KEEP),
+                                        0, 3650)
+            if not ok:
+                return None
+            days = d
+        elif answers is not None:
+            days = answers[0]
+        lib = NC.library_of(self.settings)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            idx = NC.library_index(lib) if lib else {}
+            rep = NC.old_frames(comp, days, idx=idx, now=now)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if rep["error"]:
+            self.status.setText(f"<b>{comp['name']}</b>: {rep['error']}")
+            return None
+        n, gb = len(rep["files"]), rep["bytes"] / 1e9
+        if not n:
+            self.status.setText(f"<b>{comp['name']}</b>: no frames older than {days} day(s).")
+            return 0
+        lost = (f"<br><br><b style='color:#e64646'>{rep['unfiled']} of them are NOT in your organized library</b> "
+                "- deleting them loses them for good unless you have another copy." if rep["unfiled"] else
+                "<br><br>All of them are also in your organized library (by name and size).")
+        q1 = (f"<b>You are about to delete your data.</b><br><br>{n} frame(s) ({gb:.1f} GB) older than {days} day(s) "
+              f"on <b>{comp['name']}</b> ({comp['folder']}) - whether they are in your library or not.<br><br>"
+              "Is this what you want to do?")
+        q2 = (f"<b>Are you sure? This is the last warning.</b><br><br>{n} frame(s) ({gb:.1f} GB) on "
+              f"<b>{comp['name']}</b> will be deleted and can't be brought back.{lost}<br><br>Delete them now?")
+        for k, q in enumerate((q1, q2)):
+            if answers is not None:
+                yes = answers[1 + k]
+            else:
+                box = QMessageBox(QMessageBox.Warning, self.windowTitle(), q, QMessageBox.Yes | QMessageBox.No, self)
+                box.setDefaultButton(QMessageBox.No)
+                box.button(QMessageBox.Yes).setText("Yes, Delete" if k else "Yes, Continue")
+                yes = box.exec() == QMessageBox.Yes
+            if not yes:
+                self.status.setText(f"<b>{comp['name']}</b>: nothing deleted.")
+                return None
+        from organizer_window import _Job
+        self.job = _Job(lambda job: NC.delete_old(rep, progress=lambda t, i, n_: job.note.emit(t, i, n_),
+                                                  stop=lambda: job.stop))
+        self.job.note.connect(self._note)
+
+        def done(d):
+            self._busy(False)
+            stamp = time.strftime("%Y-%m-%d %H:%M")
+            text = (f"{comp['name']}: {d['deleted']} old frame(s) deleted ({d['bytes'] / 1e9:.1f} GB freed)"
+                    + (f", {len(d['failed'])} not deleted ({d['failed'][0][1]})" if d["failed"] else ""))
+            self.status.setText(text)
+            if self.table.item(r if 0 <= r < self.table.rowCount() else 0, 3) is not None:
+                self.table.item(r if 0 <= r < self.table.rowCount() else 0, 3).setText(
+                    f"{stamp}: {d['deleted']} old deleted")
+            self.old_result = d
+            self.save()
+            try:
+                import session_log as _sl
+                _sl.write("nina clean-up", f"delete old frames (> {days} days, {rep['unfiled']} not in the library, "
+                                           f"confirmed twice): " + text)
             except Exception:  # noqa: BLE001
                 pass
         self.job.ok.connect(done)

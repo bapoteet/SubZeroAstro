@@ -229,3 +229,63 @@ def run(settings, progress=None, stop=None) -> str:
     stamp = time.strftime("%Y-%m-%d %H:%M")
     settings.setValue("nina_clean/last", f"{stamp}: " + "; ".join(parts))
     return "; ".join(parts)
+
+
+def old_frames(comp, days, idx=None, now=None, stop=None) -> dict:
+    """Every frame on one N.I.N.A. computer older than `days` - whether it is in your library or not (Delete Old
+    Frames on This Computer…). {name, folder, error, files: [(path, size)], bytes, unfiled: frames of them that are
+    NOT found in your organized library (by name and size) - the ones that would be lost}"""
+    now = time.time() if now is None else now
+    rep = {"name": comp.get("name") or comp.get("folder"), "folder": comp.get("folder"), "error": "", "files": [],
+           "bytes": 0, "unfiled": 0}
+    root = Path(comp.get("folder") or "")
+    if not str(root).strip() or not root.is_dir():
+        rep["error"] = f"can't reach {root}"
+        return rep
+    for dp, dns, fns in os.walk(root):
+        if stop and stop():
+            break
+        dns[:] = [d for d in dns if not O._nas_dir(d)]
+        for fn in fns:
+            if Path(fn).suffix.lower() not in O.EXTS:
+                continue
+            p = Path(dp) / fn
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            if now - st.st_mtime < float(days) * DAY:
+                continue
+            rep["files"].append((p, st.st_size))
+            rep["bytes"] += st.st_size
+            if idx is not None and not any(s == st.st_size for _q, s in idx.get(p.name.lower(), [])):
+                rep["unfiled"] += 1
+    return rep
+
+
+def delete_old(rep, progress=None, stop=None) -> dict:
+    """Deletes what old_frames() found (no library check - you confirmed it twice), then emptied folders."""
+    safe = [(p, s, None) for p, s in rep.get("files") or []]
+    done = {"name": rep["name"], "deleted": 0, "bytes": 0, "failed": []}
+    root = Path(rep.get("folder") or "")
+    dirs = set()
+    for i, (p, size, _m) in enumerate(safe):
+        if stop and stop():
+            break
+        if progress and i % 25 == 0:
+            progress(f"{rep['name']}: deleting {i + 1} of {len(safe)}", i, len(safe))
+        try:
+            os.remove(p)
+            done["deleted"] += 1
+            done["bytes"] += size
+            dirs.add(Path(p).parent)
+        except OSError as e:
+            done["failed"].append((p, str(e)))
+    for d in sorted(dirs, key=lambda x: len(str(x)), reverse=True):
+        while d != root and root in d.parents:
+            try:
+                d.rmdir()
+            except OSError:
+                break
+            d = d.parent
+    return done
