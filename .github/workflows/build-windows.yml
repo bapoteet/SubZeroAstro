@@ -4,7 +4,7 @@ name: Build Windows app
 # 1. installs the libraries on a real Windows machine
 # 2. runs the self-test with the real app window (screenshots are kept)
 # 3. builds "SubZeroAstro.exe" with PyInstaller and self-tests the .exe too
-# 4. releases only: signs SubZeroAstro.exe through SignPath (once SIGNPATH_* settings exist)
+# 4. releases only: signs SubZeroAstro.exe with Azure Artifact Signing (once the AZURE_* secrets exist)
 # 5. uploads the zipped app; for version tags it also creates a GitHub Release
 #
 # Code signing (free for open source, SignPath Foundation) - see README "Code signing policy".
@@ -33,6 +33,8 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 90           # a signing request waits for the manual approval in SignPath
+    env:
+      AZ_SIGN: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,9 +69,38 @@ jobs:
           Get-Content selftest_exe\selftest_result.txt
           if ($p.ExitCode -ne 0) { throw "exe self-test failed with exit code $($p.ExitCode)" }
 
+      # Code signing with Azure Artifact Signing (publisher "Brian Poteet"), releases only. Needs the repository
+      # secrets AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET (an app registration that has the
+      # "Artifact Signing Certificate Profile Signer" role on the signing account); the account, its region and
+      # the certificate profile can be changed with the repository variables below.
+      - name: Sign SubZeroAstro.exe (Azure Artifact Signing)
+        id: azsign
+        if: env.AZ_SIGN == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != '')
+        uses: azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT || 'https://eus.codesigning.azure.net/' }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT || 'SubZeroAstro' }}
+          certificate-profile-name: ${{ vars.AZURE_CERT_PROFILE || 'SubZeroAstroRelease' }}
+          files-folder: ${{ github.workspace }}\dist\SubZeroAstro
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Check the signature
+        if: steps.azsign.outcome == 'success'
+        shell: pwsh
+        run: |
+          $sig = Get-AuthenticodeSignature "dist\SubZeroAstro\SubZeroAstro.exe"
+          Write-Host "Signature: $($sig.Status) - $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { throw "signature is not valid: $($sig.Status)" }
+
       - name: Upload the unsigned app for signing (releases only)
         id: upload-unsigned
-        if: vars.SIGNPATH_ORGANIZATION_ID != '' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != '')
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && env.AZ_SIGN != 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != '')
         uses: actions/upload-artifact@v4
         with:
           name: SubZeroAstro-unsigned
@@ -151,7 +182,7 @@ jobs:
           if ($env:TAG -match 'beta|rc|alpha') { $pre = @('--prerelease') }
           # the commit's own description becomes "What's New" (shown in the app's update banner too)
           $news = (git log -1 --format=%B "${{ github.sha }}" | Where-Object { $_ -notmatch '^(Co-Authored-By|Claude-Session):' }) -join "`n"
-          $notes = "What's new: " + $news.Trim() + "`n`n" + "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder (or use Help > Check for Updates in the app). From subs to masters - zero hassle. No Python needed. If Windows SmartScreen warns, click More info -> Run anyway. Free code signing provided by SignPath.io, certificate by SignPath Foundation (when signed)."
+          $notes = "What's new: " + $news.Trim() + "`n`n" + "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder (or use Help > Check for Updates in the app). From subs to masters - zero hassle. No Python needed. Signed by the publisher Brian Poteet (Azure Artifact Signing). If Windows SmartScreen still warns while the new signature builds up its reputation, click More info -> Run anyway."
           Set-Content -Path release_notes.md -Value $notes -Encoding utf8
           gh release create "$env:TAG" SubZeroAstro-Windows.zip --target "${{ github.sha }}" @pre `
             --title "SubZeroAstro $env:TAG" `
