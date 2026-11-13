@@ -76,6 +76,7 @@ jobs:
       - name: Sign SubZeroAstro.exe (Azure Artifact Signing)
         id: azsign
         if: env.AZ_SIGN == 'true' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != '')
+        continue-on-error: true       # a signing problem (e.g. an expired secret) never holds a release back: it goes out unsigned
         uses: azure/artifact-signing-action@v2
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -177,12 +178,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+          SIGNED: ${{ steps.azsign.outcome }}
         run: |
           $pre = @()
           if ($env:TAG -match 'beta|rc|alpha') { $pre = @('--prerelease') }
           # the commit's own description becomes "What's New" (shown in the app's update banner too)
           $news = (git log -1 --format=%B "${{ github.sha }}" | Where-Object { $_ -notmatch '^(Co-Authored-By|Claude-Session):' }) -join "`n"
-          $notes = "What's new: " + $news.Trim() + "`n`n" + "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder (or use Help > Check for Updates in the app). From subs to masters - zero hassle. No Python needed. Signed by the publisher Brian Poteet (Azure Artifact Signing). If Windows SmartScreen still warns while the new signature builds up its reputation, click More info -> Run anyway."
+          $notes = "What's new: " + $news.Trim() + "`n`n" + "Download SubZeroAstro-Windows.zip below, unzip it anywhere, and run 'SubZeroAstro.exe' inside the folder (or use Help > Check for Updates in the app). From subs to masters - zero hassle. No Python needed. " + $(if ($env:SIGNED -eq 'success') { "Signed by the publisher Brian Poteet (Azure Artifact Signing). If Windows SmartScreen still warns while the new signature builds up its reputation, click More info -> Run anyway." } else { "If Windows SmartScreen warns, click More info -> Run anyway." })
           Set-Content -Path release_notes.md -Value $notes -Encoding utf8
           gh release create "$env:TAG" SubZeroAstro-Windows.zip --target "${{ github.sha }}" @pre `
             --title "SubZeroAstro $env:TAG" `
