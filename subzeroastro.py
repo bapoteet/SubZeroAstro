@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.280 beta"
+APP_VERSION = "0.9.281 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -1417,6 +1417,11 @@ class MainWindow(QMainWindow):
                                    "each under its rig - no USB stick")
         self.act_asiair.triggered.connect(lambda: self.open_asiair())
         m.addAction(self.act_asiair)
+        self.act_nina_clean = QAction("Clean Up My N.I.N.A. Computers…", self)
+        self.act_nina_clean.setToolTip("Free space on the computers that run N.I.N.A.: delete the frames that are "
+                                       "already filed in your organized library (checked first)")
+        self.act_nina_clean.triggered.connect(lambda: self.open_nina_cleanup())
+        m.addAction(self.act_nina_clean)
         m.addSeparator()
         if ORGANIZER_ENABLED:
             m.addAction(self.act_organize)
@@ -1688,6 +1693,14 @@ class MainWindow(QMainWindow):
             d.show()
             d.raise_()
             d.activateWindow()
+        return d
+
+    def open_nina_cleanup(self, show=True):
+        """File › Clean Up My N.I.N.A. Computers…"""
+        import nina_cleanup_window
+        d = nina_cleanup_window.NinaCleanupDialog(self, self.settings)
+        if show:
+            d.exec()
         return d
 
     def set_asiair_night(self, on, minutes=10):

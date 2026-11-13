@@ -199,6 +199,17 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
             rep["left"][why] = rep["left"].get(why, 0) + 1
         if settling:
             rep["left"][f"changed in the last {SETTLE_MIN} min (next run)"] = settling
+        if s.value("nina_clean/with_auto", False, type=bool):    # then free space on the N.I.N.A. computers
+            try:
+                import nina_cleanup as NC
+                if progress:
+                    progress("Cleaning up your N.I.N.A. computers…")
+                txt = NC.run(s)
+                if txt:
+                    rep["nina"] = txt
+                    _note(f"N.I.N.A. clean-up: {txt}")
+            except Exception as e:  # noqa: BLE001
+                rep["nina"] = f"N.I.N.A. clean-up failed: {e}"
     except Exception as e:  # noqa: BLE001 - a scheduled run must report, never hang
         rep["error"] = str(e)
     finally:
@@ -328,6 +339,8 @@ def describe(rep) -> str:
         t += f", {rep['jpgs']} .jpg preview(s) deleted"
     if rep["left"]:
         t += "; left in the incoming folder: " + ", ".join(f"{n} {w}" for w, n in rep["left"].items())
+    if rep.get("nina"):
+        t += f" [N.I.N.A. computers: {rep['nina']}]"
     return t
 
 

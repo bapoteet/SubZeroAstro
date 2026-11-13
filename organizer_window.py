@@ -210,9 +210,14 @@ class OrganizeDialog(QDialog):
         self.b_asiair.setToolTip("Copy the new subs from your ASIAIRs over the network into the incoming folder, "
                                  "each under its rig - no USB stick")
         self.b_asiair.clicked.connect(self.open_asiair)
+        self.b_nina_clean = QPushButton("Clean Up My N.I.N.A. Computers…")
+        self.b_nina_clean.setToolTip("Free space on the computers that run N.I.N.A.: delete the frames that are "
+                                     "already filed in your organized library (checked first)")
+        self.b_nina_clean.clicked.connect(self.open_nina_cleanup)
         h.addWidget(self.b_resort)
         h.addWidget(self.b_auto)
         h.addWidget(self.b_asiair)
+        h.addWidget(self.b_nina_clean)
         h.addWidget(self.auto_note, 1)
         lay.addLayout(h)
         self._show_auto_note()
@@ -856,6 +861,10 @@ class OrganizeDialog(QDialog):
         self._run(work, done, wait)
 
     # ---------------------------------------------------------------- Your Rigs
+    def open_nina_cleanup(self):
+        import nina_cleanup_window
+        return nina_cleanup_window.NinaCleanupDialog(self.parent() or self, self.settings).exec()
+
     def open_asiair(self):
         # from inside this (modal) window: its own copy of the fetch window, on top of this one
         import asiair_window

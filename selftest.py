@@ -5129,6 +5129,60 @@ def run(app, out_dir: Path) -> int:
               f"Fetch From My ASIAIRs: the new subs copied into the rig's folder ({_as_files}), never twice "
               f"({_as_r2[0]['copied'] if _as_r2 else None} the second time), .jpgs left; freeing space deletes only "
               f"fetched subs ({_as_left})")
+        # Clean Up My N.I.N.A. Computers: a frame is deleted from the rig's computer only when the same file is filed
+        # in the organized library; a different file of that name, one not filed yet and recent ones stay
+        import nina_cleanup as _nc
+        import shutil as _ncsh
+        _nc_root = _au_root / "nina_clean"
+        _ncsh.rmtree(_nc_root, ignore_errors=True)
+        _nc_lib = _nc_root / "Library"
+        _nc_share = _nc_root / "EAGLE1" / "NINA Images"
+        _nc_night = _nc_share / "2026-11-12" / "M31"
+        _nc_old = _nc_share / "2026-11-01" / "M33"
+        _nc_dst = _og.org_base(_nc_lib) / "Light Frames" / "SQA60" / "M31" / "2026-11-12" / "L"
+        _nc_dst2 = _og.org_base(_nc_lib) / "Light Frames" / "SQA60" / "M33" / "2026-11-01" / "L"
+        for _ncd in (_nc_night, _nc_old, _nc_dst, _nc_dst2):
+            _ncd.mkdir(parents=True, exist_ok=True)
+
+        def _ncmk(p, seed):
+            core.write_fits(p, (np.random.default_rng(seed).random((20, 30)) * 1000).astype(np.uint16),
+                            {"IMAGETYP": "Light"}, bitpix=16)
+        for _nci in range(4):
+            _ncmk(_nc_night / f"M31_{_nci}.fits", _nci)
+        _ncmk(_nc_old / "M33_0.fits", 50)
+        for _nci in range(2):
+            _ncsh.copy2(_nc_night / f"M31_{_nci}.fits", _nc_dst / f"M31_{_nci}.fits")
+        _ncmk(_nc_dst / "M31_2.fits", 99)                     # same name and size, other contents
+        _ncsh.copy2(_nc_old / "M33_0.fits", _nc_dst2 / "M33_0.fits")
+        _nc_t = time.time() - 3 * 86400
+        for _ncp in _nc_share.rglob("*.fits"):
+            os.utime(_ncp, (_nc_t, _nc_t))
+        _nc_saved = (w.settings.value("auto_org/dst", ""), w.settings.value("nina_clean/list", "[]"))
+        w.settings.setValue("auto_org/dst", str(_nc_lib))
+        w.settings.setValue("nina_clean/list", "[]")
+        _ncw = w.open_nina_cleanup(show=False)
+        _ncw.table.item(0, 1).setText(str(_nc_share))
+        _ncw.table.item(0, 0).setText("Eagle 1")
+        _ncw.table.cellWidget(0, 2).setValue(5)                 # this computer keeps 5 days
+        _ncw.check(wait=True)
+        _nc_r5 = [(len(r["safe"]), len(r["keep"])) for r in (_ncw.reps or [])]
+        _ncw.table.cellWidget(0, 2).setValue(2)                 # 2 days: the 3-day-old frames may go
+        _ncw.check(wait=True)
+        _nc_r0 = [(len(r["safe"]), len(r["keep"])) for r in (_ncw.reps or [])]
+        _ncw.delete(confirm=False, wait=True)
+        _nc_left = sorted(p.name for p in _nc_share.rglob("*") if p.is_file())
+        _nc_lib_ok = all((_nc_dst / f"M31_{k}.fits").exists() for k in range(3)) and (_nc_dst2 / "M33_0.fits").exists()
+        _nc_dirgone = not (_nc_share / "2026-11-01").exists() and _nc_share.is_dir()
+        _nc_last = _ncw.table.item(0, 3).text()
+        _nc_default = _ncw.table.cellWidget(_ncw.add_row(), 2).value()
+        _ncw.reject()
+        w.settings.setValue("auto_org/dst", _nc_saved[0])
+        w.settings.setValue("nina_clean/list", _nc_saved[1])
+        check(_nc_r5 == [(0, 5)] and _nc_r0 == [(3, 2)] and _nc_left == ["M31_2.fits", "M31_3.fits"] and _nc_lib_ok
+              and _nc_dirgone and "3 deleted" in _nc_last and _nc_default == 3,
+              f"Clean Up My N.I.N.A. Computers: only frames filed in the library with the same contents are deleted "
+              f"({_nc_r0}; kept {_nc_left}); none while newer than the days kept ({_nc_r5}); emptied night folders go, "
+              f"the shared folder stays")
         # the real forecast services, from this build (information only - the internet isn't the app's fault)
         import weather as _wxl
         try:
