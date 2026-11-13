@@ -79,6 +79,28 @@ def open_files_for(n: int) -> bool:
 # Image access (FITS and XISF, whole image or blocks of rows)
 # ==========================================================================
 
+IO_RETRIES = (2.0, 5.0, 10.0, 20.0, 30.0)     # seconds between tries when a network drive hiccups
+
+
+def _retry_io(fn, what=""):
+    """fn() again after a short wait when a read fails with an OS error: a NAS busy with other copying (the
+    ASIAIR fetch writing to it all night) can answer one read with 'Invalid argument' or a dropped connection -
+    a 12-hour stack once ended on one such read. A file that is really gone or unreadable still fails, after
+    about a minute."""
+    import time as _t
+    last = None
+    for wait in (0.0,) + IO_RETRIES:
+        if wait:
+            _t.sleep(wait)
+        try:
+            return fn()
+        except (FileNotFoundError, IsADirectoryError, PermissionError):
+            raise
+        except OSError as e:          # EINVAL, EIO, a reset connection, a timed-out share …
+            last = e
+    raise last
+
+
 class ImageSource:
     def __init__(self, path):
         self.path = Path(path)
@@ -121,8 +143,8 @@ class ImageSource:
         if self._data is not None:
             return self._data
         if self.kind == "xisf":
-            return self._scaled(xisf.read_xisf(self.path)[0])
-        return self._scaled(core.read_fits(self.path)[0])
+            return self._scaled(_retry_io(lambda: xisf.read_xisf(self.path)[0]))
+        return self._scaled(_retry_io(lambda: core.read_fits(self.path)[0]))
 
     def keep_in_memory(self):
         self._data = self.read()
@@ -136,8 +158,10 @@ class ImageSource:
         if self.scale is None:
             self._data = self.read()
             return self._data[r0:r0 + n]
-        with open(self.path, "rb") as f:
-            rows = core.read_rows(f, self.lay, r0, n)
+        def get():
+            with open(self.path, "rb") as f:
+                return core.read_rows(f, self.lay, r0, n)
+        rows = _retry_io(get)
         return rows * np.float32(self.scale) if self.scale != 1.0 else rows
 
 

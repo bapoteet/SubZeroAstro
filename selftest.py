@@ -1618,6 +1618,26 @@ def run(app, out_dir: Path) -> int:
     check(_g and "Calibration check" in _g[0] and not any("WARNING" in x for x in _g)
           and any("WARNING" in x and "practically zero" in x for x in _b),
           f"page 2 checks the dark subtraction and warns when a master is on the wrong scale ({_b[-1][:60]}…)")
+    # a network drive's hiccup during a long stack (OSError 22 from the NAS) is tried again, not the end of the stack;
+    # a file that is really gone still fails at once
+    _rio_saved = _stk.IO_RETRIES
+    _stk.IO_RETRIES = (0.0, 0.0, 0.0)
+    _rio_n = []
+
+    def _rio_flaky():
+        _rio_n.append(1)
+        if len(_rio_n) < 3:
+            raise OSError(22, "Invalid argument")
+        return "ok"
+    _rio_ok = _stk._retry_io(_rio_flaky)
+    try:
+        _stk._retry_io(lambda: open(session.parent / "no_such_file_here.fits", "rb"))
+        _rio_gone = False
+    except FileNotFoundError:
+        _rio_gone = True
+    _stk.IO_RETRIES = _rio_saved
+    check(_rio_ok == "ok" and len(_rio_n) == 3 and _rio_gone,
+          "stacking: a read that fails on a busy network drive (Errno 22) is tried again; a missing file still fails")
     # ... and a dark that cannot be right (brighter than the lights; far above the bias with a picture in it) is
     # left out of the stack - the bias is used instead (M31's narrowband came out as red squares)
     _ud_bias = _stk.CalItem("bias", [_li], True, data=np.full((120, 160), 500.0, np.float32))

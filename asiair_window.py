@@ -348,6 +348,11 @@ class AsiairDialog(QDialog):
         self.settings.setValue("asiair/last", text)
         self.show_last(reps, stamp)
         try:
+            import session_log as _sl
+            _sl.write("asiair", "Fetch Now: " + A.describe(reps).replace("\n", "; "))
+        except Exception:  # noqa: BLE001
+            pass
+        try:
             A.record_last(self.settings, reps, stamp)
         except Exception:  # noqa: BLE001
             pass
