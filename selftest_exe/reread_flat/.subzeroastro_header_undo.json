@@ -1,0 +1,13 @@
+[
+ {
+  "time": "2026-11-13 23:43:33",
+  "changes": {
+   "FILTER": "LExt"
+  },
+  "old": {
+   "MasterFlat_No filter.fits": {
+    "FILTER": "No filter"
+   }
+  }
+ }
+]
