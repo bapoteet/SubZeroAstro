@@ -303,6 +303,26 @@ def save_units(settings, units):
     settings.setValue("asiair/list", json.dumps(units))
 
 
+def last_text(rep, stamp) -> str:
+    """What the Last fetch column shows for one ASIAIR after a fetch round."""
+    return f"{stamp}: not reached" if rep.get("error") else f"{stamp}: {rep.get('copied', 0)} new"
+
+
+def record_last(settings, reps, stamp=None) -> list:
+    """Every fetch - Fetch Now, the overnight rounds, before Organize Automatically - writes each ASIAIR's Last fetch
+    (the overnight rounds once left the column at the last Fetch Now, days old). Returns the saved units."""
+    import time as _t
+    stamp = stamp or _t.strftime("%Y-%m-%d %H:%M")
+    by = {r.get("name"): r for r in reps or []}
+    units = load_units(settings)
+    for u in units:
+        r = by.get(safe_name(u.get("name") or u.get("address") or ""))
+        if r is not None:
+            u["last"] = last_text(r, stamp)
+    save_units(settings, units)
+    return units
+
+
 JPG_EXTS = (".jpg", ".jpeg")
 
 

@@ -45,7 +45,7 @@ from chart import ChartPoint, SessionChart, filter_color
 
 APP_NAME = "SubZeroAstro"
 APP_TAGLINE = "From subs to masters - zero hassle."
-APP_VERSION = "0.9.277 beta"
+APP_VERSION = "0.9.278 beta"
 ORGANIZER_ENABLED = True       # File › Organize My Astro Files…
 ui_header.APP_VERSION = APP_VERSION       # shown in small print under the name on every page
 APP_AUTHOR = "Brian A. Poteet, DVM"
@@ -1721,6 +1721,13 @@ class MainWindow(QMainWindow):
         def done(reps):
             text = time.strftime("%H:%M") + "  ASIAIRs: " + A.describe(reps).replace("\n", "; ")
             self.settings.setValue("asiair/last", time.strftime("%Y-%m-%d ") + text)
+            try:
+                A.record_last(self.settings, reps)
+                dlg = getattr(self, "_asiair_dlg", None)
+                if dlg is not None:
+                    dlg.show_last(reps)
+            except Exception:  # noqa: BLE001 - the column is a nicety
+                pass
             if sum(r["copied"] for r in reps) or any(r["error"] or r["failed"] for r in reps):
                 self.statusBar().showMessage(text, 60000)
         self.asiair_job.ok.connect(done)

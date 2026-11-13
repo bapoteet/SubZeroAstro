@@ -5065,6 +5065,16 @@ def run(app, out_dir: Path) -> int:
         _as_left2 = sorted(p.name for p in _as_sh.iterdir())
         _as_d.save()
         _as_d.close()
+        # an overnight round (not Fetch Now) also writes each ASIAIR's Last fetch - it once stayed days old
+        _as_lu = _as.record_last(w.settings, [{"name": _as.safe_name(_as_name), "copied": 3, "error": ""}],
+                                 "2026-11-12 21:35")
+        _as_lu2 = _as.record_last(w.settings, [{"name": _as.safe_name(_as_name), "copied": 0, "error": "timed out"}],
+                                  "2026-11-12 21:45")
+        _as_lt = [u.get("last") for u in _as.load_units(w.settings)]
+        _as_d.show_last([{"name": _as.safe_name(_as_name), "copied": 5, "error": ""}], "2026-11-12 22:00")
+        check(_as_lu and _as_lu[0]["last"] == "2026-11-12 21:35: 3 new" and _as_lt == ["2026-11-12 21:45: not reached"]
+              and _as_d.table.item(0, 3).text() == "2026-11-12 22:00: 5 new",
+              f"Fetch From My ASIAIRs: every fetch round, overnight ones too, updates each ASIAIR's Last fetch ({_as_lt})")
         _as_ps = _au_root / "pause_air" / "EMMC Images" / "Autorun"
         _as_ps.mkdir(parents=True, exist_ok=True)
         for _as_k in range(2):

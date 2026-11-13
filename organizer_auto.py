@@ -138,6 +138,10 @@ def run(cfg=None, settings=None, progress=None, now=None) -> dict:
                         progress("Fetching from your ASIAIRs…")
                     reps = A.fetch_all(units, inc, free=s.value("asiair/free", False, type=bool))
                     rep["asiair"] = A.describe(reps).replace("\n", "; ")
+                    try:
+                        A.record_last(s, reps)
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception as e:  # noqa: BLE001
                 rep["asiair"] = f"ASIAIR fetch failed: {e}"
         t_now = now if now is not None else time.time()

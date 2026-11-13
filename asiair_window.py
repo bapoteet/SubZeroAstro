@@ -318,6 +318,16 @@ class AsiairDialog(QDialog):
             self.status.setText(self.status.text().split("<br>")[0] + "<br><b>Paused</b> - press Resume to carry on.")
         return self.job.paused
 
+    def show_last(self, reps, stamp=None):
+        """Each ASIAIR's Last fetch, after any fetch round (also the overnight ones while this window is open)."""
+        stamp = stamp or time.strftime("%Y-%m-%d %H:%M")
+        names = {r["name"]: r for r in reps}
+        for row in range(self.table.rowCount()):
+            it = self.table.item(row, 0)
+            r = names.get(A.safe_name(it.text() if it else ""))
+            if r is not None and self.table.item(row, 3) is not None:
+                self.table.item(row, 3).setText(A.last_text(r, stamp))
+
     def _note(self, text, i, n):
         if getattr(self.job, "paused", False):
             text += "  (pausing after this sub)"
@@ -336,12 +346,10 @@ class AsiairDialog(QDialog):
         stamp = time.strftime("%Y-%m-%d %H:%M")
         text = f"{stamp}: " + A.describe(reps).replace("\n", "; ")
         self.settings.setValue("asiair/last", text)
-        names = {r["name"]: r for r in reps}
-        for row in range(self.table.rowCount()):
-            it = self.table.item(row, 0)
-            r = names.get(A.safe_name(it.text() if it else ""))
-            if r is not None and self.table.item(row, 3) is not None:
-                self.table.item(row, 3).setText(f"{stamp}: {r['copied']} new" if not r["error"] else
-                                                f"{stamp}: not reached")
+        self.show_last(reps, stamp)
+        try:
+            A.record_last(self.settings, reps, stamp)
+        except Exception:  # noqa: BLE001
+            pass
         A.save_units(self.settings, self.units())
         self.status.setText(A.describe(reps).replace("\n", "<br>"))
